@@ -281,6 +281,51 @@ const DB = {
     return data.publicUrl;
   },
 
+  // ─── BULK PHOTO UPLOAD (ปาราเลล 12 connection + bulk DB update) ───
+  async bulkUploadEmployeePhotos(matches, options = {}) {
+    const { concurrency = 12, onProgress } = options;
+    let i = 0;
+    let succeeded = 0;
+    const failed = [];
+    const updates = []; // [{ id, photo_url }]
+
+    // ตัวคุมงาน N workers พร้อมกัน
+    const worker = async () => {
+      while (true) {
+        const idx = i++;
+        if (idx >= matches.length) break;
+        const { file, employee } = matches[idx];
+        try {
+          const blob = await this.compressImage(file);
+          const url = await this.uploadEmployeePhoto(blob, employee.id);
+          updates.push({ id: employee.id, photo_url: url });
+          succeeded++;
+        } catch (ex) {
+          failed.push({ id: employee.id, file: file.name, error: ex.message || String(ex) });
+        }
+        if (onProgress) onProgress(idx + 1, matches.length, succeeded, failed.length);
+      }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, worker));
+
+    // Bulk update photo_url (ทีละ 100 records)
+    for (let j = 0; j < updates.length; j += 100) {
+      const chunk = updates.slice(j, j + 100);
+      const { error } = await this.client.from('employees').upsert(chunk);
+      if (error) {
+        failed.push({ id: `batch ${j / 100 + 1}`, error: error.message });
+        continue;
+      }
+      // update local cache
+      for (const u of chunk) {
+        const emp = this.getEmployee(u.id);
+        if (emp) emp.photoUrl = u.photo_url;
+      }
+    }
+    return { succeeded, failed };
+  },
+
   // ─── BULK IMPORT ───
   async bulkUpsertEmployees(rows, onProgress) {
     const CHUNK_SIZE = 100;

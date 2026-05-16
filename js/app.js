@@ -293,6 +293,7 @@ router.register('employees', () => {
       <div class="actions">
         <button class="btn btn-secondary" onclick="exportEmployeesXLSX()">${ICON.download}Export Excel</button>
         ${DB.isAdmin ? `<button class="btn btn-secondary" onclick="openImportEmployees()">${ICON.upload}นำเข้า Excel</button>
+        <button class="btn btn-secondary" onclick="openBulkPhotoUpload()">${ICON.upload}อัปโหลดรูปหลายรูป</button>
         <button class="btn btn-primary" onclick="openEmployeeForm()">+ เพิ่มพนักงาน</button>` : ''}
       </div>
     </div>
@@ -1050,6 +1051,168 @@ function renderImportPreview(rows, errors) {
           </tbody>
         </table>
       </div>
+    </div>
+  `;
+}
+
+// ─── BULK PHOTO UPLOAD ───
+// แมตช์ชื่อไฟล์กับ employee ID — รองรับทั้ง "KB0001.jpg", "1.jpg", "0001.jpg" (เทียบจากตัวเลขล้วน)
+function matchPhotoToEmployee(filename, empByDigits) {
+  const baseName = filename.replace(/\.[^.]+$/, '');
+  // 1) Exact match
+  const exact = DB.getEmployee(baseName);
+  if (exact) return exact;
+  // 2) Match digits-only (ตัด leading zero ออก)
+  const digits = baseName.replace(/[^\d]/g, '').replace(/^0+/, '') || '0';
+  return empByDigits.get(digits) || null;
+}
+
+function buildEmpDigitsIndex() {
+  // สร้าง Map: digits → employee — เร็วกว่า scan ทุกครั้ง
+  const map = new Map();
+  for (const e of DB.data.employees) {
+    const d = String(e.id).replace(/[^\d]/g, '').replace(/^0+/, '') || '0';
+    if (!map.has(d)) map.set(d, e);
+  }
+  return map;
+}
+
+function openBulkPhotoUpload() {
+  if (!requireAdmin()) return;
+  modal.open('อัปโหลดรูปพนักงานจำนวนมาก', `
+    <div class="import-flow">
+      <div class="import-step">
+        <div class="import-step-num">1</div>
+        <div class="import-step-body">
+          <div class="import-step-title">เตรียมไฟล์รูปพนักงาน</div>
+          <div class="muted-2" style="font-size:13px;line-height:1.7">
+            • ตั้งชื่อไฟล์ตามรหัสพนักงาน — รองรับ <code>KB0001.jpg</code>, <code>0001.jpg</code>, <code>1.jpg</code> (ระบบจับคู่อัตโนมัติจากตัวเลข)<br>
+            • รองรับ JPG, PNG, GIF — ระบบย่อขนาดอัตโนมัติให้ไม่เกิน 800px<br>
+            • อัปโหลดพร้อมกัน <strong>12 ไฟล์ต่อรอบ</strong> + อัปเดต database ทีเดียวจบ<br>
+            • <strong>1000 รูปใช้เวลาประมาณ 2-3 นาที</strong>
+          </div>
+        </div>
+      </div>
+      <div class="import-step">
+        <div class="import-step-num">2</div>
+        <div class="import-step-body">
+          <div class="import-step-title">เลือกไฟล์รูปทั้งหมด (เลือกหลายไฟล์พร้อมกันด้วย Ctrl+A)</div>
+          <input type="file" accept="image/*" multiple id="bulkPhotoFiles" class="import-file">
+        </div>
+      </div>
+      <div id="bulkPhotoBody"></div>
+    </div>
+  `, {
+    size: 'lg',
+    footer: `<button class="btn btn-secondary" data-close>ปิด</button><button class="btn btn-primary" id="bulkUploadStart" disabled>เริ่มอัปโหลด</button>`
+  });
+
+  let matches = [];
+  let unmatched = [];
+
+  $('#bulkPhotoFiles').addEventListener('change', (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    $('#bulkPhotoBody').innerHTML = `<div class="muted-2 mt-4">กำลังจับคู่ ${files.length.toLocaleString()} ไฟล์...</div>`;
+    // ทำ matching ใน rAF เพื่อไม่บล็อก UI
+    requestAnimationFrame(() => {
+      const empIdx = buildEmpDigitsIndex();
+      matches = [];
+      unmatched = [];
+      for (const file of files) {
+        const emp = matchPhotoToEmployee(file.name, empIdx);
+        if (emp) matches.push({ file, employee: emp });
+        else unmatched.push(file.name);
+      }
+      $('#bulkPhotoBody').innerHTML = renderBulkPhotoPreview(files.length, matches, unmatched);
+      $('#bulkUploadStart').disabled = matches.length === 0;
+    });
+  });
+
+  $('#bulkUploadStart').addEventListener('click', async () => {
+    if (!matches.length) return;
+    $('#bulkUploadStart').disabled = true;
+    $('#bulkPhotoBody').innerHTML = `
+      <div class="card mt-4">
+        <div style="margin-bottom:10px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <div>กำลังอัปโหลด <strong id="bpDone">0</strong> / <strong>${matches.length.toLocaleString()}</strong> รูป</div>
+          <div class="muted-2" style="font-size:12.5px">
+            สำเร็จ <span id="bpOk" style="color:var(--success);font-weight:600">0</span>
+            · ผิดพลาด <span id="bpFail" style="color:var(--danger);font-weight:600">0</span>
+          </div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="bpFill" style="width:0%"></div></div>
+        <div class="muted-2 mt-2" style="font-size:12px">อัปโหลดพร้อมกัน 12 ไฟล์ — กรุณาอย่าปิดหน้าต่างนี้</div>
+      </div>
+    `;
+    const start = performance.now();
+    // ใช้ rAF throttle เพื่อให้ progress bar ไหลลื่นไม่กระตุก
+    let pendingUpdate = null;
+    const onProgress = (done, total, ok, fail) => {
+      pendingUpdate = { done, total, ok, fail };
+      if (pendingUpdate._scheduled) return;
+      pendingUpdate._scheduled = true;
+      requestAnimationFrame(() => {
+        const u = pendingUpdate;
+        pendingUpdate = null;
+        const fill = $('#bpFill'), doneEl = $('#bpDone'), okEl = $('#bpOk'), failEl = $('#bpFail');
+        if (fill) fill.style.width = (u.done / u.total * 100) + '%';
+        if (doneEl) doneEl.textContent = u.done.toLocaleString();
+        if (okEl) okEl.textContent = u.ok.toLocaleString();
+        if (failEl) failEl.textContent = u.fail.toLocaleString();
+      });
+    };
+
+    const result = await DB.bulkUploadEmployeePhotos(matches, { concurrency: 12, onProgress });
+    const elapsed = ((performance.now() - start) / 1000).toFixed(1);
+
+    $('#bulkPhotoBody').innerHTML = `
+      <div class="card mt-4">
+        <div style="font-size:16px;font-weight:600;color:var(--success);margin-bottom:8px">✓ อัปโหลดเสร็จสิ้น</div>
+        <div style="font-size:14px;line-height:1.8">
+          • อัปโหลดสำเร็จ: <strong>${result.succeeded.toLocaleString()}</strong> รูป<br>
+          ${result.failed.length ? `• ผิดพลาด: <strong style="color:var(--danger)">${result.failed.length.toLocaleString()}</strong> รูป<br>` : ''}
+          • ใช้เวลา: <strong>${elapsed}</strong> วินาที
+          ${result.succeeded > 0 ? ` (${(result.succeeded / Number(elapsed)).toFixed(1)} รูป/วินาที)` : ''}
+        </div>
+        ${result.failed.length ? `
+          <details class="mt-2" style="font-size:12.5px">
+            <summary style="cursor:pointer;color:var(--danger)">ดูข้อผิดพลาด (${result.failed.length})</summary>
+            <ul style="margin-top:6px;padding-left:20px;max-height:160px;overflow-y:auto">
+              ${result.failed.slice(0, 50).map(f => `<li>${escapeHtml(f.id || f.file || '?')}: ${escapeHtml(f.error || '')}</li>`).join('')}
+              ${result.failed.length > 50 ? `<li>... และอีก ${result.failed.length - 50} ข้อผิดพลาด</li>` : ''}
+            </ul>
+          </details>
+        ` : ''}
+      </div>
+    `;
+    $('#bulkUploadStart').textContent = 'เสร็จสิ้น';
+    renderEmployeeList();
+  });
+}
+
+function renderBulkPhotoPreview(total, matches, unmatched) {
+  return `
+    <div class="card mt-4">
+      <div class="flex items-center gap-2" style="margin-bottom:10px;flex-wrap:wrap">
+        <strong>เลือกไฟล์ ${total.toLocaleString()} รูป</strong>
+        <span class="badge badge-success">จับคู่ได้ ${matches.length.toLocaleString()}</span>
+        ${unmatched.length ? `<span class="badge badge-warning">จับคู่ไม่ได้ ${unmatched.length.toLocaleString()}</span>` : ''}
+      </div>
+      ${unmatched.length ? `
+        <details class="mt-2" style="font-size:13px">
+          <summary style="cursor:pointer;color:var(--warning-text)">ดูชื่อไฟล์ที่จับคู่ไม่ได้ (${unmatched.length.toLocaleString()})</summary>
+          <ul style="margin-top:6px;padding-left:20px;max-height:140px;overflow-y:auto;font-size:12px">
+            ${unmatched.slice(0, 100).map(n => `<li>${escapeHtml(n)}</li>`).join('')}
+            ${unmatched.length > 100 ? `<li>... และอีก ${unmatched.length - 100} ไฟล์</li>` : ''}
+          </ul>
+        </details>
+      ` : ''}
+      ${matches.length ? `
+        <div class="muted-2 mt-2" style="font-size:12px">
+          ตัวอย่างการจับคู่: ${matches.slice(0, 3).map(m => `<code>${escapeHtml(m.file.name)}</code> → ${escapeHtml(m.employee.id)}`).join(', ')}
+        </div>
+      ` : ''}
     </div>
   `;
 }
