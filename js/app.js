@@ -252,7 +252,7 @@ function renderDashboardCharts(s) {
   const ctx1 = $('#chartByDept');
   if (ctx1) new Chart(ctx1, {
     type: 'bar',
-    data: { labels: s.byDepartment.map(d => d.name), datasets: [{ label: 'จำนวน', data: s.byDepartment.map(d => d.count), backgroundColor: '#c9a961', borderRadius: 8, borderSkipped: false }] },
+    data: { labels: s.byDepartment.map(d => d.name), datasets: [{ label: 'จำนวน', data: s.byDepartment.map(d => d.count), backgroundColor: '#1e3a8a', borderRadius: 8, borderSkipped: false }] },
     options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
   });
   const ctx2 = $('#chartByGender');
