@@ -67,6 +67,7 @@ const toast = (msg, type = 'info') => {
 
 // ─────────────── MODAL ───────────────
 const modal = {
+  _historyPushed: false,
   open(title, bodyHtml, opts = {}) {
     const root = $('#modalRoot');
     const sizeCls = opts.size === 'lg' ? ' lg' : '';
@@ -75,7 +76,7 @@ const modal = {
         <div class="modal${sizeCls}">
           <div class="modal-header">
             <div class="modal-title">${escapeHtml(title)}</div>
-            <button class="modal-close" data-close>&times;</button>
+            <button class="modal-close" data-close title="ปิด (ESC)" aria-label="ปิด">&times;</button>
           </div>
           <div class="modal-body">${bodyHtml}</div>
           ${opts.footer ? `<div class="modal-footer">${opts.footer}</div>` : ''}
@@ -84,9 +85,24 @@ const modal = {
     root.querySelector('.modal-backdrop').addEventListener('click', (e) => {
       if (e.target.classList.contains('modal-backdrop') || e.target.dataset.close !== undefined) this.close();
     });
+    // Push history state — browser back button จะปิด modal แทนการออกจากเว็บ
+    if (!this._historyPushed) {
+      history.pushState({ kbModal: true }, '');
+      this._historyPushed = true;
+    }
     return root.querySelector('.modal');
   },
-  close() { $('#modalRoot').innerHTML = ''; },
+  close(skipHistory = false) {
+    const root = $('#modalRoot');
+    if (!root.children.length) return;
+    root.innerHTML = '';
+    if (this._historyPushed && !skipHistory && history.state?.kbModal) {
+      this._historyPushed = false;
+      history.back();
+    } else {
+      this._historyPushed = false;
+    }
+  },
   confirm(title, message) {
     return new Promise((resolve) => {
       this.open(title, `<p>${escapeHtml(message)}</p>`, {
@@ -1797,6 +1813,22 @@ document.addEventListener('submit', async (e) => {
 // ═══════════════════════════════════════════════════════
 //  STARTUP
 // ═══════════════════════════════════════════════════════
+// ─── KEYBOARD + BROWSER BACK SUPPORT ───
+// ESC = ปิด modal
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('#modalRoot').children.length) {
+    e.preventDefault();
+    modal.close();
+  }
+});
+// Browser back button = ปิด modal (ถ้าเปิดอยู่) แทนออกจากเว็บ
+window.addEventListener('popstate', () => {
+  if ($('#modalRoot').children.length) {
+    // modal เปิดอยู่ → ปิด (skipHistory เพราะ popstate ได้ pop ให้แล้ว)
+    modal.close(true);
+  }
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
   // UI wiring (works without auth)
   $$('.nav-item').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); router.go(a.dataset.page); }));
