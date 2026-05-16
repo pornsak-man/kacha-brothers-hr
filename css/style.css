@@ -391,14 +391,13 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
 /* ═════════════ PAGE HEADER ═════════════ */
 .page-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 28px; flex-wrap: wrap; gap: 14px;
+  display: flex; align-items: center; justify-content: flex-end;
+  margin-bottom: 24px; flex-wrap: wrap; gap: 14px;
 }
-.page-header h2 {
-  font-size: 24px; font-weight: 600; letter-spacing: -0.02em;
-  color: var(--text);
-}
+.page-header h2 { display: none; } /* ซ่อน h2 — topbar title แสดงชื่อหน้าแล้ว */
 .page-header .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* ซ่อน page-header ทั้งหมดเมื่อไม่มี action buttons (เลี่ยงช่องว่าง) */
+.page-header:not(:has(.actions > *)) { display: none; }
 
 /* ═════════════ CARDS / STATS ═════════════ */
 .stats-grid {
