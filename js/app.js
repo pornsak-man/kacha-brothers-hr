@@ -423,7 +423,8 @@ const EMP_OPTIONS = {
   educations: ['ประถมศึกษา', 'มัธยมศึกษาตอนต้น (ม.3)', 'มัธยมศึกษาตอนปลาย (ม.6)', 'ปวช.', 'ปวส. / อนุปริญญา', 'ปริญญาตรี', 'ปริญญาโท', 'ปริญญาเอก', 'อื่นๆ'],
   religions: ['พุทธ', 'คริสต์', 'อิสลาม', 'ฮินดู', 'ซิกข์', 'ไม่ระบุ', 'อื่นๆ'],
   nationalities: ['ไทย', 'พม่า', 'ลาว', 'กัมพูชา', 'เวียดนาม', 'จีน', 'ญี่ปุ่น', 'เกาหลีใต้', 'อินเดีย', 'อเมริกัน', 'อังกฤษ', 'อื่นๆ'],
-  banks: ['ธนาคารกสิกรไทย (KBANK)', 'ธนาคารกรุงเทพ (BBL)', 'ธนาคารไทยพาณิชย์ (SCB)', 'ธนาคารกรุงไทย (KTB)', 'ธนาคารกรุงศรีอยุธยา (BAY)', 'ธนาคารทหารไทยธนชาต (TTB)', 'ธนาคารออมสิน (GSB)', 'ธนาคารอาคารสงเคราะห์ (GHB)', 'ธ.ก.ส. (BAAC)', 'ธนาคารซีไอเอ็มบีไทย (CIMB)', 'ธนาคารยูโอบี (UOB)', 'ธนาคารเกียรตินาคินภัทร (KKP)', 'ธนาคารทิสโก้ (TISCO)', 'อื่นๆ']
+  banks: ['ธนาคารกสิกรไทย (KBANK)', 'ธนาคารกรุงเทพ (BBL)', 'ธนาคารไทยพาณิชย์ (SCB)', 'ธนาคารกรุงไทย (KTB)', 'ธนาคารกรุงศรีอยุธยา (BAY)', 'ธนาคารทหารไทยธนชาต (TTB)', 'ธนาคารออมสิน (GSB)', 'ธนาคารอาคารสงเคราะห์ (GHB)', 'ธ.ก.ส. (BAAC)', 'ธนาคารซีไอเอ็มบีไทย (CIMB)', 'ธนาคารยูโอบี (UOB)', 'ธนาคารเกียรตินาคินภัทร (KKP)', 'ธนาคารทิสโก้ (TISCO)', 'อื่นๆ'],
+  provinces: ['กรุงเทพมหานคร', 'กระบี่', 'กาญจนบุรี', 'กาฬสินธุ์', 'กำแพงเพชร', 'ขอนแก่น', 'จันทบุรี', 'ฉะเชิงเทรา', 'ชลบุรี', 'ชัยนาท', 'ชัยภูมิ', 'ชุมพร', 'เชียงราย', 'เชียงใหม่', 'ตรัง', 'ตราด', 'ตาก', 'นครนายก', 'นครปฐม', 'นครพนม', 'นครราชสีมา', 'นครศรีธรรมราช', 'นครสวรรค์', 'นนทบุรี', 'นราธิวาส', 'น่าน', 'บึงกาฬ', 'บุรีรัมย์', 'ปทุมธานี', 'ประจวบคีรีขันธ์', 'ปราจีนบุรี', 'ปัตตานี', 'พระนครศรีอยุธยา', 'พะเยา', 'พังงา', 'พัทลุง', 'พิจิตร', 'พิษณุโลก', 'เพชรบุรี', 'เพชรบูรณ์', 'แพร่', 'ภูเก็ต', 'มหาสารคาม', 'มุกดาหาร', 'แม่ฮ่องสอน', 'ยโสธร', 'ยะลา', 'ร้อยเอ็ด', 'ระนอง', 'ระยอง', 'ราชบุรี', 'ลพบุรี', 'ลำปาง', 'ลำพูน', 'เลย', 'ศรีสะเกษ', 'สกลนคร', 'สงขลา', 'สตูล', 'สมุทรปราการ', 'สมุทรสงคราม', 'สมุทรสาคร', 'สระแก้ว', 'สระบุรี', 'สิงห์บุรี', 'สุโขทัย', 'สุพรรณบุรี', 'สุราษฎร์ธานี', 'สุรินทร์', 'หนองคาย', 'หนองบัวลำภู', 'อ่างทอง', 'อำนาจเจริญ', 'อุดรธานี', 'อุตรดิตถ์', 'อุทัยธานี', 'อุบลราชธานี']
 };
 
 // รายได้รวมต่อเดือน = เงินเดือน + ค่าตำแหน่ง + ค่าเดินทาง + ค่าอาหาร + ค่าเบี้ยเลี้ยง + ค่าภาษา + ค่าอื่นๆ
@@ -439,6 +440,7 @@ function openEmployeeForm(id = null) {
     nationalId: '', dob: '', gender: 'ชาย',
     nationality: 'ไทย', religion: '', education: '',
     phone: '', email: '', address: '',
+    subDistrict: '', district: '', province: '', postalCode: '',
     department: DB.getDepartments()[0]?.id || '', branch: '',
     position: DB.getPositions()[0]?.id || '', positionTitle: '',
     employeeType: 'พนักงานประจำ',
@@ -497,7 +499,11 @@ function openEmployeeForm(id = null) {
         <div class="form-grid">
           <div class="form-group"><label>เบอร์โทร</label><input name="phone" value="${escapeHtml(emp.phone)}"/></div>
           <div class="form-group"><label>อีเมล</label><input name="email" type="email" value="${escapeHtml(emp.email)}"/></div>
-          <div class="form-group span-2"><label>ที่อยู่</label><textarea name="address" rows="2">${escapeHtml(emp.address)}</textarea></div>
+          <div class="form-group span-2"><label>ที่อยู่ (เลขที่ หมู่ ซอย ถนน)</label><textarea name="address" rows="2" placeholder="เช่น 123 หมู่ 4 ซอยสุขุมวิท 21 ถนนสุขุมวิท">${escapeHtml(emp.address)}</textarea></div>
+          <div class="form-group"><label>แขวง / ตำบล</label><input name="subDistrict" value="${escapeHtml(emp.subDistrict)}" placeholder="เช่น คลองเตยเหนือ"/></div>
+          <div class="form-group"><label>เขต / อำเภอ</label><input name="district" value="${escapeHtml(emp.district)}" placeholder="เช่น วัฒนา"/></div>
+          <div class="form-group"><label>จังหวัด</label><input name="province" list="dl-provinces" value="${escapeHtml(emp.province)}" placeholder="เลือกหรือพิมพ์"/></div>
+          <div class="form-group"><label>รหัสไปรษณีย์</label><input name="postalCode" value="${escapeHtml(emp.postalCode)}" maxlength="5" placeholder="10110"/></div>
         </div>
       </div>
 
@@ -547,6 +553,7 @@ function openEmployeeForm(id = null) {
       <datalist id="dl-religions">${dataListOpt(EMP_OPTIONS.religions)}</datalist>
       <datalist id="dl-educations">${dataListOpt(EMP_OPTIONS.educations)}</datalist>
       <datalist id="dl-banks">${dataListOpt(EMP_OPTIONS.banks)}</datalist>
+      <datalist id="dl-provinces">${dataListOpt(EMP_OPTIONS.provinces)}</datalist>
 
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
@@ -676,6 +683,10 @@ function viewEmployee(id) {
         <div class="emp-info-row"><div class="label">เบอร์โทร</div><div class="value">${escapeHtml(e.phone || '-')}</div></div>
         <div class="emp-info-row"><div class="label">อีเมล</div><div class="value">${escapeHtml(e.email || '-')}</div></div>
         <div class="emp-info-row span-2"><div class="label">ที่อยู่</div><div class="value">${escapeHtml(e.address || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">แขวง / ตำบล</div><div class="value">${escapeHtml(e.subDistrict || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">เขต / อำเภอ</div><div class="value">${escapeHtml(e.district || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">จังหวัด</div><div class="value">${escapeHtml(e.province || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">รหัสไปรษณีย์</div><div class="value">${escapeHtml(e.postalCode || '-')}</div></div>
       </div>
     </div>
 
@@ -758,7 +769,8 @@ function viewEmployee(id) {
 const IMPORT_COLUMNS = [
   'รหัสพนักงาน', 'คำนำหน้า', 'ชื่อ', 'นามสกุล', 'ชื่อเล่น', 'เพศ',
   'วันเกิด', 'เลขประชาชน', 'สัญชาติ', 'ศาสนา', 'วุฒิการศึกษา',
-  'เบอร์โทร', 'อีเมล', 'ที่อยู่',
+  'เบอร์โทร', 'อีเมล',
+  'ที่อยู่', 'แขวง/ตำบล', 'เขต/อำเภอ', 'จังหวัด', 'รหัสไปรษณีย์',
   'รหัสฝ่าย', 'สาขา', 'รหัสระดับตำแหน่ง', 'ตำแหน่ง', 'ประเภทพนักงาน', 'วันเริ่มงาน',
   'ธนาคาร', 'เลขบัญชี',
   'เงินเดือน', 'ค่าตำแหน่ง', 'ค่าเดินทาง', 'ค่าอาหาร', 'ค่าเบี้ยเลี้ยง', 'ค่าภาษา', 'ค่าอื่นๆ',
@@ -772,7 +784,10 @@ function downloadEmployeeTemplate() {
       'รหัสพนักงาน': 'KB1001', 'คำนำหน้า': 'นาย', 'ชื่อ': 'ตัวอย่าง', 'นามสกุล': 'นามสกุลตัวอย่าง',
       'ชื่อเล่น': 'ตย.', 'เพศ': 'ชาย', 'วันเกิด': '1990-01-15', 'เลขประชาชน': '1234567890123',
       'สัญชาติ': 'ไทย', 'ศาสนา': 'พุทธ', 'วุฒิการศึกษา': 'ปริญญาตรี',
-      'เบอร์โทร': '081-234-5678', 'อีเมล': 'sample@khacha.co.th', 'ที่อยู่': '123 ถ.สุขุมวิท กรุงเทพฯ',
+      'เบอร์โทร': '081-234-5678', 'อีเมล': 'sample@khacha.co.th',
+      'ที่อยู่': '123 หมู่ 4 ซอยสุขุมวิท 21 ถ.สุขุมวิท',
+      'แขวง/ตำบล': 'คลองเตยเหนือ', 'เขต/อำเภอ': 'วัฒนา',
+      'จังหวัด': 'กรุงเทพมหานคร', 'รหัสไปรษณีย์': '10110',
       'รหัสฝ่าย': 'D001', 'สาขา': 'สำนักงานใหญ่',
       'รหัสระดับตำแหน่ง': 'P03', 'ตำแหน่ง': 'หัวหน้าทีม',
       'ประเภทพนักงาน': 'พนักงานประจำ', 'วันเริ่มงาน': '2024-01-01',
@@ -852,6 +867,10 @@ function parseImportRow(row) {
     phone: get('เบอร์โทร'),
     email: get('อีเมล'),
     address: get('ที่อยู่'),
+    subDistrict: get('แขวง/ตำบล'),
+    district: get('เขต/อำเภอ'),
+    province: get('จังหวัด'),
+    postalCode: get('รหัสไปรษณีย์'),
     department: get('รหัสฝ่าย'),
     branch: get('สาขา'),
     position: get('รหัสระดับตำแหน่ง'),
@@ -1042,7 +1061,9 @@ function exportEmployeesXLSX() {
     'ชื่อเล่น': e.nickname,
     'เลขประชาชน': e.nationalId, 'วันเกิด': e.dob, 'เพศ': e.gender,
     'สัญชาติ': e.nationality, 'ศาสนา': e.religion, 'วุฒิการศึกษา': e.education,
-    'เบอร์โทร': e.phone, 'อีเมล': e.email, 'ที่อยู่': e.address,
+    'เบอร์โทร': e.phone, 'อีเมล': e.email,
+    'ที่อยู่': e.address, 'แขวง/ตำบล': e.subDistrict, 'เขต/อำเภอ': e.district,
+    'จังหวัด': e.province, 'รหัสไปรษณีย์': e.postalCode,
     'ฝ่าย': (DB.getDepartment(e.department) || {}).name || '',
     'สาขา': e.branch,
     'ระดับตำแหน่งงาน': (DB.getPosition(e.position) || {}).name || '',
