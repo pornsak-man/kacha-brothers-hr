@@ -3238,7 +3238,7 @@ function renderUniformRequestsTable() {
   const reqs = DB.getUniformRequests();
   if (!reqs.length) return `<div class="empty-state"><div class="icon">${ICON.clipboard}</div><div class="title">ยังไม่มีคำขอ</div><div class="hint">คำขอจะถูกสร้างอัตโนมัติเมื่อ recruit เพิ่มผู้สมัครใหม่</div></div>`;
   return `
-    <div class="table-wrap"><table class="table table-compact">
+    <div class="table-wrap"><table class="table table-compact uniform-req-table">
       <thead><tr>
         <th>วันที่แจ้ง</th><th>พนักงาน / ผู้สมัคร</th><th>สาขา</th><th>แจ้งโดย</th>
         <th>ต้องการก่อน</th><th>สถานะ</th><th class="num">ค่าชุดรวม</th><th>รายละเอียด</th><th></th>
@@ -3246,29 +3246,27 @@ function renderUniformRequestsTable() {
       <tbody>
         ${reqs.map(r => {
           const s = UNIFORM_STATUS[r.status] || UNIFORM_STATUS.pending;
-          // หาเจ้าของคำขอ — ถ้ามี employee_id ใช้ employee, ไม่งั้นใช้ applicant
-          let name = '-', refLabel = '-', branch = '-', isApplicant = false;
+          let name = '-', refBadge = '', branch = '-';
           if (r.employeeId) {
             const e = DB.getEmployee(r.employeeId) || {};
             name = (e.firstName || '') + ' ' + (e.lastName || '');
-            refLabel = `<span class="badge badge-success" style="font-size:10.5px">พนักงาน</span> ${escapeHtml(r.employeeId)}`;
+            refBadge = `<span class="badge badge-success" style="font-size:10.5px;margin-left:6px">พนักงาน ${escapeHtml(r.employeeId)}</span>`;
             branch = e.branch || '-';
           } else if (r.applicantId) {
             const ap = DB.getApplicant(r.applicantId) || {};
             name = (ap.firstName || '') + ' ' + (ap.lastName || '');
-            refLabel = `<span class="badge badge-warning" style="font-size:10.5px">ผู้สมัคร</span>`;
+            refBadge = `<span class="badge badge-warning" style="font-size:10.5px;margin-left:6px">ผู้สมัคร</span>`;
             branch = ap.branch || '-';
-            isApplicant = true;
           }
           return `<tr>
             <td>${fmt.date(r.requestedDate)}</td>
-            <td><strong>${escapeHtml(name)}</strong><br><span style="font-size:11.5px">${refLabel}</span></td>
+            <td><strong>${escapeHtml(name)}</strong>${refBadge}</td>
             <td>${escapeHtml(branch)}</td>
             <td>${escapeHtml(r.requestedBy || '-')}</td>
             <td>${r.neededBy ? fmt.date(r.neededBy) : '-'}</td>
             <td><span class="badge ${s.cls}">${s.label}</span></td>
             <td class="num"><strong>${fmt.money(r.totalCost)}</strong></td>
-            <td style="max-width:240px;white-space:pre-wrap;font-size:12.5px">${r.note ? escapeHtml(r.note) : '<span style="color:var(--warning);font-weight:600">⚠️ ยังไม่ระบุ</span>'}</td>
+            <td class="note-cell">${r.note ? escapeHtml(r.note) : '<span style="color:var(--warning);font-weight:600">⚠️ ยังไม่ระบุ</span>'}</td>
             <td class="actions">
               ${DB.isAdmin ? `<button class="btn btn-primary btn-sm" onclick="openIssueItemsForm('${r.id}')">จัดชุด</button>
               <button class="btn btn-ghost btn-sm" onclick="openUniformRequestForm('${r.id}')">แก้</button>
@@ -3278,6 +3276,12 @@ function renderUniformRequestsTable() {
         }).join('')}
       </tbody>
     </table></div>
+    <style>
+      .uniform-req-table td { vertical-align: middle; line-height: 1.5; }
+      .uniform-req-table td.note-cell { max-width: 240px; white-space: pre-wrap; font-size: 12.5px; }
+      .uniform-req-table td.actions { white-space: nowrap; }
+      .uniform-req-table .badge { display: inline-block; vertical-align: middle; }
+    </style>
   `;
 }
 
