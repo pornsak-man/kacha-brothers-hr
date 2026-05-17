@@ -2631,26 +2631,96 @@ function openApplicantForm(id = null) {
             <div class="form-group"><label>HR ที่แจ้ง</label><input name="uniformRequestedBy" value="${escapeHtml(existingUniReq?.requestedBy || DB.profile?.name || DB.user?.email || '')}" placeholder="ชื่อ HR คนแจ้ง"/></div>
           </div>
 
-          <div style="margin-top:14px">
-            <label style="font-size:13px;font-weight:600;color:var(--text);display:block;margin-bottom:10px">รายการชุดที่ต้องจัด <span class="muted-2" style="font-weight:normal;font-size:11px">(กรอกจำนวน → ถ้าไม่ต้องการให้ใส่ 0 หรือเว้นว่าง)</span></label>
-            <div style="background:var(--surface-2);border-radius:8px;padding:14px 16px;border:1px solid var(--border)">
-              <div style="display:grid;grid-template-columns:1.6fr 1fr 100px 60px;gap:10px;font-size:11.5px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;padding:0 4px">
-                <div>ประเภทชุด</div><div>ขนาด</div><div style="text-align:center">จำนวน</div><div>หน่วย</div>
+          <div style="margin-top:18px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+              <label style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:0.14em">รายการชุดที่ต้องจัด</label>
+              <span class="muted-2" style="font-size:11.5px">กรอกจำนวนเฉพาะที่ต้องการ</span>
+            </div>
+            <div class="uni-rows-card">
+              <div class="uni-rows-header">
+                <div>ประเภทชุด</div><div>ขนาด</div><div style="text-align:center">จำนวน</div><div></div>
               </div>
               ${typeNames.map((tn, idx) => {
                 const sizes = [...(sizesByType[tn] || [])];
                 const preset = presets[tn] || {};
+                const hasQty = Number(preset.qty) > 0;
                 return `
-                <div style="display:grid;grid-template-columns:1.6fr 1fr 100px 60px;gap:10px;align-items:center;margin-bottom:8px">
-                  <input type="text" value="${escapeHtml(tn)}" readonly style="font-weight:600;background:var(--surface)" data-uni-type/>
-                  <input type="text" name="uniSize_${idx}" list="dl-unisize-${idx}" value="${escapeHtml(preset.size || '')}" placeholder="size" autocomplete="off"/>
+                <div class="uni-row ${hasQty ? 'uni-row-active' : ''}">
+                  <div class="uni-row-name">${escapeHtml(tn)}</div>
+                  <input type="text" class="uni-row-size" name="uniSize_${idx}" list="dl-unisize-${idx}" value="${escapeHtml(preset.size || '')}" placeholder="—" autocomplete="off"/>
                   <datalist id="dl-unisize-${idx}">${sizes.map(s => `<option value="${escapeHtml(s)}">`).join('')}</datalist>
-                  <input type="number" name="uniQty_${idx}" min="0" value="${preset.qty || ''}" placeholder="0" style="text-align:center"/>
-                  <div style="font-size:13px;color:var(--text-3);text-align:center">${unitOf(tn)}</div>
+                  <input type="number" class="uni-row-qty" name="uniQty_${idx}" min="0" value="${preset.qty || ''}" placeholder="0"/>
+                  <div class="uni-row-unit">${unitOf(tn)}</div>
                 </div>`;
               }).join('')}
             </div>
           </div>
+          <style>
+            .uni-rows-card {
+              background: var(--surface);
+              border: 1px solid var(--border);
+              border-radius: var(--radius-lg);
+              overflow: hidden;
+            }
+            .uni-rows-header {
+              display: grid;
+              grid-template-columns: 1.6fr 1fr 110px 70px;
+              gap: 16px;
+              padding: 12px 20px;
+              background: var(--surface-2);
+              border-bottom: 1px solid var(--border);
+              font-size: 10.5px;
+              font-weight: 700;
+              color: var(--text-3);
+              text-transform: uppercase;
+              letter-spacing: 0.12em;
+            }
+            .uni-row {
+              display: grid;
+              grid-template-columns: 1.6fr 1fr 110px 70px;
+              gap: 16px;
+              align-items: center;
+              padding: 14px 20px;
+              border-bottom: 1px solid var(--border);
+              transition: background 0.15s ease;
+            }
+            .uni-row:last-child { border-bottom: none; }
+            .uni-row:hover { background: var(--surface-2); }
+            .uni-row-active { background: rgba(22, 163, 74, 0.04); }
+            .uni-row-active:hover { background: rgba(22, 163, 74, 0.08); }
+            .uni-row-name {
+              font-weight: 600;
+              color: var(--text);
+              font-size: 14px;
+              letter-spacing: -0.005em;
+            }
+            .uni-row-size, .uni-row-qty {
+              background: var(--surface);
+              border: 1px solid var(--border);
+              border-radius: var(--radius-sm);
+              padding: 8px 12px;
+              font-size: 13.5px;
+              font-family: inherit;
+              color: var(--text);
+              transition: border-color 0.15s ease, background 0.15s ease;
+            }
+            .uni-row-size { width: 100%; }
+            .uni-row-qty { width: 100%; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+            .uni-row-size:focus, .uni-row-qty:focus {
+              border-color: var(--primary);
+              outline: none;
+              background: var(--surface);
+            }
+            .uni-row-active .uni-row-qty {
+              border-color: var(--success);
+              color: var(--success);
+            }
+            .uni-row-unit {
+              font-size: 12.5px;
+              color: var(--text-3);
+              letter-spacing: 0.02em;
+            }
+          </style>
 
           <div class="form-grid" style="margin-top:14px">
             <div class="form-group span-2"><label>หมายเหตุเพิ่มเติม <span class="muted-2" style="font-weight:normal;font-size:11px">(เช่น แพ้ผ้าบางชนิด, สีพิเศษ, ฯลฯ)</span></label>
@@ -2667,6 +2737,14 @@ function openApplicantForm(id = null) {
       </div>
     </form>
   `, { size: 'lg' });
+
+  // Real-time visual feedback — toggle active class เมื่อกรอกจำนวน
+  document.querySelectorAll('#applForm .uni-row-qty').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const row = inp.closest('.uni-row');
+      if (row) row.classList.toggle('uni-row-active', Number(inp.value) > 0);
+    });
+  });
 
   $('#applForm').addEventListener('submit', async (e) => {
     e.preventDefault();
