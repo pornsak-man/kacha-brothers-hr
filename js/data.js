@@ -28,7 +28,8 @@ const DB = {
     uniformRequests: [],
     uniformIssues: [],
     uniformSchedule: [],
-    branches: []
+    branches: [],
+    leaveRequests: []
   },
 
   // ─── INDEX CACHES (O(1) lookup; rebuild lazily after data change) ───
@@ -124,7 +125,7 @@ const DB = {
       this.client.from('company_settings').select('*').eq('id', 1).maybeSingle()
     ]);
     // ตารางที่อาจมีเกิน 1000 records — ดึงด้วย pagination
-    const [emps, loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues, uniSched, branchRows] = await Promise.all([
+    const [emps, loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues, uniSched, branchRows, leaves] = await Promise.all([
       this._fetchAllPages('employees', 'id', true),
       this._fetchAllPages('loans', 'date', false),
       this._fetchAllPages('advances', 'date', false),
@@ -136,7 +137,8 @@ const DB = {
       this._fetchAllPages('uniform_requests', 'requested_date', false).catch(() => []),
       this._fetchAllPages('uniform_issues', 'issued_date', false).catch(() => []),
       this._fetchAllPages('uniform_delivery_schedule', 'branch_code', true).catch(() => []),
-      this._fetchAllPages('branches', 'id', true).catch(() => [])
+      this._fetchAllPages('branches', 'id', true).catch(() => []),
+      this._fetchAllPages('leave_requests', 'start_date', false).catch(() => [])
     ]);
     this.data.departments = (deps.data || []).map(this._depFromDB);
     this.data.positionLevels = (pos.data || []).map(this._posFromDB);
@@ -153,6 +155,7 @@ const DB = {
     this.data.uniformIssues = (uniIssues || []).map(this._uniIssueFromDB);
     this.data.uniformSchedule = (uniSched || []).map(this._uniSchedFromDB);
     this.data.branches = (branchRows || []).map(this._branchFromDB);
+    this.data.leaveRequests = (leaves || []).map(this._leaveFromDB);
     if (comp.data) this.data.company = this._compFromDB(comp.data);
     this._invalidateIndex();
   },
@@ -186,7 +189,8 @@ const DB = {
       uniform_requests: { list: 'uniformRequests', from: this._uniReqFromDB },
       uniform_issues: { list: 'uniformIssues', from: this._uniIssueFromDB },
       uniform_delivery_schedule: { list: 'uniformSchedule', from: this._uniSchedFromDB },
-      branches: { list: 'branches', from: this._branchFromDB }
+      branches: { list: 'branches', from: this._branchFromDB },
+      leave_requests: { list: 'leaveRequests', from: this._leaveFromDB }
     };
     const m = map[table];
     if (!m) return;
@@ -1290,6 +1294,151 @@ const DB = {
     const { data, count, error } = await q;
     if (error) throw error;
     return { rows: data || [], total: count || 0 };
+  },
+
+  // ─── LEAVE MANAGEMENT (การลางาน) ───
+  // 7 ประเภทตามกฎหมายแรงงานไทย — โควต้าต่อปีคำนวณตาม gender + อายุงาน
+  LEAVE_TYPES: {
+    personal:   { label: 'ลากิจ',                          max: 3,    badge: 'badge-info' },
+    sick:       { label: 'ลาป่วย',                          max: 30,   badge: 'badge-warning' },
+    maternity:  { label: 'ลาคลอดบุตร',                     max: 98,   badge: 'badge-info',     gender: 'F' },
+    paternity:  { label: 'ลาคลอดบุตร (ช่วยภริยา)',          max: 15,   badge: 'badge-info',     gender: 'M' },
+    vacation:   { label: 'ลาพักร้อน',                       max: 'tenure', badge: 'badge-success' },
+    ordination: { label: 'ลาบวช',                           max: 15,   badge: 'badge-info',     gender: 'M' },
+    military:   { label: 'ลารับราชการทหาร',                 max: 60,   badge: 'badge-info' }
+  },
+
+  _leaveFromDB: (r) => ({
+    id: r.id,
+    employeeId: r.employee_id,
+    leaveType: r.leave_type,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    days: Number(r.days),
+    reason: r.reason || '',
+    status: r.status,
+    requestedBy: r.requested_by,
+    requestedAt: r.requested_at,
+    approvedBy: r.approved_by,
+    approvedAt: r.approved_at,
+    approverNote: r.approver_note || '',
+    cancelledAt: r.cancelled_at,
+    cancelledBy: r.cancelled_by,
+    cancelReason: r.cancel_reason || '',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  }),
+
+  _leaveToDB(l) {
+    return {
+      employee_id: l.employeeId,
+      leave_type: l.leaveType,
+      start_date: l.startDate,
+      end_date: l.endDate,
+      days: Number(l.days),
+      reason: l.reason || null,
+      status: l.status || 'pending'
+    };
+  },
+
+  // คำนวณโควต้าของพนักงาน ณ ปีหนึ่ง — ขึ้นกับ gender + อายุงานสำหรับลาพักร้อน
+  calcLeaveQuota(emp, leaveType, year = new Date().getFullYear()) {
+    const cfg = this.LEAVE_TYPES[leaveType];
+    if (!cfg || !emp) return 0;
+    if (cfg.gender && cfg.gender !== emp.gender) return 0;
+    if (leaveType === 'vacation') {
+      if (!emp.hireDate) return 0;
+      const m = String(emp.hireDate).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (!m) return 0;
+      const hire = new Date(+m[1], +m[2] - 1, +m[3]);
+      const endOfYear = new Date(year, 11, 31);
+      // อายุงานเป็นจำนวนปีเต็มที่นับถึงสิ้นปีของปีที่ขอลา
+      let years = endOfYear.getFullYear() - hire.getFullYear();
+      const beforeAnniv = (endOfYear.getMonth() < hire.getMonth()) ||
+                          (endOfYear.getMonth() === hire.getMonth() && endOfYear.getDate() < hire.getDate());
+      if (beforeAnniv) years--;
+      if (years < 1) return 0;
+      return Math.min(12, 6 + (years - 1));  // ครบ 1 ปี = 6 วัน, +1/ปี, max 12
+    }
+    return cfg.max || 0;
+  },
+
+  // นับวันที่ใช้ไปแล้ว — เฉพาะสถานะ approved + ในปีที่ระบุ
+  calcLeaveUsed(empId, leaveType, year = new Date().getFullYear()) {
+    return this.data.leaveRequests
+      .filter(r => r.employeeId === empId && r.leaveType === leaveType && r.status === 'approved')
+      .filter(r => {
+        const m = String(r.startDate).match(/^(\d{4})/);
+        return m && Number(m[1]) === year;
+      })
+      .reduce((s, r) => s + Number(r.days || 0), 0);
+  },
+
+  // คงเหลือ = โควต้า - ใช้ไป
+  calcLeaveBalance(empId, leaveType, year = new Date().getFullYear()) {
+    const emp = this.getEmployee(empId);
+    if (!emp) return { quota: 0, used: 0, remaining: 0 };
+    const quota = this.calcLeaveQuota(emp, leaveType, year);
+    const used = this.calcLeaveUsed(empId, leaveType, year);
+    return { quota, used, remaining: Math.max(0, quota - used) };
+  },
+
+  getLeaveRequests({ employeeId = null, status = null, year = null } = {}) {
+    let list = this.data.leaveRequests.slice();
+    if (employeeId) list = list.filter(r => r.employeeId === employeeId);
+    if (status)     list = list.filter(r => r.status === status);
+    if (year)       list = list.filter(r => String(r.startDate).startsWith(String(year)));
+    return list.sort((a, b) => (b.startDate || '').localeCompare(a.startDate || '') || (b.requestedAt || '').localeCompare(a.requestedAt || ''));
+  },
+
+  getLeaveRequest(id) {
+    return this.data.leaveRequests.find(r => r.id === id);
+  },
+
+  async saveLeaveRequest(leave) {
+    const row = this._leaveToDB(leave);
+    if (leave.id) row.id = leave.id;
+    if (!leave.id && this.user?.id) row.requested_by = this.user.id;
+    const { data, error } = await this.client.from('leave_requests').upsert(row).select().single();
+    if (error) throw error;
+    const mapped = this._leaveFromDB(data);
+    const idx = this.data.leaveRequests.findIndex(x => x.id === mapped.id);
+    if (idx >= 0) this.data.leaveRequests[idx] = mapped;
+    else this.data.leaveRequests.unshift(mapped);
+    return mapped;
+  },
+
+  async approveLeaveRequest(id, note = '') {
+    if (!this.isAdmin) throw new Error('ต้องเป็น admin');
+    const { data, error } = await this.client.from('leave_requests')
+      .update({ status: 'approved', approved_by: this.user?.id || null, approved_at: new Date().toISOString(), approver_note: note || null })
+      .eq('id', id).select().single();
+    if (error) throw error;
+    return this._leaveFromDB(data);
+  },
+
+  async rejectLeaveRequest(id, note = '') {
+    if (!this.isAdmin) throw new Error('ต้องเป็น admin');
+    const { data, error } = await this.client.from('leave_requests')
+      .update({ status: 'rejected', approved_by: this.user?.id || null, approved_at: new Date().toISOString(), approver_note: note || null })
+      .eq('id', id).select().single();
+    if (error) throw error;
+    return this._leaveFromDB(data);
+  },
+
+  async cancelLeaveRequest(id, reason = '') {
+    const { data, error } = await this.client.from('leave_requests')
+      .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancelled_by: this.user?.id || null, cancel_reason: reason || null })
+      .eq('id', id).select().single();
+    if (error) throw error;
+    return this._leaveFromDB(data);
+  },
+
+  async deleteLeaveRequest(id) {
+    if (!this.isAdmin) throw new Error('ต้องเป็น admin');
+    const { error } = await this.client.from('leave_requests').delete().eq('id', id);
+    if (error) throw error;
+    this.data.leaveRequests = this.data.leaveRequests.filter(r => r.id !== id);
   },
 
   // ─── PROBATION DUE — พนักงานที่อายุงานครบ N วันในเดือนนี้ ───

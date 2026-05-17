@@ -251,6 +251,19 @@ const modal = {
       root.querySelector('[data-ok]').addEventListener('click', () => { this.close(); resolve(true); });
       root.querySelector('[data-cancel]').addEventListener('click', () => { this.close(); resolve(false); });
     });
+  },
+  // คืน string ที่กรอก หรือ null ถ้ายกเลิก
+  prompt(title, message, defaultValue = '') {
+    return new Promise((resolve) => {
+      this.open(title, `<p>${escapeHtml(message)}</p><textarea id="kbPromptInput" rows="3" style="width:100%;margin-top:8px" placeholder="พิมพ์ที่นี่...">${escapeHtml(defaultValue)}</textarea>`, {
+        footer: `<button class="btn btn-secondary" data-cancel>ยกเลิก</button><button class="btn btn-primary" data-ok>ตกลง</button>`
+      });
+      const root = $('#modalRoot');
+      const input = root.querySelector('#kbPromptInput');
+      setTimeout(() => input?.focus(), 30);
+      root.querySelector('[data-ok]').addEventListener('click', () => { const v = input?.value || ''; this.close(); resolve(v); });
+      root.querySelector('[data-cancel]').addEventListener('click', () => { this.close(); resolve(null); });
+    });
   }
 };
 
@@ -299,6 +312,7 @@ const auth = {
     $('#userAvatar').textContent = displayName.charAt(0).toUpperCase();
     $('.user-role').textContent = DB.isAdmin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งานทั่วไป';
     if (typeof updateUniformBadge === 'function') updateUniformBadge();
+    if (typeof updateLeaveBadge === 'function') updateLeaveBadge();
     // ซ่อนเมนูเฉพาะ admin ถ้าไม่ใช่ admin
     $$('.nav-admin-only').forEach(el => { el.style.display = DB.isAdmin ? '' : 'none'; });
     router.go('dashboard');
@@ -333,6 +347,7 @@ const router = {
       recruit: 'รับสมัครงาน',
       uniform: 'จัดชุดพนักงาน',
       audit: 'ประวัติการแก้ไข',
+      leave: 'การลางาน',
       'salary-adjust': 'ปรับค่าจ้าง / ตำแหน่ง / สาขา',
       loans: 'การกู้เงินบริษัท',
       advances: 'เบิกเงินล่วงหน้า',
@@ -372,7 +387,8 @@ const _RT_PAGE_DEPS = {
   uniform_requests: ['dashboard', 'uniform'],
   uniform_issues: ['uniform'],
   branches: ['dashboard', 'employees', 'branches', 'uniform'],
-  audit_log: ['audit']
+  audit_log: ['audit'],
+  leave_requests: ['dashboard', 'leave']
 };
 
 // อัปเดต badge แจ้งเตือนของ "จัดชุดพนักงาน" (รอจัด)
@@ -392,6 +408,9 @@ function updateUniformBadge() {
 window.onRealtimeChange = (payload) => {
   if ($('#modalRoot').children.length > 0) return; // ไม่รบกวน modal ที่กำลังเปิด
   const table = payload?.table;
+
+  // อัปเดต badge การลา — เสมอ (ไม่ขึ้นกับหน้าปัจจุบัน)
+  if (table === 'leave_requests' && typeof updateLeaveBadge === 'function') updateLeaveBadge();
 
   // อัปเดต badge เมื่อ uniform_requests เปลี่ยน — เสมอ (ไม่ขึ้นกับหน้าปัจจุบัน)
   if (table === 'uniform_requests') {
@@ -5424,7 +5443,8 @@ const AUDIT_TABLE_LABELS = {
   branches: 'สาขา',
   departments: 'ฝ่าย',
   position_levels: 'ระดับตำแหน่ง',
-  user_profiles: 'โปรไฟล์ผู้ใช้'
+  user_profiles: 'โปรไฟล์ผู้ใช้',
+  leave_requests: 'คำขอลา'
 };
 const AUDIT_ACTION_LABELS = { INSERT: 'เพิ่ม', UPDATE: 'แก้ไข', DELETE: 'ลบ' };
 const AUDIT_ACTION_COLORS = { INSERT: 'badge-success', UPDATE: 'badge-info', DELETE: 'badge-danger' };
@@ -5573,6 +5593,270 @@ function auditGoPage(p) {
   _auditState.page = p;
   _auditState.rows = [];
   loadAuditPage();
+}
+
+// ═══════════════════════════════════════════════════════
+//  PAGE: LEAVE MANAGEMENT (การลางาน)
+// ═══════════════════════════════════════════════════════
+const _leaveState = { tab: 'pending', filterYear: new Date().getFullYear() };
+const LEAVE_STATUS_BADGE = {
+  pending:   { label: 'รออนุมัติ', cls: 'badge-warning' },
+  approved:  { label: 'อนุมัติแล้ว', cls: 'badge-success' },
+  rejected:  { label: 'ปฏิเสธ',    cls: 'badge-danger' },
+  cancelled: { label: 'ยกเลิก',    cls: 'badge' }
+};
+
+function switchLeaveTab(t) { _leaveState.tab = t; router.go('leave'); }
+
+router.register('leave', () => {
+  const tabs = [
+    { id: 'pending', label: '⏳ รออนุมัติ' },
+    { id: 'all',     label: '📋 ทั้งหมด' },
+    { id: 'balance', label: '📊 ยอดวันลาคงเหลือ' }
+  ];
+  const pendingCount = DB.data.leaveRequests.filter(r => r.status === 'pending').length;
+
+  return `
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">การลางาน</div>
+        <div class="sw-page-subtitle">ลากิจ · ลาป่วย · ลาคลอด · ลาพักร้อน · ลาบวช · ลารับราชการทหาร — ตามกฎหมายแรงงานไทย</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${pendingCount > 0 ? `<span class="badge badge-warning" style="font-size:12.5px;padding:6px 12px">⏳ รออนุมัติ ${pendingCount}</span>` : ''}
+        <button class="btn btn-primary" onclick="openLeaveRequestForm()">+ ส่งคำขอลา</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:18px;flex-wrap:wrap">
+      ${tabs.map(t => `<button class="${_leaveState.tab === t.id ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm'}" style="border-radius:8px 8px 0 0;border-bottom:0" onclick="switchLeaveTab('${t.id}')">${t.label}</button>`).join('')}
+    </div>
+
+    <div id="leaveContent">${renderLeaveTab()}</div>
+  `;
+});
+
+function renderLeaveTab() {
+  if (_leaveState.tab === 'balance') return renderLeaveBalanceTable();
+  const status = _leaveState.tab === 'pending' ? 'pending' : null;
+  const list = DB.getLeaveRequests({ status, year: _leaveState.tab === 'all' ? _leaveState.filterYear : null });
+  if (!list.length) {
+    return `<div class="empty-state"><div class="title">${_leaveState.tab === 'pending' ? 'ไม่มีคำขอรออนุมัติ' : 'ยังไม่มีคำขอลา'}</div><div class="hint">กดปุ่ม "+ ส่งคำขอลา" เพื่อเริ่ม</div></div>`;
+  }
+  const yearSelector = _leaveState.tab === 'all' ? `
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;font-size:13px">
+      <label>ปี:</label>
+      <select onchange="_leaveState.filterYear = Number(this.value); router.go('leave')" style="width:auto;padding:6px 10px">
+        ${[0, 1, 2].map(off => { const y = new Date().getFullYear() - off; return `<option value="${y}" ${_leaveState.filterYear === y ? 'selected' : ''}>${y + 543}</option>`; }).join('')}
+      </select>
+    </div>` : '';
+  return `${yearSelector}
+    <div class="table-wrap"><table class="table table-compact">
+      <thead><tr>
+        <th>วันที่ขอ</th><th>พนักงาน</th><th>ประเภท</th><th>วันที่ลา</th><th class="num">จำนวน</th>
+        <th>เหตุผล</th><th>สถานะ</th><th>ผู้อนุมัติ</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${list.map(r => {
+          const e = DB.getEmployee(r.employeeId) || {};
+          const typeCfg = DB.LEAVE_TYPES[r.leaveType] || { label: r.leaveType };
+          const stat = LEAVE_STATUS_BADGE[r.status] || { label: r.status, cls: 'badge' };
+          const approver = r.approvedBy ? '✓' : (r.cancelledBy ? '⊘' : '-');
+          return `<tr style="vertical-align:top">
+            <td style="font-size:12.5px;white-space:nowrap">${fmt.date(r.requestedAt)}</td>
+            <td><strong>${escapeHtml((e.firstName || '?') + ' ' + (e.lastName || ''))}</strong><br><span class="muted-2" style="font-size:11px">${escapeHtml(r.employeeId)}</span></td>
+            <td>${escapeHtml(typeCfg.label)}</td>
+            <td style="font-size:12.5px;white-space:nowrap">${fmt.date(r.startDate)}${r.startDate !== r.endDate ? ' – ' + fmt.date(r.endDate) : ''}</td>
+            <td class="num"><strong>${r.days}</strong> วัน</td>
+            <td style="font-size:12.5px;max-width:200px"><div style="white-space:pre-wrap;line-height:1.5">${escapeHtml(r.reason || '-')}</div></td>
+            <td><span class="badge ${stat.cls}">${stat.label}</span>${r.approverNote ? `<br><span class="muted-2" style="font-size:11px;font-style:italic">"${escapeHtml(r.approverNote)}"</span>` : ''}${r.cancelReason ? `<br><span class="muted-2" style="font-size:11px;font-style:italic">"${escapeHtml(r.cancelReason)}"</span>` : ''}</td>
+            <td style="font-size:11.5px">${approver}</td>
+            <td class="actions" style="white-space:nowrap">
+              ${r.status === 'pending' && DB.isAdmin ? `<button class="btn btn-success btn-sm" onclick="approveLeave('${r.id}')">อนุมัติ</button>
+                <button class="btn btn-danger btn-sm" onclick="rejectLeave('${r.id}')">ปฏิเสธ</button>` : ''}
+              ${r.status === 'pending' ? `<button class="btn btn-ghost btn-sm" onclick="openLeaveRequestForm('${r.id}')">แก้</button>
+                <button class="btn btn-ghost btn-sm" onclick="cancelLeave('${r.id}')">ยกเลิก</button>` : ''}
+              ${r.status !== 'pending' && DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="deleteLeave('${r.id}')">ลบ</button>` : ''}
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>
+  `;
+}
+
+function renderLeaveBalanceTable() {
+  const year = _leaveState.filterYear;
+  const emps = DB.data.employees.filter(e => DB.empStatus(e) !== 'resigned');
+  if (!emps.length) return `<div class="empty-state"><div class="title">ไม่มีพนักงาน</div></div>`;
+  const types = Object.entries(DB.LEAVE_TYPES);
+  return `
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;font-size:13px">
+      <label>ปี:</label>
+      <select onchange="_leaveState.filterYear = Number(this.value); router.go('leave')" style="width:auto;padding:6px 10px">
+        ${[0, 1, 2].map(off => { const y = new Date().getFullYear() - off; return `<option value="${y}" ${_leaveState.filterYear === y ? 'selected' : ''}>${y + 543}</option>`; }).join('')}
+      </select>
+      <span class="muted-2" style="font-size:11.5px">· แสดง คงเหลือ/โควต้า · นับเฉพาะที่อนุมัติแล้ว</span>
+    </div>
+    <div class="table-wrap"><table class="table table-compact">
+      <thead><tr>
+        <th>พนักงาน</th>
+        ${types.map(([k, v]) => `<th class="num" title="${escapeHtml(v.label)}">${escapeHtml(v.label)}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${emps.map(e => {
+          return `<tr>
+            <td><strong>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</strong><br><span class="muted-2" style="font-size:11px">${escapeHtml(e.id)}${e.gender ? ' · ' + (e.gender === 'M' ? 'ช' : 'ญ') : ''}</span></td>
+            ${types.map(([k]) => {
+              const b = DB.calcLeaveBalance(e.id, k, year);
+              if (b.quota === 0) return '<td class="num"><span class="muted-2">—</span></td>';
+              const ratio = b.used / b.quota;
+              const color = ratio >= 1 ? 'var(--danger)' : ratio >= 0.7 ? 'var(--warning)' : 'var(--success)';
+              return `<td class="num"><strong style="color:${color}">${b.remaining}</strong><span class="muted-2" style="font-size:11px">/${b.quota}</span></td>`;
+            }).join('')}
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>
+  `;
+}
+
+// ─── Leave request form ───
+function openLeaveRequestForm(id = null) {
+  const editing = id ? DB.getLeaveRequest(id) : null;
+  // viewer: pre-select ตัวเอง (จาก user_profiles.employee_id), admin: ให้เลือกได้
+  let defaultEmpId = editing?.employeeId || '';
+  if (!defaultEmpId && !DB.isAdmin) defaultEmpId = DB.profile?.employee_id || '';
+  const today = tz.today();
+
+  const empOptions = DB.data.employees
+    .filter(e => DB.empStatus(e) !== 'resigned')
+    .sort((a, b) => (a.firstName || '').localeCompare(b.firstName || ''))
+    .map(e => `<option value="${e.id}" ${defaultEmpId === e.id ? 'selected' : ''}>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))} (${escapeHtml(e.id)})</option>`).join('');
+
+  modal.open(editing ? 'แก้ไขคำขอลา' : 'ส่งคำขอลา', `
+    <form id="leaveForm">
+      <div class="form-grid">
+        <div class="form-group span-2"><label>พนักงาน *</label>
+          <select name="employeeId" id="leaveEmp" required ${DB.isAdmin ? '' : 'disabled'}>
+            <option value="">— เลือกพนักงาน —</option>
+            ${empOptions}
+          </select>
+        </div>
+        <div class="form-group span-2"><label>ประเภทการลา *</label>
+          <select name="leaveType" id="leaveType" required>
+            <option value="">— เลือกประเภท —</option>
+            ${Object.entries(DB.LEAVE_TYPES).map(([k, v]) => `<option value="${k}" ${editing?.leaveType === k ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}
+          </select>
+          <div id="leaveBalanceHint" class="muted-2" style="font-size:12px;margin-top:6px"></div>
+        </div>
+        <div class="form-group"><label>วันที่เริ่ม *</label><input name="startDate" id="leaveStart" type="date" required value="${editing?.startDate || today}"/></div>
+        <div class="form-group"><label>วันที่สิ้นสุด *</label><input name="endDate" id="leaveEnd" type="date" required value="${editing?.endDate || today}"/></div>
+        <div class="form-group"><label>จำนวนวัน *<span class="muted-2" style="font-size:11px">(แก้ได้ — รองรับครึ่งวัน)</span></label><input name="days" id="leaveDays" type="number" min="0.5" step="0.5" required value="${editing?.days || 1}"/></div>
+        <div class="form-group span-2"><label>เหตุผล</label><textarea name="reason" rows="2" placeholder="ระบุเหตุผลโดยย่อ">${escapeHtml(editing?.reason || '')}</textarea></div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
+        <button type="submit" class="btn btn-primary">${editing ? 'บันทึก' : 'ส่งคำขอ'}</button>
+      </div>
+    </form>
+  `, { size: 'md' });
+
+  // auto-calc วัน + อัปเดตช่อง hint
+  const recalc = () => {
+    const s = $('#leaveStart').value, e = $('#leaveEnd').value;
+    if (s && e && e >= s) {
+      const days = Math.round((new Date(e) - new Date(s)) / 86400000) + 1;
+      if (days > 0) $('#leaveDays').value = days;
+    }
+  };
+  const updateHint = () => {
+    const empId = $('#leaveEmp').value;
+    const type = $('#leaveType').value;
+    const hint = $('#leaveBalanceHint');
+    if (!empId || !type) { hint.textContent = ''; return; }
+    const b = DB.calcLeaveBalance(empId, type, new Date().getFullYear());
+    if (b.quota === 0) {
+      hint.innerHTML = `<span style="color:var(--danger)">⚠️ ไม่มีสิทธิ์ลาประเภทนี้ (อาจเพราะเพศ/อายุงานไม่ถึง)</span>`;
+    } else {
+      const days = Number($('#leaveDays').value || 0);
+      const willExceed = days > b.remaining;
+      hint.innerHTML = `โควต้า: <strong>${b.quota}</strong> วัน · ใช้ไป <strong>${b.used}</strong> · คงเหลือ <strong style="color:${willExceed ? 'var(--danger)' : 'var(--success)'}">${b.remaining}</strong> วัน${willExceed ? ` <span style="color:var(--danger)">⚠️ เกินโควต้า ${days - b.remaining} วัน</span>` : ''}`;
+    }
+  };
+  $('#leaveStart').addEventListener('change', () => { recalc(); updateHint(); });
+  $('#leaveEnd').addEventListener('change', () => { recalc(); updateHint(); });
+  $('#leaveDays').addEventListener('input', updateHint);
+  $('#leaveEmp').addEventListener('change', updateHint);
+  $('#leaveType').addEventListener('change', updateHint);
+  updateHint();
+
+  $('#leaveForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const data = Object.fromEntries(new FormData(ev.target).entries());
+    if (!DB.isAdmin && data.employeeId !== (DB.profile?.employee_id || '')) {
+      return toast('สามารถส่งคำขอของตัวเองเท่านั้น', 'error');
+    }
+    if (new Date(data.endDate) < new Date(data.startDate)) return toast('วันสิ้นสุดต้องไม่ก่อนวันเริ่ม', 'error');
+    try {
+      const payload = { ...data, days: Number(data.days) };
+      if (id) payload.id = id;
+      await DB.saveLeaveRequest(payload);
+      toast(id ? 'แก้ไขคำขอแล้ว' : 'ส่งคำขอแล้ว · รอ admin อนุมัติ', 'success');
+      modal.close();
+      if (router.current === 'leave') router.go('leave');
+    } catch (ex) { toast('บันทึกไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+  });
+}
+
+async function approveLeave(id) {
+  if (!requireAdmin()) return;
+  const note = await modal.prompt('อนุมัติคำขอลา', 'หมายเหตุ (ถ้ามี):', '');
+  if (note === null) return;
+  try {
+    await DB.approveLeaveRequest(id, note);
+    toast('อนุมัติแล้ว', 'success');
+    router.go('leave');
+  } catch (ex) { toast('ไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+}
+
+async function rejectLeave(id) {
+  if (!requireAdmin()) return;
+  const note = await modal.prompt('ปฏิเสธคำขอลา', 'เหตุผลที่ปฏิเสธ:', '');
+  if (note === null) return;
+  try {
+    await DB.rejectLeaveRequest(id, note);
+    toast('ปฏิเสธแล้ว', 'success');
+    router.go('leave');
+  } catch (ex) { toast('ไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+}
+
+async function cancelLeave(id) {
+  const reason = await modal.prompt('ยกเลิกคำขอลา', 'เหตุผลที่ยกเลิก (ถ้ามี):', '');
+  if (reason === null) return;
+  try {
+    await DB.cancelLeaveRequest(id, reason);
+    toast('ยกเลิกแล้ว', 'success');
+    router.go('leave');
+  } catch (ex) { toast('ไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+}
+
+async function deleteLeave(id) {
+  if (!requireAdmin()) return;
+  if (!await modal.confirm('ลบคำขอ', 'ลบรายการนี้ถาวร? ไม่สามารถกู้คืนได้')) return;
+  try {
+    await DB.deleteLeaveRequest(id);
+    toast('ลบแล้ว', 'success');
+    router.go('leave');
+  } catch (ex) { toast('ไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+}
+
+function updateLeaveBadge() {
+  const pending = DB.data.leaveRequests.filter(r => r.status === 'pending').length;
+  const badge = document.getElementById('navBadgeLeave');
+  if (!badge) return;
+  if (pending > 0) { badge.textContent = String(pending); badge.style.display = 'inline-block'; badge.title = `${pending} คำขอลารออนุมัติ`; }
+  else { badge.style.display = 'none'; }
 }
 
 router.register('settings', () => {
