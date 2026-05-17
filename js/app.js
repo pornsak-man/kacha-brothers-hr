@@ -261,6 +261,7 @@ const router = {
       employees: 'ทะเบียนพนักงาน',
       departments: 'ฝ่าย',
       positions: 'ระดับตำแหน่ง',
+      recruit: 'รับสมัครงาน',
       'salary-adjust': 'ปรับเงินเดือน / ตำแหน่ง',
       loans: 'การกู้เงินบริษัท',
       advances: 'เบิกเงินล่วงหน้า',
@@ -275,6 +276,7 @@ const router = {
     $('#content').innerHTML = fn ? fn() : '<p>ไม่พบหน้า</p>';
     if (window.afterRender) { window.afterRender(); window.afterRender = null; }
     if (name === 'employees') wireEmployeePage();
+    if (name === 'recruit') wireRecruitPage();
     $('#sidebar').classList.remove('open');
   },
   refresh() { this.go(this.current); }
@@ -283,9 +285,9 @@ const router = {
 // ─── REALTIME UPDATE — TARGETED REFRESH ───
 // ตาราง → หน้าที่ขึ้นกับตารางนั้น (ถ้า user ไม่ได้อยู่หน้านี้ จะไม่ refresh)
 const _RT_PAGE_DEPS = {
-  employees: ['dashboard', 'employees', 'departments', 'positions', 'salary-adjust', 'loans', 'advances', 'allowance', 'evaluations', 'reports'],
-  departments: ['dashboard', 'employees', 'departments'],
-  position_levels: ['employees', 'positions'],
+  employees: ['dashboard', 'employees', 'departments', 'positions', 'salary-adjust', 'loans', 'advances', 'allowance', 'evaluations', 'reports', 'recruit'],
+  departments: ['dashboard', 'employees', 'departments', 'recruit'],
+  position_levels: ['employees', 'positions', 'recruit'],
   salary_history: ['dashboard', 'salary-adjust'],
   loans: ['loans'],
   advances: ['advances'],
@@ -293,7 +295,8 @@ const _RT_PAGE_DEPS = {
   evaluations: ['evaluations'],
   calendar_items: ['dashboard', 'calendar'],
   company_settings: ['settings'],
-  user_profiles: ['settings']
+  user_profiles: ['settings'],
+  applicants: ['dashboard', 'recruit']
 };
 
 window.onRealtimeChange = (payload) => {
@@ -2211,6 +2214,284 @@ async function deletePosition(id) {
     if (!result) toast('ลบไม่ได้ เพราะยังมีพนักงานใช้ระดับนี้', 'error');
     else { toast('ลบแล้ว', 'success'); router.go('positions'); }
   } catch (ex) { toast('ลบไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════
+//  PAGE: RECRUIT (รับสมัครงาน)
+// ═══════════════════════════════════════════════════════
+const APPL_STATUS = {
+  new:         { label: 'สมัครใหม่',         badge: 'badge-info',     dot: 'amber' },
+  screening:   { label: 'นัดสัมภาษณ์',        badge: 'badge-warning',  dot: 'amber' },
+  interviewed: { label: 'สัมภาษณ์แล้ว',       badge: 'badge-info',     dot: 'amber' },
+  passed:      { label: 'ผ่านการคัดเลือก',    badge: 'badge-success',  dot: 'green' },
+  rejected:    { label: 'ไม่ผ่าน',            badge: 'badge-danger',   dot: 'red'   },
+  hired:       { label: 'รับเข้าทำงาน',       badge: 'badge-success',  dot: 'green' }
+};
+const APPL_SOURCES = ['Walk-in', 'JobsDB', 'LINE', 'Facebook', 'แนะนำ', 'อื่นๆ'];
+
+const recruitState = { search: '', status: '', page: 1, pageSize: 50 };
+
+router.register('recruit', () => {
+  const stats = DB.getApplicantStats();
+  return `
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">รับสมัครงาน</div>
+        <div class="sw-page-subtitle">จัดการผู้สมัคร · ติดตามสถานะ · รับเข้าทำงาน</div>
+      </div>
+      <div class="sw-page-actions">
+        ${DB.isAdmin ? `<button class="btn btn-primary" onclick="openApplicantForm()">+ เพิ่มผู้สมัคร</button>` : ''}
+      </div>
+    </div>
+
+    <div class="sw-stats-grid">
+      <div class="sw-stat-card sw-accent-primary">
+        <div class="sw-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></div>
+        <div class="sw-stat-label">ผู้สมัครเดือนนี้</div>
+        <div class="sw-stat-value">${fmt.num(stats.newThisMonth)}</div>
+        <div class="sw-stat-change">ทั้งหมดในระบบ ${fmt.num(stats.total)} คน</div>
+      </div>
+      <div class="sw-stat-card sw-accent-amber">
+        <div class="sw-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+        <div class="sw-stat-label">รอสัมภาษณ์</div>
+        <div class="sw-stat-value" style="color:var(--warning)">${fmt.num(stats.pendingInterview)}</div>
+        <div class="sw-stat-change">สัมภาษณ์แล้ว ${fmt.num(stats.interviewed)} · ผ่าน ${fmt.num(stats.passed)}</div>
+      </div>
+      <div class="sw-stat-card sw-accent-green">
+        <div class="sw-stat-icon">${ICON.trendUp}</div>
+        <div class="sw-stat-label">รับเข้าทำงานปีนี้</div>
+        <div class="sw-stat-value" style="color:var(--success)">${fmt.num(stats.hiredYTD)}</div>
+        <div class="sw-stat-change">ไม่ผ่าน ${fmt.num(stats.rejected)} คน</div>
+      </div>
+      <div class="sw-stat-card sw-accent-red">
+        <div class="sw-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg></div>
+        <div class="sw-stat-label">Conversion Rate</div>
+        <div class="sw-stat-value">${stats.total ? ((stats.hiredYTD / stats.total) * 100).toFixed(1) : '0.0'}%</div>
+        <div class="sw-stat-change">รับเข้า / ผู้สมัครทั้งหมด</div>
+      </div>
+    </div>
+
+    <div class="sw-chart-card" style="margin-top:24px">
+      <div class="flex items-center gap-2" style="margin-bottom:16px;flex-wrap:wrap">
+        <input class="search-input" id="applSearch" placeholder="ค้นหา ชื่อ / เบอร์ / อีเมล / ตำแหน่ง..." value="${escapeHtml(recruitState.search)}" style="flex:1;min-width:240px"/>
+        <select id="applStatus" class="filter-select">
+          <option value="">— ทุกสถานะ —</option>
+          ${Object.entries(APPL_STATUS).map(([k, v]) => `<option value="${k}" ${recruitState.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}
+        </select>
+      </div>
+      <div id="applList"></div>
+    </div>
+  `;
+});
+
+function wireRecruitPage() {
+  renderApplicantList();
+  $('#applSearch')?.addEventListener('input', (e) => {
+    clearTimeout(window._applSearchTimer);
+    window._applSearchTimer = setTimeout(() => {
+      recruitState.search = e.target.value;
+      recruitState.page = 1;
+      renderApplicantList();
+    }, 200);
+  });
+  $('#applStatus')?.addEventListener('change', (e) => {
+    recruitState.status = e.target.value;
+    recruitState.page = 1;
+    renderApplicantList();
+  });
+}
+
+function renderApplicantList() {
+  const list = DB.getApplicants(recruitState);
+  const container = $('#applList');
+  if (!container) return;
+  if (!list.length) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">${ICON.users}</div><div class="title">ไม่พบผู้สมัคร</div><div class="hint">ลองเปลี่ยนตัวกรอง หรือเพิ่มผู้สมัครใหม่</div></div>`;
+    return;
+  }
+  container.innerHTML = `
+    <div class="table-wrap">
+      <table class="table table-compact">
+        <thead>
+          <tr>
+            <th>ชื่อ-สกุล</th>
+            <th>ติดต่อ</th>
+            <th>ตำแหน่ง / สาขา</th>
+            <th class="num">เงินเดือนที่ขอ</th>
+            <th>ช่องทาง</th>
+            <th>วันสมัคร</th>
+            <th>สถานะ</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(a => {
+            const s = APPL_STATUS[a.status] || APPL_STATUS.new;
+            const pos = a.positionTitle || (DB.getPosition(a.position)?.name || '-');
+            return `
+              <tr>
+                <td>
+                  <div style="font-weight:600">${escapeHtml(a.firstName + ' ' + (a.lastName || ''))}</div>
+                  ${a.nickname ? `<div class="muted-2" style="font-size:12px">(${escapeHtml(a.nickname)})</div>` : ''}
+                </td>
+                <td>
+                  ${a.phone ? `<div style="font-size:13px">${escapeHtml(a.phone)}</div>` : ''}
+                  ${a.email ? `<div class="muted-2" style="font-size:12px">${escapeHtml(a.email)}</div>` : ''}
+                </td>
+                <td>
+                  <div>${escapeHtml(pos)}</div>
+                  ${a.branch ? `<div class="muted-2" style="font-size:12px">${escapeHtml(a.branch)}</div>` : ''}
+                </td>
+                <td class="num">${a.expectedSalary ? fmt.money(a.expectedSalary) : '-'}</td>
+                <td>${escapeHtml(a.source || '-')}</td>
+                <td>${fmt.date(a.appliedDate)}</td>
+                <td><span class="badge ${s.badge}">${s.label}</span></td>
+                <td class="actions">
+                  ${DB.isAdmin && a.status !== 'hired' ? `<button class="btn btn-primary btn-sm" onclick="hireApplicant('${a.id}')" title="สร้างเป็นพนักงาน">รับเข้า</button>` : ''}
+                  ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openApplicantForm('${a.id}')">แก้ไข</button>
+                  <button class="btn btn-ghost btn-sm" onclick="deleteApplicant('${a.id}')">ลบ</button>` : ''}
+                  ${a.hiredEmployeeId ? `<button class="btn btn-ghost btn-sm" onclick="viewEmployee('${a.hiredEmployeeId}')" title="ดูประวัติพนักงาน">ดูพนักงาน</button>` : ''}
+                </td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openApplicantForm(id = null) {
+  if (!requireAdmin()) return;
+  const a = id ? DB.getApplicant(id) : {
+    firstName: '', lastName: '', nickname: '', phone: '', email: '',
+    position: '', positionTitle: '', department: '', branch: '',
+    expectedSalary: 0, source: 'Walk-in', status: 'new',
+    appliedDate: tz.today(), interviewDate: '', decidedDate: '', note: ''
+  };
+  const positions = DB.getPositions();
+  const depts = DB.getDepartments();
+
+  modal.open(id ? 'แก้ไขข้อมูลผู้สมัคร' : 'เพิ่มผู้สมัครใหม่', `
+    <form id="applForm">
+      <div class="form-section">
+        <h3>ข้อมูลผู้สมัคร</h3>
+        <div class="form-grid">
+          <div class="form-group"><label>ชื่อ *</label><input name="firstName" value="${escapeHtml(a.firstName)}" required/></div>
+          <div class="form-group"><label>นามสกุล</label><input name="lastName" value="${escapeHtml(a.lastName)}"/></div>
+          <div class="form-group"><label>ชื่อเล่น</label><input name="nickname" value="${escapeHtml(a.nickname)}"/></div>
+          <div class="form-group"><label>ช่องทาง</label><select name="source">${APPL_SOURCES.map(s => `<option ${s === a.source ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+          <div class="form-group"><label>เบอร์โทร</label><input name="phone" value="${escapeHtml(a.phone)}" placeholder="08X-XXX-XXXX"/></div>
+          <div class="form-group"><label>อีเมล</label><input name="email" type="email" value="${escapeHtml(a.email)}"/></div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>ตำแหน่งที่สมัคร</h3>
+        <div class="form-grid">
+          <div class="form-group"><label>ระดับตำแหน่ง</label>
+            <select name="position"><option value="">— ไม่ระบุ —</option>${positions.map(p => `<option value="${p.id}" ${a.position === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}</select>
+          </div>
+          <div class="form-group"><label>ชื่อตำแหน่ง</label><input name="positionTitle" value="${escapeHtml(a.positionTitle)}" placeholder="เช่น Service, Chef"/></div>
+          <div class="form-group"><label>ฝ่าย</label>
+            <select name="department"><option value="">— ไม่ระบุ —</option>${depts.map(d => `<option value="${d.id}" ${a.department === d.id ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}</select>
+          </div>
+          <div class="form-group"><label>สาขา</label><input name="branch" value="${escapeHtml(a.branch)}"/></div>
+          <div class="form-group"><label>เงินเดือนที่ขอ</label><input name="expectedSalary" type="number" min="0" step="500" value="${a.expectedSalary || 0}"/></div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>สถานะการคัดเลือก</h3>
+        <div class="form-grid">
+          <div class="form-group"><label>สถานะ</label>
+            <select name="status">${Object.entries(APPL_STATUS).map(([k, v]) => `<option value="${k}" ${a.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
+          </div>
+          <div class="form-group"><label>วันที่สมัคร *</label><input name="appliedDate" type="date" value="${a.appliedDate || ''}" required/></div>
+          <div class="form-group"><label>วันสัมภาษณ์</label><input name="interviewDate" type="date" value="${a.interviewDate || ''}"/></div>
+          <div class="form-group"><label>วันตัดสินใจ</label><input name="decidedDate" type="date" value="${a.decidedDate || ''}"/></div>
+          <div class="form-group span-2"><label>หมายเหตุ</label><textarea name="note" rows="3" placeholder="ข้อมูลการสัมภาษณ์, ทักษะ, ประวัติ ฯลฯ">${escapeHtml(a.note)}</textarea></div>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
+        <button type="submit" class="btn btn-primary">บันทึก</button>
+      </div>
+    </form>
+  `, { size: 'lg' });
+
+  $('#applForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      data.expectedSalary = Number(data.expectedSalary || 0);
+      if (id) data.id = id;
+      await DB.saveApplicant(data);
+      modal.close();
+      toast(id ? 'บันทึกแล้ว' : 'เพิ่มผู้สมัครแล้ว', 'success');
+      router.go('recruit');
+    } catch (ex) { toast('บันทึกไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+  });
+}
+
+async function deleteApplicant(id) {
+  if (!requireAdmin()) return;
+  const a = DB.getApplicant(id);
+  if (!a) return;
+  if (!await modal.confirm('ลบผู้สมัคร', `ลบ "${a.firstName} ${a.lastName || ''}" ใช่หรือไม่?`)) return;
+  try {
+    await DB.deleteApplicant(id);
+    toast('ลบแล้ว', 'success');
+    router.go('recruit');
+  } catch (ex) { toast('ลบไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+}
+
+// รับเข้าทำงาน — สร้าง record พนักงานใหม่ + อัปเดตสถานะ applicant
+async function hireApplicant(id) {
+  if (!requireAdmin()) return;
+  const a = DB.getApplicant(id);
+  if (!a) return;
+  const name = `${a.firstName} ${a.lastName || ''}`.trim();
+  if (!await modal.confirm('รับเข้าทำงาน', `สร้างพนักงานใหม่จาก "${name}" ใช่หรือไม่?\n\nระบบจะสร้าง record พนักงานพร้อมข้อมูลเริ่มต้น คุณสามารถแก้ไขเพิ่มเติมในหน้าทะเบียนพนักงาน`)) return;
+
+  try {
+    // 1) สร้าง employee record
+    const newEmp = {
+      id: DB.nextEmployeeId(),
+      title: 'นาย', firstName: a.firstName, lastName: a.lastName || '',
+      nickname: a.nickname || '',
+      nationalId: '', dob: '', gender: 'ชาย',
+      nationality: 'ไทย', religion: '', education: '',
+      phone: a.phone || '', email: a.email || '', address: '',
+      subDistrict: '', district: '', province: '', postalCode: '',
+      passportNumber: '', workPermitNumber: '',
+      department: a.department || (DB.getDepartments()[0]?.id || ''),
+      branch: a.branch || '',
+      position: a.position || (DB.getPositions()[0]?.id || ''),
+      positionTitle: a.positionTitle || '',
+      employeeType: 'พนักงานทดลองงาน',
+      hireDate: tz.today(),
+      terminationDate: '',
+      salary: Number(a.expectedSalary) || 0,
+      allowancePosition: 0, allowanceTravel: 0, allowanceFood: 0,
+      allowancePerDiem: 0, allowanceLanguage: 0, allowanceOther: 0,
+      bank: '', bankAccount: '',
+      photoUrl: '',
+      status: 'active', note: `จากผู้สมัคร · ช่องทาง ${a.source || '-'}\n${a.note || ''}`.trim()
+    };
+    const saved = await DB.saveEmployee(newEmp);
+
+    // 2) อัปเดต applicant — status='hired' + link employee_id
+    await DB.setApplicantStatus(id, 'hired', {
+      hired_employee_id: saved.id,
+      decided_date: tz.today()
+    });
+
+    toast(`รับเข้าทำงานแล้ว · รหัสพนักงาน ${saved.id}`, 'success');
+    router.go('recruit');
+  } catch (ex) {
+    toast('รับเข้าไม่สำเร็จ: ' + (ex.message || ex), 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════

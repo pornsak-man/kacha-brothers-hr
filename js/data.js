@@ -22,7 +22,8 @@ const DB = {
     advances: [],
     allowances: [],
     evaluations: [],
-    calendar: []
+    calendar: [],
+    applicants: []
   },
 
   // ─── INDEX CACHES (O(1) lookup; rebuild lazily after data change) ───
@@ -118,13 +119,14 @@ const DB = {
       this.client.from('company_settings').select('*').eq('id', 1).maybeSingle()
     ]);
     // ตารางที่อาจมีเกิน 1000 records — ดึงด้วย pagination
-    const [emps, loans, advs, allow, evals, sal] = await Promise.all([
+    const [emps, loans, advs, allow, evals, sal, appls] = await Promise.all([
       this._fetchAllPages('employees', 'id', true),
       this._fetchAllPages('loans', 'date', false),
       this._fetchAllPages('advances', 'date', false),
       this._fetchAllPages('allowances', 'month', false),
       this._fetchAllPages('evaluations', 'date', false),
-      this._fetchAllPages('salary_history', 'date', false)
+      this._fetchAllPages('salary_history', 'date', false),
+      this._fetchAllPages('applicants', 'applied_date', false).catch(() => [])  // legacy DB อาจยังไม่มี table — fallback ว่าง
     ]);
     this.data.departments = (deps.data || []).map(this._depFromDB);
     this.data.positionLevels = (pos.data || []).map(this._posFromDB);
@@ -135,6 +137,7 @@ const DB = {
     this.data.evaluations = evals.map(this._evalFromDB);
     this.data.salaryHistory = sal.map(this._salFromDB);
     this.data.calendar = (cal.data || []).map(this._calFromDB);
+    this.data.applicants = (appls || []).map(this._applFromDB);
     if (comp.data) this.data.company = this._compFromDB(comp.data);
     this._invalidateIndex();
   },
@@ -162,7 +165,8 @@ const DB = {
       allowances: { list: 'allowances', from: this._allowFromDB },
       evaluations: { list: 'evaluations', from: this._evalFromDB },
       salary_history: { list: 'salaryHistory', from: this._salFromDB },
-      calendar_items: { list: 'calendar', from: this._calFromDB }
+      calendar_items: { list: 'calendar', from: this._calFromDB },
+      applicants: { list: 'applicants', from: this._applFromDB }
     };
     const m = map[table];
     if (!m) return;
@@ -248,6 +252,45 @@ const DB = {
   _salToDB: (s) => ({ employee_id: s.employeeId, date: s.date, old_salary: Number(s.oldSalary), new_salary: Number(s.newSalary), new_position: s.newPosition || null, new_position_title: s.newPositionTitle, reason: s.reason }),
   _calFromDB: (r) => ({ id: r.id, date: r.date, title: r.title, type: r.type || 'holiday' }),
   _calToDB: (c) => ({ date: c.date, title: c.title, type: c.type }),
+  _applFromDB: (r) => ({
+    id: r.id,
+    firstName: r.first_name || '',
+    lastName: r.last_name || '',
+    nickname: r.nickname || '',
+    phone: r.phone || '',
+    email: r.email || '',
+    position: r.position || '',
+    positionTitle: r.position_title || '',
+    department: r.department || '',
+    branch: r.branch || '',
+    expectedSalary: Number(r.expected_salary || 0),
+    source: r.source || '',
+    status: r.status || 'new',
+    appliedDate: r.applied_date || '',
+    interviewDate: r.interview_date || '',
+    decidedDate: r.decided_date || '',
+    hiredEmployeeId: r.hired_employee_id || '',
+    note: r.note || ''
+  }),
+  _applToDB: (a) => ({
+    first_name: a.firstName,
+    last_name: a.lastName || null,
+    nickname: a.nickname || null,
+    phone: a.phone || null,
+    email: a.email || null,
+    position: a.position || null,
+    position_title: a.positionTitle || null,
+    department: a.department || null,
+    branch: a.branch || null,
+    expected_salary: Number(a.expectedSalary || 0),
+    source: a.source || null,
+    status: a.status || 'new',
+    applied_date: a.appliedDate || null,
+    interview_date: a.interviewDate || null,
+    decided_date: a.decidedDate || null,
+    hired_employee_id: a.hiredEmployeeId || null,
+    note: a.note || null
+  }),
   _compFromDB: (r) => ({ name: r.name || '', nameEn: r.name_en || '', taxId: r.tax_id || '', address: r.address || '', phone: r.phone || '', email: r.email || '' }),
 
   // ─── EMPLOYEES ───
@@ -620,6 +663,67 @@ const DB = {
     const { error } = await this.client.from('evaluations').delete().eq('id', id);
     if (error) throw error;
     this.data.evaluations = this.data.evaluations.filter(e => e.id !== id);
+  },
+
+  // ─── APPLICANTS (Recruit) ───
+  // Status: new / screening / interviewed / passed / rejected / hired
+  getApplicants(filter = {}) {
+    let list = this.data.applicants.slice();
+    if (filter.status) list = list.filter(a => a.status === filter.status);
+    if (filter.search) {
+      const s = filter.search.toLowerCase();
+      list = list.filter(a =>
+        ((a.firstName || '') + ' ' + (a.lastName || '')).toLowerCase().includes(s) ||
+        (a.nickname || '').toLowerCase().includes(s) ||
+        (a.phone || '').includes(s) ||
+        (a.email || '').toLowerCase().includes(s) ||
+        (a.positionTitle || '').toLowerCase().includes(s)
+      );
+    }
+    // เรียงล่าสุดก่อน
+    return list.sort((a, b) => (b.appliedDate || '').localeCompare(a.appliedDate || ''));
+  },
+  getApplicant(id) { return this.data.applicants.find(a => a.id === id); },
+  async saveApplicant(appl) {
+    const row = this._applToDB(appl);
+    if (appl.id) row.id = appl.id;
+    const { data, error } = await this.client.from('applicants').upsert(row).select().single();
+    if (error) throw error;
+    const mapped = this._applFromDB(data);
+    const idx = this.data.applicants.findIndex(a => a.id === mapped.id);
+    if (idx >= 0) this.data.applicants[idx] = mapped;
+    else this.data.applicants.unshift(mapped);
+    return mapped;
+  },
+  async deleteApplicant(id) {
+    const { error } = await this.client.from('applicants').delete().eq('id', id);
+    if (error) throw error;
+    this.data.applicants = this.data.applicants.filter(a => a.id !== id);
+  },
+  // เปลี่ยนสถานะอย่างเดียว — เร็วกว่าโหลด full record
+  async setApplicantStatus(id, status, extraFields = {}) {
+    const update = { status, ...extraFields };
+    const { data, error } = await this.client.from('applicants').update(update).eq('id', id).select().single();
+    if (error) throw error;
+    const mapped = this._applFromDB(data);
+    const idx = this.data.applicants.findIndex(a => a.id === mapped.id);
+    if (idx >= 0) this.data.applicants[idx] = mapped;
+    return mapped;
+  },
+  getApplicantStats() {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const thisMonth = today.slice(0, 7);
+    const list = this.data.applicants;
+    const inMonth = list.filter(a => (a.appliedDate || '').startsWith(thisMonth));
+    return {
+      total: list.length,
+      newThisMonth: inMonth.length,
+      pendingInterview: list.filter(a => a.status === 'screening').length,
+      interviewed: list.filter(a => a.status === 'interviewed').length,
+      passed: list.filter(a => a.status === 'passed').length,
+      hiredYTD: list.filter(a => a.status === 'hired' && (a.decidedDate || '').slice(0, 4) === today.slice(0, 4)).length,
+      rejected: list.filter(a => a.status === 'rejected').length
+    };
   },
 
   // ─── CALENDAR ───
