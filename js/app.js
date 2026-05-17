@@ -5718,7 +5718,7 @@ function renderLeaveBalanceTable() {
       <tbody>
         ${emps.map(e => {
           return `<tr>
-            <td><strong>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</strong><br><span class="muted-2" style="font-size:11px">${escapeHtml(e.id)}${e.gender ? ` <span style="font-size:12px;color:${e.gender === 'M' ? '#1e88e5' : '#ec407a'};font-weight:600">${e.gender === 'M' ? '♂' : '♀'}</span>` : ''}</span></td>
+            <td><strong>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</strong><br><span class="muted-2" style="font-size:11px">${escapeHtml(e.id)}${(() => { const g = DB.genderCode(e.gender); return g ? ` <span style="font-size:12px;color:${g === 'M' ? '#1e88e5' : '#ec407a'};font-weight:600">${g === 'M' ? '♂' : '♀'}</span>` : ''; })()}</span></td>
             ${types.map(([k]) => {
               const b = DB.calcLeaveBalance(e.id, k, year);
               if (b.quota === 0) return '<td class="num"><span class="muted-2">—</span></td>';

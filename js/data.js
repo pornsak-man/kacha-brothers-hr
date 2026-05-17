@@ -1413,11 +1413,20 @@ const DB = {
     };
   },
 
+  // normalize ค่า gender จากฐานข้อมูล (ไทย 'ชาย'/'หญิง' หรืออังกฤษ 'M'/'F') → 'M'/'F'/null
+  genderCode(g) {
+    if (!g) return null;
+    const v = String(g).trim().toLowerCase();
+    if (v === 'm' || v === 'ชาย' || v === 'male')   return 'M';
+    if (v === 'f' || v === 'หญิง' || v === 'female') return 'F';
+    return null;
+  },
+
   // คำนวณโควต้าของพนักงาน ณ ปีหนึ่ง — ขึ้นกับ gender + อายุงาน (สำหรับ rule = 'tenure')
   calcLeaveQuota(emp, leaveType, year = new Date().getFullYear()) {
     const cfg = this.LEAVE_TYPES[leaveType];
     if (!cfg || !emp) return 0;
-    if (cfg.gender && cfg.gender !== emp.gender) return 0;
+    if (cfg.gender && cfg.gender !== this.genderCode(emp.gender)) return 0;
     if (cfg.rule === 'tenure') {
       if (!emp.hireDate) return 0;
       const m = String(emp.hireDate).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
