@@ -3846,6 +3846,23 @@ async function markUniformRequestIssued(id) {
   } catch (ex) { toast('อัปเดตไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
 }
 
+// ยืนยันการจัดส่ง — แสดง toast สรุปยอด + ปิด modal (ไม่แก้ข้อมูล)
+function confirmIssueAndClose(requestId) {
+  const req = DB.getUniformRequest(requestId);
+  if (!req) { modal.close(); return; }
+  let ownerName = 'พนักงาน';
+  if (req.employeeId) {
+    const e = DB.getEmployee(req.employeeId);
+    if (e) ownerName = `${e.firstName} ${e.lastName || ''}`.trim();
+  } else if (req.applicantId) {
+    const ap = DB.getApplicant(req.applicantId);
+    if (ap) ownerName = `${ap.firstName} ${ap.lastName || ''}`.trim();
+  }
+  const issues = DB.getUniformIssues({ requestId });
+  toast(`✓ จัดส่งครบแล้ว · ${ownerName} · ${issues.length} รายการ · ${fmt.money(req.totalCost)} ฿`, 'success');
+  modal.close();
+}
+
 // Parse บรรทัด recruit เช่น "กางเกง M 1 ตัว" → { name, size, qty, unit }
 function parseUniformNoteToItems(note) {
   if (!note) return [];
@@ -4058,7 +4075,9 @@ function openIssueItemsForm(requestId) {
               <button type="button" class="btn btn-success" onclick="markUniformRequestIssued('${requestId}')" title="ทำเครื่องหมายว่าจัดส่งครบแล้ว (เปลี่ยนสถานะเป็น 'จัดส่งแล้ว')">
                 ✓ จัดส่งครบแล้ว
               </button>
-            ` : `<span class="badge badge-success" style="padding:8px 14px;font-size:12.5px">✓ จัดส่งแล้ว</span>`}
+            ` : `<button type="button" class="btn btn-success" onclick="confirmIssueAndClose('${requestId}')" title="ยืนยันการจัดส่งเรียบร้อย + ปิดหน้านี้">
+                ✓ ยืนยันการจัดส่ง · ปิด
+              </button>`}
           </div>
           <button type="submit" class="btn btn-primary">+ เพิ่มรายการ${existing.length === 0 ? ' (พร้อมตัด stock)' : ''}</button>
         </div>
