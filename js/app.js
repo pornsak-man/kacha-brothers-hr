@@ -112,6 +112,71 @@ const fmt = {
 
 const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// ─── REUSABLE EMPLOYEE PICKER (searchable input + datalist) ───
+// ใช้แทน <select> ที่มีพนักงานเยอะ — พิมพ์ ชื่อ/นามสกุล/ชื่อเล่น/รหัส กรองได้
+// คืน HTML string. Call wireEmployeePickers() หลัง render เพื่อ attach listeners
+let _empPickerSeq = 0;
+function employeePicker({ name, emps, selected = '', required = false, placeholder = 'พิมพ์ค้นหา ชื่อ / นามสกุล / ชื่อเล่น / รหัส', containerClass = '' }) {
+  const id = 'emp_pk_' + (++_empPickerSeq);
+  const dlId = id + '_dl';
+  const empFormat = (e) => `${e.id} — ${(e.title || '') + (e.firstName || '')} ${e.lastName || ''}${e.nickname ? ' (' + e.nickname + ')' : ''}`;
+  const selectedEmp = selected ? emps.find(e => e.id === selected) : null;
+  const displayVal = selectedEmp ? empFormat(selectedEmp) : '';
+  return `
+    <input type="text"
+           id="${id}_search"
+           class="emp-picker-search ${containerClass}"
+           data-picker="${id}"
+           list="${dlId}"
+           autocomplete="off"
+           ${required ? 'required' : ''}
+           placeholder="${escapeHtml(placeholder)}"
+           value="${escapeHtml(displayVal)}"/>
+    <input type="hidden" name="${name}" id="${id}" value="${escapeHtml(selected)}"/>
+    <datalist id="${dlId}">
+      ${emps.map(e => `<option value="${escapeHtml(empFormat(e))}"></option>`).join('')}
+    </datalist>
+    <small class="muted-2" id="${id}_hint" style="font-size:11px"></small>
+  `;
+}
+
+// Wire all employee pickers in a container (default: document)
+// Optional onPick(emp, hiddenInput) callback fires when selection valid
+function wireEmployeePickers(rootSelector, onPick) {
+  const root = rootSelector ? document.querySelector(rootSelector) : document;
+  if (!root) return;
+  root.querySelectorAll('.emp-picker-search').forEach(input => {
+    if (input.dataset.wired) return; // กัน wire ซ้ำ
+    input.dataset.wired = '1';
+    const pickerId = input.dataset.picker;
+    const hidden = document.getElementById(pickerId);
+    const hint = document.getElementById(pickerId + '_hint');
+    const update = () => {
+      const v = (input.value || '').trim();
+      let emp = null;
+      if (v) {
+        // exact ID
+        emp = DB.getEmployee(v);
+        // "ID — name" format
+        if (!emp && v.includes('—')) {
+          const id = v.split(/\s*—\s*/)[0].trim();
+          emp = DB.getEmployee(id);
+        }
+      }
+      if (emp) {
+        hidden.value = emp.id;
+        if (hint) hint.innerHTML = `<span style="color:var(--success)">✓ ${escapeHtml(emp.firstName + ' ' + (emp.lastName || ''))}</span>`;
+        if (onPick) onPick(emp, hidden);
+      } else {
+        hidden.value = '';
+        if (hint) hint.innerHTML = v ? '<span style="color:var(--danger)">ไม่พบพนักงาน</span>' : '';
+      }
+    };
+    input.addEventListener('input', update);
+    input.addEventListener('change', update);
+  });
+}
+
 // ─── SVG ICONS (Lucide-style stroke icons) ───
 const ICON = {
   users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
@@ -2168,7 +2233,7 @@ function openDeptForm(id = null) {
       <div class="form-grid">
         <div class="form-group"><label>รหัส *</label><input name="id" value="${escapeHtml(d.id)}" required ${id ? 'readonly' : ''}/></div>
         <div class="form-group"><label>ชื่อฝ่าย *</label><input name="name" value="${escapeHtml(d.name)}" required/></div>
-        <div class="form-group span-2"><label>หัวหน้าฝ่าย</label><select name="manager"><option value="">- ไม่ระบุ -</option>${emps.map(e => `<option value="${e.id}" ${d.manager === e.id ? 'selected' : ''}>${escapeHtml(e.id + ' — ' + e.firstName + ' ' + e.lastName)}</option>`).join('')}</select></div>
+        <div class="form-group span-2"><label>หัวหน้าฝ่าย <span class="muted-2" style="font-weight:normal;font-size:11px">(ไม่บังคับ — เคลียร์ช่องเพื่อไม่ระบุ)</span></label>${employeePicker({ name: 'manager', emps, selected: d.manager, placeholder: 'พิมพ์ชื่อหรือเคลียร์เพื่อไม่ระบุ' })}</div>
         <div class="form-group span-2"><label>หมายเหตุ</label><textarea name="note" rows="2">${escapeHtml(d.note)}</textarea></div>
       </div>
       <div class="form-actions">
@@ -2176,6 +2241,7 @@ function openDeptForm(id = null) {
         <button type="submit" class="btn btn-primary">บันทึก</button>
       </div>
     </form>`);
+  wireEmployeePickers('#deptForm');
   $('#deptForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -3588,7 +3654,7 @@ function openLoanForm(id = null) {
   modal.open(id ? 'แก้ไขการกู้' : 'บันทึกการกู้', `
     <form id="loanForm">
       <div class="form-grid">
-        <div class="form-group span-2"><label>พนักงาน *</label><select name="employeeId" required><option value="">- เลือก -</option>${emps.map(e => `<option value="${e.id}" ${l.employeeId === e.id ? 'selected' : ''}>${escapeHtml(e.id + ' — ' + e.firstName + ' ' + e.lastName)}</option>`).join('')}</select></div>
+        <div class="form-group span-2"><label>พนักงาน *</label>${employeePicker({ name: 'employeeId', emps, selected: l.employeeId, required: true })}</div>
         <div class="form-group"><label>วันที่ *</label><input name="date" type="date" value="${l.date}" required/></div>
         <div class="form-group"><label>จำนวนที่กู้ *</label><input name="amount" type="number" min="0" value="${l.amount}" required/></div>
         <div class="form-group"><label>ผ่อนต่อเดือน</label><input name="monthlyPayment" type="number" min="0" value="${l.monthlyPayment}"/></div>
@@ -3598,6 +3664,7 @@ function openLoanForm(id = null) {
       </div>
       <div class="form-actions"><button type="button" class="btn btn-secondary" data-close>ยกเลิก</button><button type="submit" class="btn btn-primary">บันทึก</button></div>
     </form>`);
+  wireEmployeePickers('#loanForm');
   $('#loanForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -3656,7 +3723,7 @@ function openAdvanceForm(id = null) {
   modal.open(id ? 'แก้ไข' : 'บันทึกการเบิกล่วงหน้า', `
     <form id="advForm">
       <div class="form-grid">
-        <div class="form-group span-2"><label>พนักงาน *</label><select name="employeeId" required><option value="">- เลือก -</option>${emps.map(e => `<option value="${e.id}" ${a.employeeId === e.id ? 'selected' : ''}>${escapeHtml(e.firstName + ' ' + e.lastName)}</option>`).join('')}</select></div>
+        <div class="form-group span-2"><label>พนักงาน *</label>${employeePicker({ name: 'employeeId', emps, selected: a.employeeId, required: true })}</div>
         <div class="form-group"><label>วันที่ *</label><input name="date" type="date" value="${a.date}" required/></div>
         <div class="form-group"><label>จำนวน *</label><input name="amount" type="number" min="0" value="${a.amount}" required/></div>
         <div class="form-group span-2"><label>สถานะ</label><select name="status"><option value="pending" ${a.status === 'pending' ? 'selected' : ''}>รอจ่าย</option><option value="paid" ${a.status === 'paid' ? 'selected' : ''}>จ่ายแล้ว</option></select></div>
@@ -3664,6 +3731,7 @@ function openAdvanceForm(id = null) {
       </div>
       <div class="form-actions"><button type="button" class="btn btn-secondary" data-close>ยกเลิก</button><button type="submit" class="btn btn-primary">บันทึก</button></div>
     </form>`);
+  wireEmployeePickers('#advForm');
   $('#advForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -3722,7 +3790,7 @@ function openAllowanceForm(id = null) {
   modal.open(id ? 'แก้ไข' : 'บันทึกเบี้ยเลี้ยง', `
     <form id="allowForm">
       <div class="form-grid">
-        <div class="form-group span-2"><label>พนักงาน *</label><select name="employeeId" required><option value="">- เลือก -</option>${emps.map(e => `<option value="${e.id}" ${a.employeeId === e.id ? 'selected' : ''}>${escapeHtml(e.firstName + ' ' + e.lastName)}</option>`).join('')}</select></div>
+        <div class="form-group span-2"><label>พนักงาน *</label>${employeePicker({ name: 'employeeId', emps, selected: a.employeeId, required: true })}</div>
         <div class="form-group"><label>เดือน *</label><input name="month" type="month" value="${a.month}" required/></div>
         <div class="form-group"><label>ประเภท</label><select name="type">${['ค่าเดินทาง', 'ค่าโทรศัพท์', 'ค่าตำแหน่ง', 'ค่าครองชีพ', 'อื่นๆ'].map(t => `<option ${a.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
         <div class="form-group span-2"><label>จำนวน *</label><input name="amount" type="number" min="0" value="${a.amount}" required/></div>
@@ -3730,6 +3798,7 @@ function openAllowanceForm(id = null) {
       </div>
       <div class="form-actions"><button type="button" class="btn btn-secondary" data-close>ยกเลิก</button><button type="submit" class="btn btn-primary">บันทึก</button></div>
     </form>`);
+  wireEmployeePickers('#allowForm');
   $('#allowForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -3799,7 +3868,7 @@ function openEvalForm(id = null) {
   modal.open(id ? 'แก้ไข' : 'บันทึกการประเมิน', `
     <form id="evalForm">
       <div class="form-grid">
-        <div class="form-group span-2"><label>พนักงาน *</label><select name="employeeId" required><option value="">- เลือก -</option>${emps.map(e => `<option value="${e.id}" ${v.employeeId === e.id ? 'selected' : ''}>${escapeHtml(e.firstName + ' ' + e.lastName)}</option>`).join('')}</select></div>
+        <div class="form-group span-2"><label>พนักงาน *</label>${employeePicker({ name: 'employeeId', emps, selected: v.employeeId, required: true })}</div>
         <div class="form-group"><label>วันที่ *</label><input name="date" type="date" value="${v.date}" required/></div>
         <div class="form-group"><label>รอบประเมิน</label><input name="period" value="${escapeHtml(v.period)}" placeholder="เช่น ครึ่งปี 2026"/></div>
         <div class="form-group"><label>คะแนน (0-100) *</label><input id="scoreInput" name="score" type="number" min="0" max="100" value="${v.score}" required/></div>
@@ -3808,6 +3877,7 @@ function openEvalForm(id = null) {
       </div>
       <div class="form-actions"><button type="button" class="btn btn-secondary" data-close>ยกเลิก</button><button type="submit" class="btn btn-primary">บันทึก</button></div>
     </form>`);
+  wireEmployeePickers('#evalForm');
   $('#scoreInput').addEventListener('input', () => { $('#gradeInput').value = scoreToGrade($('#scoreInput').value); });
   $('#evalForm').addEventListener('submit', async (e) => {
     e.preventDefault();
