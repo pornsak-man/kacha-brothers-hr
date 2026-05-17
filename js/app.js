@@ -1041,10 +1041,13 @@ const totalIncome = (e) => Number(e.salary || 0) + Number(e.allowancePosition ||
   Number(e.allowancePerDiem || 0) + Number(e.allowanceLanguage || 0) +
   Number(e.allowanceOther || 0);
 
-function openEmployeeForm(id = null) {
+function openEmployeeForm(id = null, init = null, onSaved = null) {
   if (!requireAdmin()) return;
-  const emp = id ? DB.getEmployee(id) : {
-    id: DB.nextEmployeeId(), title: 'นาย', firstName: '', lastName: '', nickname: '',
+  // init: pre-fill values (เช่นจาก applicant). ถ้า init.skipAutoId = true → ID ว่าง (user กรอกเอง)
+  // onSaved(savedEmp): callback หลัง save สำเร็จ (เช่น update applicant status)
+  const defaults = {
+    id: init?.skipAutoId ? '' : DB.nextEmployeeId(),
+    title: 'นาย', firstName: '', lastName: '', nickname: '',
     nationalId: '', dob: '', gender: 'ชาย',
     nationality: 'ไทย', religion: '', education: '',
     phone: '', email: '', address: '',
@@ -1061,13 +1064,15 @@ function openEmployeeForm(id = null) {
     bank: '', bankAccount: '',
     status: 'active', note: ''
   };
+  const emp = id ? DB.getEmployee(id) : { ...defaults, ...(init || {}) };
   const depts = DB.getDepartments();
   const positions = DB.getPositions();
 
   const opt = (values, current) => values.map(v => `<option ${v === current ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
   const dataListOpt = (values) => values.map(v => `<option value="${escapeHtml(v)}">`).join('');
 
-  modal.open(id ? 'แก้ไขข้อมูลพนักงาน' : 'เพิ่มพนักงานใหม่', `
+  const formTitle = id ? 'แก้ไขข้อมูลพนักงาน' : (init?.fromApplicant ? 'รับเข้าทำงาน — กรอกข้อมูลพนักงาน' : 'เพิ่มพนักงานใหม่');
+  modal.open(formTitle, `
     <form id="empForm">
 
       <div class="form-section">
@@ -1315,9 +1320,14 @@ function openEmployeeForm(id = null) {
       }
 
       btn.textContent = 'กำลังบันทึก...';
-      await DB.saveEmployee(data);
+      const saved = await DB.saveEmployee(data);
       modal.close();
-      toast(id ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มพนักงานใหม่แล้ว', 'success');
+      // ถ้ามาจาก applicant (มี onSaved) → ให้ callback แสดง toast เอง ไม่แสดงซ้ำ
+      if (onSaved) {
+        await onSaved(saved);
+      } else {
+        toast(id ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มพนักงานใหม่แล้ว', 'success');
+      }
       renderEmployeeList();
     } catch (ex) {
       toast('บันทึกไม่สำเร็จ: ' + (ex.message || ex), 'error');
@@ -2446,52 +2456,45 @@ async function deleteApplicant(id) {
   } catch (ex) { toast('ลบไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
 }
 
-// รับเข้าทำงาน — สร้าง record พนักงานใหม่ + อัปเดตสถานะ applicant
-async function hireApplicant(id) {
+// รับเข้าทำงาน — เปิด form พนักงานพร้อม pre-fill จาก applicant
+// ผู้ใช้ต้องกรอกรหัสพนักงานเอง (ไม่ auto) + ตรวจ/แก้ไขฟิลด์อื่น ก่อนบันทึก
+function hireApplicant(applicantId) {
   if (!requireAdmin()) return;
-  const a = DB.getApplicant(id);
+  const a = DB.getApplicant(applicantId);
   if (!a) return;
-  const name = `${a.firstName} ${a.lastName || ''}`.trim();
-  if (!await modal.confirm('รับเข้าทำงาน', `สร้างพนักงานใหม่จาก "${name}" ใช่หรือไม่?\n\nระบบจะสร้าง record พนักงานพร้อมข้อมูลเริ่มต้น คุณสามารถแก้ไขเพิ่มเติมในหน้าทะเบียนพนักงาน`)) return;
 
-  try {
-    // 1) สร้าง employee record
-    const newEmp = {
-      id: DB.nextEmployeeId(),
-      title: 'นาย', firstName: a.firstName, lastName: a.lastName || '',
+  openEmployeeForm(
+    null,
+    {
+      fromApplicant: true,
+      skipAutoId: true,  // ID ว่าง — user กรอกเอง
+      firstName: a.firstName,
+      lastName: a.lastName || '',
       nickname: a.nickname || '',
-      nationalId: '', dob: '', gender: 'ชาย',
-      nationality: 'ไทย', religion: '', education: '',
-      phone: a.phone || '', email: a.email || '', address: '',
-      subDistrict: '', district: '', province: '', postalCode: '',
-      passportNumber: '', workPermitNumber: '',
+      phone: a.phone || '',
+      email: a.email || '',
       department: a.department || (DB.getDepartments()[0]?.id || ''),
       branch: a.branch || '',
       position: a.position || (DB.getPositions()[0]?.id || ''),
       positionTitle: a.positionTitle || '',
       employeeType: 'พนักงานทดลองงาน',
-      hireDate: tz.today(),
-      terminationDate: '',
       salary: Number(a.expectedSalary) || 0,
-      allowancePosition: 0, allowanceTravel: 0, allowanceFood: 0,
-      allowancePerDiem: 0, allowanceLanguage: 0, allowanceOther: 0,
-      bank: '', bankAccount: '',
-      photoUrl: '',
-      status: 'active', note: `จากผู้สมัคร · ช่องทาง ${a.source || '-'}\n${a.note || ''}`.trim()
-    };
-    const saved = await DB.saveEmployee(newEmp);
-
-    // 2) อัปเดต applicant — status='hired' + link employee_id
-    await DB.setApplicantStatus(id, 'hired', {
-      hired_employee_id: saved.id,
-      decided_date: tz.today()
-    });
-
-    toast(`รับเข้าทำงานแล้ว · รหัสพนักงาน ${saved.id}`, 'success');
-    router.go('recruit');
-  } catch (ex) {
-    toast('รับเข้าไม่สำเร็จ: ' + (ex.message || ex), 'error');
-  }
+      note: `จากผู้สมัคร · ช่องทาง ${a.source || '-'}\n${a.note || ''}`.trim()
+    },
+    async (saved) => {
+      // หลังบันทึกพนักงานสำเร็จ → อัปเดตสถานะ applicant เป็น 'hired' + link employee_id
+      try {
+        await DB.setApplicantStatus(applicantId, 'hired', {
+          hired_employee_id: saved.id,
+          decided_date: tz.today()
+        });
+        toast(`รับเข้าทำงานแล้ว · รหัสพนักงาน ${saved.id}`, 'success');
+        if (router.current === 'recruit') router.go('recruit');
+      } catch (ex) {
+        toast('สร้างพนักงานแล้ว แต่อัปเดตสถานะใบสมัครไม่สำเร็จ: ' + (ex.message || ex), 'warning');
+      }
+    }
+  );
 }
 
 // ═══════════════════════════════════════════════════════
