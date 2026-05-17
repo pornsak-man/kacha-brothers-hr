@@ -3001,6 +3001,8 @@ const UNIFORM_STATUS = {
   cancelled:  { label: 'ยกเลิก',     cls: 'badge-danger' }
 };
 const _uniformState = { tab: 'requests', filter: '' };
+const DAY_NAMES_TH = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+const DAY_NAMES_SHORT = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
 
 router.register('uniform', () => {
   const stats = DB.getUniformStats();
@@ -3052,6 +3054,7 @@ router.register('uniform', () => {
         <button class="btn btn-sm ${tab === 'requests' ? 'btn-primary' : 'btn-ghost'}" onclick="switchUniformTab('requests')">คำขอจัดชุด</button>
         <button class="btn btn-sm ${tab === 'items' ? 'btn-primary' : 'btn-ghost'}" onclick="switchUniformTab('items')">รายการชุด + Stock</button>
         <button class="btn btn-sm ${tab === 'issues' ? 'btn-primary' : 'btn-ghost'}" onclick="switchUniformTab('issues')">ประวัติการจัดส่ง</button>
+        <button class="btn btn-sm ${tab === 'schedule' ? 'btn-primary' : 'btn-ghost'}" onclick="switchUniformTab('schedule')">รอบการจัดส่ง</button>
       </div>
       <div id="uniformContent">${renderUniformTab()}</div>
     </div>
@@ -3068,7 +3071,109 @@ function renderUniformTab() {
   const tab = _uniformState.tab;
   if (tab === 'items') return renderUniformItemsTable();
   if (tab === 'issues') return renderUniformIssuesTable();
+  if (tab === 'schedule') return renderUniformScheduleTable();
   return renderUniformRequestsTable();
+}
+
+// ─── รอบการจัดส่ง — group by branch ───
+function renderUniformScheduleTable() {
+  const all = DB.getUniformSchedules();
+  // group by branch
+  const byBranch = new Map();
+  for (const s of all) {
+    if (!byBranch.has(s.branchCode)) byBranch.set(s.branchCode, []);
+    byBranch.get(s.branchCode).push(s);
+  }
+  const branches = [...byBranch.keys()].sort();
+
+  const addBtn = DB.isAdmin ? `<button class="btn btn-secondary btn-sm" onclick="openUniformScheduleForm()" style="margin-bottom:14px">${ICON.plus}เพิ่มรอบการจัดส่ง</button>` : '';
+
+  if (!branches.length) {
+    return `${addBtn}<div class="empty-state"><div class="title">ยังไม่มีรอบการจัดส่ง</div><div class="hint">กดปุ่ม "+ เพิ่มรอบการจัดส่ง" เพื่อกำหนดสาขา + วันส่ง</div></div>`;
+  }
+
+  return `
+    ${addBtn}
+    <div class="table-wrap"><table class="table table-compact">
+      <thead><tr>
+        <th>สาขา</th><th>วันส่ง</th><th>วันส่งถัดไป</th><th>สถานะ</th><th>หมายเหตุ</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${branches.map(branch => {
+          const list = byBranch.get(branch).sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+          const next = DB.getNextDeliveryDate(branch);
+          return list.map((s, i) => `
+            <tr>
+              ${i === 0 ? `<td rowspan="${list.length}" style="vertical-align:top"><strong>${escapeHtml(branch)}</strong></td>` : ''}
+              <td><span class="badge badge-info">${DAY_NAMES_TH[s.dayOfWeek]}</span></td>
+              ${i === 0 ? `<td rowspan="${list.length}" style="vertical-align:top">${next ? `<strong style="color:var(--success)">${fmt.date(next.date)}</strong> (${next.dayName})` : '<span class="muted-2">-</span>'}</td>` : ''}
+              <td>${s.active ? '<span class="badge badge-success">ใช้งาน</span>' : '<span class="badge">ปิด</span>'}</td>
+              <td>${escapeHtml(s.note || '-')}</td>
+              <td class="actions">
+                ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openUniformScheduleForm('${s.id}')">แก้</button>
+                <button class="btn btn-ghost btn-sm" onclick="deleteUniformSchedule('${s.id}')">ลบ</button>` : ''}
+              </td>
+            </tr>
+          `).join('');
+        }).join('')}
+      </tbody>
+    </table></div>
+  `;
+}
+
+function openUniformScheduleForm(id = null) {
+  if (!requireAdmin()) return;
+  const s = id ? DB.getUniformSchedule(id) : { id: '', branchCode: '', dayOfWeek: 1, active: true, note: '' };
+  const branches = DB.getBranches();
+  modal.open(id ? 'แก้ไขรอบการจัดส่ง' : 'เพิ่มรอบการจัดส่ง', `
+    <form id="uniSchedForm">
+      <div class="form-grid">
+        <div class="form-group"><label>สาขา *</label>
+          <input name="branchCode" list="dl-branches-sched" value="${escapeHtml(s.branchCode)}" required placeholder="เช่น KMB, GE, JM" autocomplete="off"/>
+          <datalist id="dl-branches-sched">${branches.map(b => `<option value="${escapeHtml(b)}">`).join('')}</datalist>
+        </div>
+        <div class="form-group"><label>วันส่ง *</label>
+          <select name="dayOfWeek" required>
+            ${DAY_NAMES_TH.map((d, i) => `<option value="${i}" ${Number(s.dayOfWeek) === i ? 'selected' : ''}>${d}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>สถานะ</label>
+          <select name="active"><option value="true" ${s.active ? 'selected' : ''}>ใช้งาน</option><option value="false" ${!s.active ? 'selected' : ''}>ปิด</option></select>
+        </div>
+        <div class="form-group span-2"><label>หมายเหตุ</label><input name="note" value="${escapeHtml(s.note)}" placeholder="เช่น ส่งช่วงบ่าย, รับที่ออฟฟิศกลาง"/></div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
+        <button type="submit" class="btn btn-primary">บันทึก</button>
+      </div>
+    </form>
+    <div class="muted-2" style="font-size:12px;margin-top:10px;padding:10px 14px;background:var(--surface-2);border-radius:8px">
+      💡 ถ้าสาขาส่งหลายวัน เพิ่มทีละ row — ระบบจะ group ให้ในตาราง
+    </div>
+  `);
+  $('#uniSchedForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      data.dayOfWeek = Number(data.dayOfWeek);
+      data.active = data.active === 'true';
+      if (id) data.id = id;
+      await DB.saveUniformSchedule(data);
+      modal.close();
+      toast('บันทึกรอบการจัดส่งแล้ว', 'success');
+      _uniformState.tab = 'schedule';
+      router.go('uniform');
+    } catch (ex) { toast('บันทึกไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+  });
+}
+
+async function deleteUniformSchedule(id) {
+  if (!requireAdmin()) return;
+  const s = DB.getUniformSchedule(id);
+  if (!s) return;
+  if (!await modal.confirm('ลบรอบการจัดส่ง', `ลบ "${s.branchCode} · ${DAY_NAMES_TH[s.dayOfWeek]}" ใช่หรือไม่?`)) return;
+  try { await DB.deleteUniformSchedule(id); toast('ลบแล้ว', 'success'); router.go('uniform'); }
+  catch (ex) { toast('ลบไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
 }
 
 function renderUniformRequestsTable() {
@@ -3178,8 +3283,9 @@ function openUniformRequestForm(id = null) {
     <form id="uniReqForm">
       <div class="form-grid">
         <div class="form-group span-2"><label>พนักงาน *</label>${employeePicker({ name: 'employeeId', emps, selected: r.employeeId, required: true })}</div>
+        <div class="form-group span-2" id="uniSchedHint" style="display:none;padding:10px 14px;background:var(--success-soft);border-radius:8px;font-size:13px;color:var(--success-text);border:1px solid var(--border)"></div>
         <div class="form-group"><label>วันที่แจ้ง *</label><input name="requestedDate" type="date" value="${r.requestedDate || tz.today()}" required/></div>
-        <div class="form-group"><label>ต้องการก่อน (วันเริ่มงาน)</label><input name="neededBy" type="date" value="${r.neededBy || ''}"/></div>
+        <div class="form-group"><label>ต้องการก่อน (วันเริ่มงาน) <span class="muted-2" style="font-weight:normal;font-size:11px" id="uniNeededHint"></span></label><input name="neededBy" id="uniNeededByInput" type="date" value="${r.neededBy || ''}"/></div>
         <div class="form-group"><label>แจ้งโดย</label><input name="requestedBy" value="${escapeHtml(r.requestedBy)}" placeholder="ชื่อ HR คนแจ้ง"/></div>
         <div class="form-group"><label>สถานะ</label>
           <select name="status">${Object.entries(UNIFORM_STATUS).map(([k, v]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
@@ -3192,7 +3298,35 @@ function openUniformRequestForm(id = null) {
       </div>
     </form>
   `);
-  wireEmployeePickers('#uniReqForm');
+  // เมื่อเลือกพนักงาน → แสดงข้อมูลรอบการจัดส่งของสาขานั้น + auto-suggest needed_by
+  wireEmployeePickers('#uniReqForm', (emp) => {
+    const hint = $('#uniSchedHint');
+    const neededHint = $('#uniNeededHint');
+    if (!emp.branch) {
+      hint.style.display = 'none';
+      if (neededHint) neededHint.textContent = '';
+      return;
+    }
+    const schedules = DB.getUniformSchedules({ branchCode: emp.branch, activeOnly: true });
+    const next = DB.getNextDeliveryDate(emp.branch);
+    if (!schedules.length) {
+      hint.style.display = 'block';
+      hint.style.background = 'var(--warning-soft)';
+      hint.style.color = 'var(--warning-text)';
+      hint.innerHTML = `⚠️ สาขา <strong>${escapeHtml(emp.branch)}</strong> ยังไม่มีรอบการจัดส่ง — ตั้งค่าได้ที่แท็บ "รอบการจัดส่ง"`;
+      if (neededHint) neededHint.textContent = '';
+      return;
+    }
+    const days = schedules.map(s => DAY_NAMES_TH[s.dayOfWeek]).join(', ');
+    hint.style.display = 'block';
+    hint.style.background = 'var(--success-soft)';
+    hint.style.color = 'var(--success-text)';
+    hint.innerHTML = `🚚 สาขา <strong>${escapeHtml(emp.branch)}</strong> ส่งวัน <strong>${days}</strong>` +
+      (next ? ` · รอบถัดไป <strong>${fmt.date(next.date)} (${next.dayName})</strong>` : '');
+    if (neededHint && next) {
+      neededHint.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" onclick="document.getElementById('uniNeededByInput').value='${next.date}'">ใส่ ${fmt.date(next.date)}</button>`;
+    }
+  });
   $('#uniReqForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {

@@ -26,7 +26,8 @@ const DB = {
     applicants: [],
     uniformItems: [],
     uniformRequests: [],
-    uniformIssues: []
+    uniformIssues: [],
+    uniformSchedule: []
   },
 
   // ─── INDEX CACHES (O(1) lookup; rebuild lazily after data change) ───
@@ -122,7 +123,7 @@ const DB = {
       this.client.from('company_settings').select('*').eq('id', 1).maybeSingle()
     ]);
     // ตารางที่อาจมีเกิน 1000 records — ดึงด้วย pagination
-    const [emps, loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues] = await Promise.all([
+    const [emps, loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues, uniSched] = await Promise.all([
       this._fetchAllPages('employees', 'id', true),
       this._fetchAllPages('loans', 'date', false),
       this._fetchAllPages('advances', 'date', false),
@@ -132,7 +133,8 @@ const DB = {
       this._fetchAllPages('applicants', 'applied_date', false).catch(() => []),  // legacy DB อาจยังไม่มี
       this._fetchAllPages('uniform_items', 'name', true).catch(() => []),
       this._fetchAllPages('uniform_requests', 'requested_date', false).catch(() => []),
-      this._fetchAllPages('uniform_issues', 'issued_date', false).catch(() => [])
+      this._fetchAllPages('uniform_issues', 'issued_date', false).catch(() => []),
+      this._fetchAllPages('uniform_delivery_schedule', 'branch_code', true).catch(() => [])
     ]);
     this.data.departments = (deps.data || []).map(this._depFromDB);
     this.data.positionLevels = (pos.data || []).map(this._posFromDB);
@@ -147,6 +149,7 @@ const DB = {
     this.data.uniformItems = (uniItems || []).map(this._uniItemFromDB);
     this.data.uniformRequests = (uniReqs || []).map(this._uniReqFromDB);
     this.data.uniformIssues = (uniIssues || []).map(this._uniIssueFromDB);
+    this.data.uniformSchedule = (uniSched || []).map(this._uniSchedFromDB);
     if (comp.data) this.data.company = this._compFromDB(comp.data);
     this._invalidateIndex();
   },
@@ -178,7 +181,8 @@ const DB = {
       applicants: { list: 'applicants', from: this._applFromDB },
       uniform_items: { list: 'uniformItems', from: this._uniItemFromDB },
       uniform_requests: { list: 'uniformRequests', from: this._uniReqFromDB },
-      uniform_issues: { list: 'uniformIssues', from: this._uniIssueFromDB }
+      uniform_issues: { list: 'uniformIssues', from: this._uniIssueFromDB },
+      uniform_delivery_schedule: { list: 'uniformSchedule', from: this._uniSchedFromDB }
     };
     const m = map[table];
     if (!m) return;
@@ -420,6 +424,19 @@ const DB = {
     issued_date: i.issuedDate || null,
     issued_by: i.issuedBy || null,
     note: i.note || null
+  }),
+  _uniSchedFromDB: (r) => ({
+    id: r.id,
+    branchCode: r.branch_code || '',
+    dayOfWeek: Number(r.day_of_week ?? 0),
+    active: r.active !== false,
+    note: r.note || ''
+  }),
+  _uniSchedToDB: (s) => ({
+    branch_code: s.branchCode,
+    day_of_week: Number(s.dayOfWeek),
+    active: s.active !== false,
+    note: s.note || null
   }),
 
   // ─── EMPLOYEES ───
@@ -1066,6 +1083,57 @@ const DB = {
     const mapped = this._uniReqFromDB(data);
     const idx = this.data.uniformRequests.findIndex(r => r.id === requestId);
     if (idx >= 0) this.data.uniformRequests[idx] = mapped;
+  },
+
+  // ─── UNIFORM DELIVERY SCHEDULE (รอบการจัดส่ง) ───
+  // เก็บ "สาขา X ส่งวัน Y" — ใช้คำนวณวันส่งถัดไปอัตโนมัติ
+  getUniformSchedules({ branchCode, activeOnly = false } = {}) {
+    let list = this.data.uniformSchedule.slice();
+    if (branchCode) list = list.filter(s => s.branchCode === branchCode);
+    if (activeOnly) list = list.filter(s => s.active);
+    return list.sort((a, b) => (a.branchCode || '').localeCompare(b.branchCode || '') || (a.dayOfWeek - b.dayOfWeek));
+  },
+  getUniformSchedule(id) { return this.data.uniformSchedule.find(s => s.id === id); },
+  async saveUniformSchedule(sched) {
+    const row = this._uniSchedToDB(sched);
+    if (sched.id) row.id = sched.id;
+    const { data, error } = await this.client.from('uniform_delivery_schedule').upsert(row, { onConflict: 'branch_code,day_of_week' }).select().single();
+    if (error) throw error;
+    const mapped = this._uniSchedFromDB(data);
+    const idx = this.data.uniformSchedule.findIndex(s => s.id === mapped.id);
+    if (idx >= 0) this.data.uniformSchedule[idx] = mapped;
+    else this.data.uniformSchedule.unshift(mapped);
+    return mapped;
+  },
+  async deleteUniformSchedule(id) {
+    const { error } = await this.client.from('uniform_delivery_schedule').delete().eq('id', id);
+    if (error) throw error;
+    this.data.uniformSchedule = this.data.uniformSchedule.filter(s => s.id !== id);
+  },
+  // คำนวณวันส่งถัดไปสำหรับสาขา (อิงเวลาไทย) — คืน {date: 'YYYY-MM-DD', dayName: 'พุธ'} หรือ null
+  getNextDeliveryDate(branchCode, fromDate = null) {
+    if (!branchCode) return null;
+    const schedules = this.getUniformSchedules({ branchCode, activeOnly: true });
+    if (!schedules.length) return null;
+    const days = schedules.map(s => s.dayOfWeek);
+    // เริ่มจาก fromDate (default = วันนี้ +1) — หาวันถัดไปที่ตรงกับ schedule
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const start = fromDate || todayStr;
+    const [y, m, d] = start.split('-').map(Number);
+    // สแกน 14 วันข้างหน้า — ครอบ 2 รอบสัปดาห์
+    for (let offset = 1; offset <= 14; offset++) {
+      const dt = new Date(y, m - 1, d + offset);
+      const dow = dt.getDay();
+      if (days.includes(dow)) {
+        const pad = (n) => String(n).padStart(2, '0');
+        const dayNames = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+        return {
+          date: `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`,
+          dayName: dayNames[dow]
+        };
+      }
+    }
+    return null;
   },
 
   // KPI สำหรับหน้า dashboard uniform
