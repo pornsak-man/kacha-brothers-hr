@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   KHACHA BROTHERS HR — APP LOGIC (Supabase + Realtime)
+   KACHA BROTHERS HR — APP LOGIC (Supabase + Realtime)
    ═══════════════════════════════════════════════════════════ */
 
 const $ = (sel, root = document) => root.querySelector(sel);

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   KHACHA BROTHERS HR — DATA LAYER (Supabase)
+   KACHA BROTHERS HR — DATA LAYER (Supabase)
    - ใช้ Supabase สำหรับ auth + storage + realtime
    - cache ข้อมูลใน memory เพื่อให้ getter sync ได้
    - มี realtime subscription คอยอัปเดต cache อัตโนมัติ
@@ -13,7 +13,7 @@ const DB = {
   ready: false,
 
   data: {
-    company: { name: 'บริษัท คชา บราเธอร์ส จำกัด', nameEn: 'Khacha Brothers Co., Ltd.', taxId: '', address: '', phone: '', email: '' },
+    company: { name: 'บริษัท คชา บราเธอร์ส จำกัด', nameEn: 'Kacha Brothers Co., Ltd.', taxId: '', address: '', phone: '', email: '' },
     departments: [],
     positionLevels: [],
     employees: [],

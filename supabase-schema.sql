@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════
--- KHACHA BROTHERS HR — Supabase Schema
+-- KACHA BROTHERS HR — Supabase Schema
 -- รันสคริปต์นี้ใน Supabase SQL Editor ทั้งหมดในครั้งเดียว
 -- ปลอดภัย: ใช้ IF NOT EXISTS / DROP IF EXISTS — รันซ้ำได้
 -- ═══════════════════════════════════════════════════════════
@@ -327,7 +327,7 @@ CREATE POLICY "delete_admin_only" ON public.user_profiles
 
 -- ── ข้อมูลบริษัท ──
 INSERT INTO public.company_settings (id, name, name_en)
-VALUES (1, 'บริษัท คชา บราเธอร์ส จำกัด', 'Khacha Brothers Co., Ltd.')
+VALUES (1, 'บริษัท คชา บราเธอร์ส จำกัด', 'Kacha Brothers Co., Ltd.')
 ON CONFLICT (id) DO NOTHING;
 
 -- ── ฝ่าย ──
