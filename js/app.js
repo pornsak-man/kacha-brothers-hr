@@ -3956,17 +3956,15 @@ function openIssueItemsForm(requestId) {
       <div class="form-grid">
         <div class="form-group"><label>เจ้าของคำขอ</label><input type="text" readonly value="${escapeHtml(ownerLabel)}"/></div>
         <div class="form-group"><label>ต้องการก่อน</label><input type="text" readonly value="${req.neededBy ? fmt.date(req.neededBy) : '-'}"/></div>
-        <div class="form-group span-2">
+        ${!req.note ? `<div class="form-group span-2">
           <label>รายละเอียดที่ recruit แจ้ง <span class="muted-2" style="font-weight:normal;font-size:11px">(size, ประเภท, จำนวน)</span></label>
-          ${req.note
-            ? `<textarea readonly rows="3" style="white-space:pre-wrap;background:var(--surface-2);font-size:13.5px;line-height:1.6">${escapeHtml(req.note)}</textarea>`
-            : `<div style="padding:14px 16px;background:var(--warning-soft);color:var(--warning-text);border-radius:8px;font-size:13px;border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-                <div>⚠️ <strong>ยังไม่ระบุรายละเอียดชุด</strong> — recruit ยังไม่ได้กรอก size/ประเภท/จำนวน${isFromApplicant ? ' ที่ตอนเพิ่มผู้สมัคร' : ''}</div>
-                ${isFromApplicant && req.applicantId
-                  ? `<button type="button" class="btn btn-primary btn-sm" onclick="modal.close(); openApplicantForm('${req.applicantId}')">ไปแก้ไขที่ recruit</button>`
-                  : (req.employeeId ? `<button type="button" class="btn btn-primary btn-sm" onclick="modal.close(); openUniformRequestForm('${req.id}')">ไปกรอกรายละเอียด</button>` : '')}
-              </div>`}
-        </div>
+          <div style="padding:14px 16px;background:var(--warning-soft);color:var(--warning-text);border-radius:8px;font-size:13px;border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+            <div>⚠️ <strong>ยังไม่ระบุรายละเอียดชุด</strong> — recruit ยังไม่ได้กรอก size/ประเภท/จำนวน${isFromApplicant ? ' ที่ตอนเพิ่มผู้สมัคร' : ''}</div>
+            ${isFromApplicant && req.applicantId
+              ? `<button type="button" class="btn btn-primary btn-sm" onclick="modal.close(); openApplicantForm('${req.applicantId}')">ไปแก้ไขที่ recruit</button>`
+              : (req.employeeId ? `<button type="button" class="btn btn-primary btn-sm" onclick="modal.close(); openUniformRequestForm('${req.id}')">ไปกรอกรายละเอียด</button>` : '')}
+          </div>
+        </div>` : ''}
       </div>
     </div>
 
