@@ -299,6 +299,8 @@ const auth = {
     $('#userAvatar').textContent = displayName.charAt(0).toUpperCase();
     $('.user-role').textContent = DB.isAdmin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งานทั่วไป';
     if (typeof updateUniformBadge === 'function') updateUniformBadge();
+    // ซ่อนเมนูเฉพาะ admin ถ้าไม่ใช่ admin
+    $$('.nav-admin-only').forEach(el => { el.style.display = DB.isAdmin ? '' : 'none'; });
     router.go('dashboard');
   }
 };
@@ -330,6 +332,7 @@ const router = {
       branches: 'สาขา',
       recruit: 'รับสมัครงาน',
       uniform: 'จัดชุดพนักงาน',
+      audit: 'ประวัติการแก้ไข',
       'salary-adjust': 'ปรับค่าจ้าง / ตำแหน่ง / สาขา',
       loans: 'การกู้เงินบริษัท',
       advances: 'เบิกเงินล่วงหน้า',
@@ -5223,6 +5226,178 @@ async function deleteCalRec(id) {
 // ═══════════════════════════════════════════════════════
 //  PAGE: SETTINGS
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+//  PAGE: AUDIT LOG (ประวัติการแก้ไข — admin only)
+// ═══════════════════════════════════════════════════════
+const _auditState = {
+  page: 0, pageSize: 50,
+  filterTable: '', filterAction: '', filterSearch: '',
+  rows: [], total: 0, loading: false
+};
+const AUDIT_TABLE_LABELS = {
+  employees: 'พนักงาน',
+  salary_history: 'ปรับค่าจ้าง/ตำแหน่ง/สาขา',
+  applicants: 'ผู้สมัคร',
+  loans: 'การกู้',
+  advances: 'เบิกเงินล่วงหน้า',
+  allowances: 'เบี้ยเลี้ยง',
+  evaluations: 'ประเมินผลงาน',
+  uniform_requests: 'คำขอจัดชุด',
+  uniform_issues: 'การจัดชุด',
+  uniform_items: 'รายการชุด',
+  branches: 'สาขา',
+  departments: 'ฝ่าย',
+  position_levels: 'ระดับตำแหน่ง',
+  user_profiles: 'โปรไฟล์ผู้ใช้'
+};
+const AUDIT_ACTION_LABELS = { INSERT: 'เพิ่ม', UPDATE: 'แก้ไข', DELETE: 'ลบ' };
+const AUDIT_ACTION_COLORS = { INSERT: 'badge-success', UPDATE: 'badge-info', DELETE: 'badge-danger' };
+
+router.register('audit', () => {
+  if (!DB.isAdmin) return `<div class="empty-state"><div class="title">เฉพาะ admin เท่านั้น</div><div class="hint">คุณไม่มีสิทธิ์ดูประวัติการแก้ไข</div></div>`;
+  // Load on first render
+  if (_auditState.rows.length === 0 && !_auditState.loading) {
+    loadAuditPage();
+  }
+  return `
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">ประวัติการแก้ไข</div>
+        <div class="sw-page-subtitle">บันทึกอัตโนมัติว่าใครแก้ไข/เพิ่ม/ลบข้อมูลเมื่อไหร่ · เฉพาะ admin เท่านั้น</div>
+      </div>
+    </div>
+
+    <div class="sw-chart-card" style="margin-bottom:16px">
+      <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr auto;gap:12px;align-items:end">
+        <div class="form-group">
+          <label>ค้นหา (อีเมล/รหัส record)</label>
+          <input id="auditSearch" class="search-input" value="${escapeHtml(_auditState.filterSearch)}" placeholder="เช่น hr@..., 1001"/>
+        </div>
+        <div class="form-group"><label>ตาราง</label>
+          <select id="auditTable">
+            <option value="">— ทั้งหมด —</option>
+            ${Object.entries(AUDIT_TABLE_LABELS).map(([k, v]) => `<option value="${k}" ${_auditState.filterTable === k ? 'selected' : ''}>${v}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>การกระทำ</label>
+          <select id="auditAction">
+            <option value="">— ทั้งหมด —</option>
+            <option value="INSERT" ${_auditState.filterAction === 'INSERT' ? 'selected' : ''}>เพิ่ม</option>
+            <option value="UPDATE" ${_auditState.filterAction === 'UPDATE' ? 'selected' : ''}>แก้ไข</option>
+            <option value="DELETE" ${_auditState.filterAction === 'DELETE' ? 'selected' : ''}>ลบ</option>
+          </select>
+        </div>
+        <div class="form-group"><button class="btn btn-primary" onclick="applyAuditFilter()">ค้นหา</button></div>
+      </div>
+    </div>
+
+    <div class="sw-chart-card">
+      <div class="sw-chart-title">รายการ — ${fmt.num(_auditState.total)} รายการ</div>
+      <div class="sw-chart-sub">เรียงจากใหม่สุด · หน้า ${_auditState.page + 1}/${Math.max(1, Math.ceil(_auditState.total / _auditState.pageSize))}</div>
+      <div id="auditList">${_auditState.loading ? '<div class="muted-2" style="padding:30px;text-align:center">กำลังโหลด...</div>' : renderAuditList()}</div>
+    </div>
+  `;
+});
+
+async function loadAuditPage() {
+  _auditState.loading = true;
+  try {
+    const result = await DB.fetchAuditLog({
+      limit: _auditState.pageSize,
+      offset: _auditState.page * _auditState.pageSize,
+      table: _auditState.filterTable || null,
+      action: _auditState.filterAction || null,
+      search: _auditState.filterSearch || null
+    });
+    _auditState.rows = result.rows;
+    _auditState.total = result.total;
+  } catch (ex) {
+    toast('โหลดประวัติไม่สำเร็จ: ' + (ex.message || ex), 'error');
+    _auditState.rows = [];
+    _auditState.total = 0;
+  }
+  _auditState.loading = false;
+  if (router.current === 'audit') router.go('audit');
+}
+
+function renderAuditList() {
+  if (_auditState.rows.length === 0) {
+    return `<div class="empty-state"><div class="title">ไม่พบรายการ</div><div class="hint">ลองเปลี่ยนตัวกรอง</div></div>`;
+  }
+  const totalPages = Math.max(1, Math.ceil(_auditState.total / _auditState.pageSize));
+  return `
+    <div class="table-wrap"><table class="table table-compact">
+      <thead><tr>
+        <th>เวลา</th><th>ผู้ใช้</th><th>การกระทำ</th><th>ตาราง</th><th>Record ID</th><th>สรุปการเปลี่ยนแปลง</th>
+      </tr></thead>
+      <tbody>
+        ${_auditState.rows.map(r => {
+          const action = AUDIT_ACTION_LABELS[r.action] || r.action;
+          const cls = AUDIT_ACTION_COLORS[r.action] || 'badge-info';
+          const tableLabel = AUDIT_TABLE_LABELS[r.table_name] || r.table_name;
+          // สรุปการเปลี่ยน
+          let summary = '-';
+          if (r.action === 'INSERT' && r.new_data) {
+            const keys = Object.keys(r.new_data).filter(k => r.new_data[k] != null && !['id','created_at','updated_at'].includes(k)).slice(0, 4);
+            summary = keys.map(k => `<code style="font-size:11.5px">${escapeHtml(k)}=${escapeHtml(String(r.new_data[k]).slice(0, 30))}</code>`).join(' ');
+          } else if (r.action === 'UPDATE' && r.old_data && r.new_data) {
+            const changes = [];
+            for (const k of Object.keys(r.new_data)) {
+              if (['updated_at','created_at'].includes(k)) continue;
+              const oldV = r.old_data[k];
+              const newV = r.new_data[k];
+              if (JSON.stringify(oldV) !== JSON.stringify(newV)) {
+                changes.push(`<code style="font-size:11.5px">${escapeHtml(k)}: ${escapeHtml(String(oldV ?? '∅').slice(0, 20))} → <strong>${escapeHtml(String(newV ?? '∅').slice(0, 20))}</strong></code>`);
+              }
+            }
+            summary = changes.slice(0, 4).join('<br>') || '<span class="muted-2">ไม่มีการเปลี่ยน</span>';
+            if (changes.length > 4) summary += `<br><span class="muted-2">+${changes.length - 4} ฟิลด์</span>`;
+          } else if (r.action === 'DELETE' && r.old_data) {
+            const keys = Object.keys(r.old_data).filter(k => r.old_data[k] != null && !['id','created_at','updated_at'].includes(k)).slice(0, 3);
+            summary = keys.map(k => `<code style="font-size:11.5px">${escapeHtml(k)}=${escapeHtml(String(r.old_data[k]).slice(0, 30))}</code>`).join(' ');
+          }
+          const ts = new Date(r.ts);
+          const tsStr = ts.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+          return `<tr style="vertical-align:top">
+            <td style="white-space:nowrap;font-size:12.5px">${tsStr}</td>
+            <td style="font-size:12.5px">
+              <div style="font-weight:600">${escapeHtml(r.user_email || '?')}</div>
+              ${r.user_role ? `<div class="muted-2" style="font-size:11px">${escapeHtml(r.user_role)}</div>` : ''}
+            </td>
+            <td><span class="badge ${cls}">${action}</span></td>
+            <td style="font-size:12.5px">${escapeHtml(tableLabel)}</td>
+            <td><code style="font-size:11.5px">${escapeHtml(r.record_id || '-')}</code></td>
+            <td style="font-size:12px;line-height:1.7;max-width:480px">${summary}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>
+    <div class="pagination" style="margin-top:14px;display:flex;justify-content:space-between;align-items:center">
+      <div class="muted-2" style="font-size:12.5px">แสดง ${_auditState.page * _auditState.pageSize + 1}–${Math.min((_auditState.page + 1) * _auditState.pageSize, _auditState.total)} จาก ${fmt.num(_auditState.total)}</div>
+      <div class="pagination-controls">
+        <button class="btn-page" ${_auditState.page === 0 ? 'disabled' : ''} onclick="auditGoPage(${_auditState.page - 1})">‹ ก่อนหน้า</button>
+        <span style="padding:0 12px;font-size:13px">หน้า ${_auditState.page + 1}/${totalPages}</span>
+        <button class="btn-page" ${_auditState.page >= totalPages - 1 ? 'disabled' : ''} onclick="auditGoPage(${_auditState.page + 1})">ถัดไป ›</button>
+      </div>
+    </div>
+  `;
+}
+
+function applyAuditFilter() {
+  _auditState.filterSearch = $('#auditSearch')?.value || '';
+  _auditState.filterTable = $('#auditTable')?.value || '';
+  _auditState.filterAction = $('#auditAction')?.value || '';
+  _auditState.page = 0;
+  _auditState.rows = []; _auditState.total = 0;
+  loadAuditPage();
+}
+
+function auditGoPage(p) {
+  _auditState.page = p;
+  _auditState.rows = [];
+  loadAuditPage();
+}
+
 router.register('settings', () => {
   const c = DB.data.company;
   return `

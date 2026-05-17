@@ -1270,6 +1270,27 @@ const DB = {
     if (error) throw error;
   },
 
+  // ─── AUDIT LOG (admin only) ───
+  // ไม่ cache — query on demand เพราะข้อมูลโตเรื่อยๆ + ต้องการ filter
+  // คืน { rows: [...], total: N } — pagination ที่ฝั่งเซิร์ฟเวอร์
+  async fetchAuditLog({ limit = 100, offset = 0, table = null, action = null, recordId = null, search = null, from = null, to = null } = {}) {
+    if (!this.isAdmin) throw new Error('ดูได้เฉพาะ admin');
+    let q = this.client.from('audit_log').select('*', { count: 'exact' });
+    if (table) q = q.eq('table_name', table);
+    if (action) q = q.eq('action', action);
+    if (recordId) q = q.eq('record_id', recordId);
+    if (from) q = q.gte('ts', from);
+    if (to) q = q.lte('ts', to);
+    if (search) {
+      // search ใน user_email หรือ record_id
+      q = q.or(`user_email.ilike.%${search}%,record_id.ilike.%${search}%`);
+    }
+    q = q.order('ts', { ascending: false }).range(offset, offset + limit - 1);
+    const { data, count, error } = await q;
+    if (error) throw error;
+    return { rows: data || [], total: count || 0 };
+  },
+
   // ─── PROBATION DUE — พนักงานที่อายุงานครบ N วันในเดือนนี้ ───
   // 90 = ครบทดลองงาน, 119 = ก่อนครบ 120 วัน (deadline กฎหมายแรงงาน)
   getProbationDue(days) {
