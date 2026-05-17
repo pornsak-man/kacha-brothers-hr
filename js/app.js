@@ -3633,7 +3633,11 @@ function renderUniformRequestsTable() {
             <td>${r.neededBy ? fmt.date(r.neededBy) : '-'}</td>
             <td><span class="badge ${s.cls}">${s.label}</span></td>
             <td class="num"><strong>${fmt.money(r.totalCost)}</strong></td>
-            <td class="note-cell">${r.note ? `<div class="note-clamp" title="${escapeHtml(r.note)}">${escapeHtml(r.note)}</div>` : '<div class="note-empty">⚠️ ยังไม่ระบุ</div>'}</td>
+            <td class="note-cell">${
+              (r.status === 'issued' || r.status === 'cancelled')
+                ? '<div class="note-empty" style="color:var(--text-3);font-weight:normal">—</div>'
+                : (r.note ? `<div class="note-clamp" title="${escapeHtml(r.note)}">${escapeHtml(r.note)}</div>` : '<div class="note-empty">⚠️ ยังไม่ระบุ</div>')
+            }</td>
             <td class="actions">
               ${DB.isAdmin ? `<button class="btn btn-primary btn-sm" onclick="openIssueItemsForm('${r.id}')">จัดชุด</button>
               <button class="btn btn-ghost btn-sm" onclick="openUniformRequestForm('${r.id}')">แก้</button>
