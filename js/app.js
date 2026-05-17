@@ -334,6 +334,7 @@ const router = {
   pages: {},
   register(name, fn) { this.pages[name] = fn; },
   go(name) {
+    const isNavigation = this.current !== name;
     this.current = name;
     // destroy charts ก่อนเปลี่ยนหน้า — canvas เก่าจะถูกทิ้ง, ป้องกัน memory leak + ghost tooltips
     if (typeof destroyAllCharts === 'function') destroyAllCharts();
@@ -359,7 +360,14 @@ const router = {
     };
     $('#pageTitle').textContent = titles[name] || name;
     const fn = this.pages[name];
-    $('#content').innerHTML = fn ? fn() : '<p>ไม่พบหน้า</p>';
+    const content = $('#content');
+    content.innerHTML = fn ? fn() : '<p>ไม่พบหน้า</p>';
+    // ใส่ animation class เฉพาะตอนเปลี่ยนหน้าจริงๆ (ไม่ใส่ตอน refresh จาก realtime)
+    if (isNavigation) {
+      content.classList.remove('sw-anim-enter');
+      void content.offsetWidth; // force reflow → ให้ animation รันใหม่
+      content.classList.add('sw-anim-enter');
+    }
     if (window.afterRender) { window.afterRender(); window.afterRender = null; }
     if (name === 'employees') wireEmployeePage();
     if (name === 'recruit') wireRecruitPage();
@@ -3504,15 +3512,13 @@ router.register('uniform', () => {
       </div>
     </div>
 
-    <div class="sw-chart-card" style="margin-top:24px">
-      <div class="flex items-center gap-2" style="margin-bottom:16px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:14px">
-        <button class="btn btn-sm ${tab === 'requests' ? 'btn-primary' : 'btn-ghost'}" onclick="switchUniformTab('requests')">คำขอจัดชุด</button>
-        <button class="btn btn-sm ${tab === 'items' ? 'btn-primary' : 'btn-ghost'}" onclick="switchUniformTab('items')">รายการชุด + Stock</button>
-        <button class="btn btn-sm ${tab === 'issues' ? 'btn-primary' : 'btn-ghost'}" onclick="switchUniformTab('issues')">ประวัติการจัดส่ง</button>
-        <button class="btn btn-sm ${tab === 'schedule' ? 'btn-primary' : 'btn-ghost'}" onclick="switchUniformTab('schedule')">รอบการจัดส่ง</button>
-      </div>
-      <div id="uniformContent">${renderUniformTab()}</div>
+    <div class="sw-tabs" role="tablist" style="margin-top:24px">
+      <button class="sw-tab ${tab === 'requests' ? 'active' : ''}" onclick="switchUniformTab('requests')">คำขอจัดชุด</button>
+      <button class="sw-tab ${tab === 'items'    ? 'active' : ''}" onclick="switchUniformTab('items')">รายการชุด · Stock</button>
+      <button class="sw-tab ${tab === 'issues'   ? 'active' : ''}" onclick="switchUniformTab('issues')">ประวัติการจัดส่ง</button>
+      <button class="sw-tab ${tab === 'schedule' ? 'active' : ''}" onclick="switchUniformTab('schedule')">รอบการจัดส่ง</button>
     </div>
+    <div id="uniformContent">${renderUniformTab()}</div>
   `;
 });
 

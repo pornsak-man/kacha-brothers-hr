@@ -1685,3 +1685,175 @@ img.emp-avatar-lg {
 .justify-between { justify-content: space-between; }
 .w-full { width: 100%; }
 .hidden { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════════
+   GLOBAL POLISH — applies system-wide
+   ═══════════════════════════════════════════════════════════ */
+
+/* Smooth native scrolling everywhere */
+html { scroll-behavior: smooth; }
+
+/* Refined selection — uses brand color subtly */
+::selection { background: rgba(30, 58, 138, 0.18); color: var(--text); }
+
+/* Body — subtle radial accent for editorial depth */
+body {
+  background-image: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(30, 58, 138, 0.020), transparent 60%);
+  background-attachment: fixed;
+}
+
+/* Page enter animation — ON navigation only (router applies .sw-anim-enter)
+   Refresh / realtime updates DON'T re-trigger animation to avoid flicker */
+#content.sw-anim-enter { animation: pageEnter 0.28s var(--ease-out) both; }
+@keyframes pageEnter {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Card stagger — only when navigating into a page (not on refresh) */
+#content.sw-anim-enter .sw-stats-grid > * { animation: cardEnter 0.45s var(--ease-out) both; }
+#content.sw-anim-enter .sw-stats-grid > *:nth-child(1) { animation-delay: 0.04s; }
+#content.sw-anim-enter .sw-stats-grid > *:nth-child(2) { animation-delay: 0.10s; }
+#content.sw-anim-enter .sw-stats-grid > *:nth-child(3) { animation-delay: 0.16s; }
+#content.sw-anim-enter .sw-stats-grid > *:nth-child(4) { animation-delay: 0.22s; }
+@keyframes cardEnter {
+  0%   { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Reduce motion preference — respect users */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Refined table — premium typography + smooth interactions everywhere */
+.table th {
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+.table tbody tr { transition: background-color 0.15s var(--ease-out); }
+
+/* Refined buttons — feel hardware-clicky */
+.btn {
+  transition: background-color 0.15s var(--ease-out),
+              border-color 0.15s var(--ease-out),
+              color 0.15s var(--ease-out),
+              box-shadow 0.15s var(--ease-out),
+              transform 0.08s var(--ease-out);
+  letter-spacing: 0.005em;
+}
+.btn:active { transform: translateY(0.5px); }
+
+/* Inputs — focus rings consistent across the system */
+input[type="text"], input[type="number"], input[type="email"], input[type="password"],
+input[type="date"], input[type="search"], input[type="tel"], textarea, select {
+  transition: border-color 0.15s var(--ease-out),
+              box-shadow 0.15s var(--ease-out),
+              background-color 0.15s var(--ease-out);
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 0;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.12);
+}
+
+/* Modal — backdrop blur for that premium feel */
+.modal-backdrop {
+  backdrop-filter: blur(6px) saturate(140%);
+  -webkit-backdrop-filter: blur(6px) saturate(140%);
+  background: rgba(20, 20, 15, 0.32) !important;
+}
+[data-theme="dark"] .modal-backdrop { background: rgba(0, 0, 0, 0.55) !important; }
+
+.modal {
+  animation: modalEnter 0.22s var(--ease-out) both;
+}
+@keyframes modalEnter {
+  0%   { opacity: 0; transform: scale(0.96) translateY(8px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Badge — refined micro padding */
+.badge {
+  letter-spacing: 0.02em;
+  font-feature-settings: "tnum";
+}
+
+/* Improve number readability across all tables/cards */
+.num, .sw-stat-value, td.num, th.num {
+  font-feature-settings: "tnum", "lnum";
+}
+
+/* Empty state — make it elegant by default */
+.empty-state {
+  padding: 56px 20px;
+  text-align: center;
+  color: var(--text-3);
+}
+.empty-state .icon { font-size: 38px; opacity: 0.35; margin-bottom: 14px; display: inline-block; }
+.empty-state .title { font-size: 15px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
+.empty-state .hint  { font-size: 13px; color: var(--text-3); line-height: 1.6; }
+
+/* Smooth tab switching */
+.sw-tab { will-change: color, border-color; }
+
+/* Skeleton loader — drop-in <div class="sw-skeleton"></div> */
+.sw-skeleton {
+  background: linear-gradient(90deg,
+              var(--surface-2) 0%,
+              var(--surface-hover) 50%,
+              var(--surface-2) 100%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.4s infinite linear;
+  border-radius: 6px;
+  height: 14px;
+  display: inline-block;
+  width: 100%;
+}
+@keyframes skeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Nav-item — smoother hover micro-animation */
+.nav-item { transition: background-color 0.18s var(--ease-out), color 0.18s var(--ease-out); }
+.nav-item:hover:not(.active) { transform: translateX(1px); }
+
+/* Card hover micro-interaction (only for clickable cards via data attr) */
+.sw-clickable {
+  cursor: pointer;
+  transition: transform 0.18s var(--ease-out), box-shadow 0.18s var(--ease-out), border-color 0.18s var(--ease-out);
+}
+.sw-clickable:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); border-color: var(--border-strong); }
+.sw-clickable:active { transform: translateY(0); }
+
+/* Topbar — sticky subtle blur on scroll for premium feel */
+.app-topbar {
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
+
+/* Drop-in animation utility classes */
+.sw-fade-in       { animation: pageEnter 0.32s var(--ease-out) both; }
+.sw-fade-in-up    { animation: cardEnter 0.4s var(--ease-out) both; }
+.sw-fade-in-delay { animation: cardEnter 0.4s var(--ease-out) 0.12s both; }
+
+/* Loading state for content — show subtle pulse instead of layout shift */
+.sw-loading {
+  position: relative; min-height: 200px;
+}
+.sw-loading::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(20,20,15,0.04), transparent);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.8s infinite linear;
+  pointer-events: none;
+  border-radius: var(--radius-lg);
+}
