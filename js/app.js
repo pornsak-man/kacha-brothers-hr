@@ -3679,6 +3679,7 @@ function renderUniformRequestsTable() {
         font-weight: 600;
       }
       .uniform-req-table td.actions {
+        display: table-cell;  /* override global .table .actions { display: flex } เพื่อให้เส้น border-bottom ของ td render ครบทั้งแถว */
         white-space: nowrap;
         text-align: right;
       }
