@@ -23,6 +23,14 @@ function parseYMD(s) {
   return m ? [+m[1], +m[2], +m[3]] : null;
 }
 
+// แปลง "YYYY-MM-DD" → Excel Date — ทำให้สูตรวันที่ใน Excel ทำงานได้ตรงๆ
+function excelDate(s) {
+  const ymd = parseYMD(s);
+  if (!ymd) return s || '';  // ถ้าไม่ใช่วันที่ คืนเป็น string เดิม
+  // ใช้ UTC เพื่อไม่ให้ TZ shift ตอน XLSX แปลงเป็น Excel serial
+  return new Date(Date.UTC(ymd[0], ymd[1] - 1, ymd[2]));
+}
+
 const fmt = {
   money: (n) => (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
   num: (n) => (Number(n) || 0).toLocaleString('th-TH'),
@@ -1297,7 +1305,7 @@ function exportEmployeesXLSX() {
   const rows = DB.getEmployees().map(e => ({
     'รหัส': e.id, 'คำนำหน้า': e.title, 'ชื่อ': e.firstName, 'นามสกุล': e.lastName,
     'ชื่อเล่น': e.nickname,
-    'เลขประชาชน': e.nationalId, 'วันเกิด': e.dob, 'เพศ': e.gender,
+    'เลขประชาชน': e.nationalId, 'วันเกิด': excelDate(e.dob), 'เพศ': e.gender,
     'สัญชาติ': e.nationality, 'ศาสนา': e.religion, 'วุฒิการศึกษา': e.education,
     'เบอร์โทร': e.phone, 'อีเมล': e.email,
     'ที่อยู่': e.address, 'แขวง/ตำบล': e.subDistrict, 'เขต/อำเภอ': e.district,
@@ -1307,18 +1315,21 @@ function exportEmployeesXLSX() {
     'ระดับตำแหน่งงาน': (DB.getPosition(e.position) || {}).name || '',
     'ตำแหน่ง': e.positionTitle,
     'ประเภทพนักงาน': e.employeeType,
-    'วันเริ่มงาน': e.hireDate,
-    'วันพ้นสภาพ': e.terminationDate,
+    'วันเริ่มงาน': excelDate(e.hireDate),
+    'วันพ้นสภาพ': excelDate(e.terminationDate),
     'ธนาคาร': e.bank, 'เลขบัญชี': e.bankAccount,
-    'เงินเดือน': e.salary,
-    'ค่าตำแหน่ง': e.allowancePosition, 'ค่าเดินทาง': e.allowanceTravel,
-    'ค่าอาหาร': e.allowanceFood, 'ค่าเบี้ยเลี้ยง': e.allowancePerDiem,
-    'ค่าภาษา': e.allowanceLanguage, 'ค่าอื่นๆ': e.allowanceOther,
+    'เงินเดือน': Number(e.salary || 0),
+    'ค่าตำแหน่ง': Number(e.allowancePosition || 0),
+    'ค่าเดินทาง': Number(e.allowanceTravel || 0),
+    'ค่าอาหาร': Number(e.allowanceFood || 0),
+    'ค่าเบี้ยเลี้ยง': Number(e.allowancePerDiem || 0),
+    'ค่าภาษา': Number(e.allowanceLanguage || 0),
+    'ค่าอื่นๆ': Number(e.allowanceOther || 0),
     'รวมรายได้': totalIncome(e),
     'สถานะ': e.status === 'active' ? 'ปฏิบัติงาน' : 'ลาออก',
     'หมายเหตุ': e.note
   }));
-  const ws = XLSX.utils.json_to_sheet(rows);
+  const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true, dateNF: 'yyyy-mm-dd' });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'พนักงาน');
   XLSX.writeFile(wb, `คชา-บราเธอร์ส-พนักงาน-${tz.today()}.xlsx`);
@@ -1889,7 +1900,7 @@ function exportPayrollXLSX() {
       'รับสุทธิ': net
     };
   });
-  const ws = XLSX.utils.json_to_sheet(rows);
+  const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true, dateNF: 'yyyy-mm-dd' });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'เงินเดือน ' + month);
   XLSX.writeFile(wb, `คชา-เงินเดือน-${month}.xlsx`);
@@ -1900,11 +1911,11 @@ function exportLoansXLSX() {
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportLoansXLSX, 800); return; }
   const rows = DB.getLoans().map(l => {
     const e = DB.getEmployee(l.employeeId) || {};
-    return { 'วันที่': l.date, 'รหัสพนักงาน': l.employeeId, 'ชื่อ-นามสกุล': (e.firstName || '') + ' ' + (e.lastName || ''),
-      'จำนวนกู้': l.amount, 'ผ่อน/เดือน': l.monthlyPayment, 'คงเหลือ': l.remaining,
+    return { 'วันที่': excelDate(l.date), 'รหัสพนักงาน': l.employeeId, 'ชื่อ-นามสกุล': (e.firstName || '') + ' ' + (e.lastName || ''),
+      'จำนวนกู้': Number(l.amount || 0), 'ผ่อน/เดือน': Number(l.monthlyPayment || 0), 'คงเหลือ': Number(l.remaining || 0),
       'สถานะ': l.status === 'completed' ? 'ปิดยอด' : 'ผ่อนอยู่', 'เหตุผล': l.reason };
   });
-  const ws = XLSX.utils.json_to_sheet(rows);
+  const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true, dateNF: 'yyyy-mm-dd' });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'การกู้');
   XLSX.writeFile(wb, `คชา-รายการกู้-${tz.today()}.xlsx`);
