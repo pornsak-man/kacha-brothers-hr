@@ -359,6 +359,26 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 .nav-icon { width: 18px; height: 18px; flex-shrink: 0; }
 .nav-icon svg { width: 100%; height: 100%; stroke-width: 1.75; }
 
+/* Nav badge — แจ้งเตือนจำนวนค้างต่างๆ (เช่น คำขอจัดชุดรอจัด) */
+.nav-badge {
+  margin-left: auto;
+  background: #dc2626;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  min-width: 22px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+  animation: nav-badge-pulse 2.4s ease-in-out infinite;
+}
+@keyframes nav-badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15); }
+  50%       { box-shadow: 0 0 0 5px rgba(220, 38, 38, 0.05); }
+}
+
 .sidebar-footer {
   display: flex; align-items: center; gap: 10px;
   padding: 14px 18px 4px;

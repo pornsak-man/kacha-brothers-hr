@@ -298,6 +298,7 @@ const auth = {
     $('#userName').textContent = displayName;
     $('#userAvatar').textContent = displayName.charAt(0).toUpperCase();
     $('.user-role').textContent = DB.isAdmin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งานทั่วไป';
+    if (typeof updateUniformBadge === 'function') updateUniformBadge();
     router.go('dashboard');
   }
 };
@@ -365,14 +366,48 @@ const _RT_PAGE_DEPS = {
   user_profiles: ['settings'],
   applicants: ['dashboard', 'recruit'],
   uniform_items: ['uniform'],
-  uniform_requests: ['uniform'],
+  uniform_requests: ['dashboard', 'uniform'],
   uniform_issues: ['uniform'],
   branches: ['dashboard', 'employees', 'branches', 'uniform']
 };
 
+// อัปเดต badge แจ้งเตือนของ "จัดชุดพนักงาน" (รอจัด)
+function updateUniformBadge() {
+  const pending = (DB.data.uniformRequests || []).filter(r => r.status === 'pending').length;
+  const badge = document.getElementById('navBadgeUniform');
+  if (!badge) return;
+  if (pending > 0) {
+    badge.textContent = String(pending);
+    badge.style.display = 'inline-block';
+    badge.title = `${pending} คำขอจัดชุดรอดำเนินการ`;
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
 window.onRealtimeChange = (payload) => {
   if ($('#modalRoot').children.length > 0) return; // ไม่รบกวน modal ที่กำลังเปิด
   const table = payload?.table;
+
+  // อัปเดต badge เมื่อ uniform_requests เปลี่ยน — เสมอ (ไม่ขึ้นกับหน้าปัจจุบัน)
+  if (table === 'uniform_requests') {
+    updateUniformBadge();
+    // แจ้งเตือน toast เมื่อมีคำขอใหม่ (INSERT)
+    if (payload.eventType === 'INSERT' && payload.new) {
+      const r = payload.new;
+      let name = '';
+      if (r.employee_id) {
+        const e = DB.getEmployee(r.employee_id);
+        if (e) name = `${e.firstName} ${e.lastName || ''}`;
+      }
+      if (!name && r.applicant_id) {
+        const ap = DB.getApplicant(r.applicant_id);
+        if (ap) name = `${ap.firstName} ${ap.lastName || ''} (ผู้สมัคร)`;
+      }
+      toast(`🚨 มีคำขอจัดชุดใหม่: ${name || 'พนักงาน'}`, 'warning');
+    }
+  }
+
   // ถ้าเปลี่ยน table ที่หน้านี้ไม่ได้ใช้ → skip
   const affected = _RT_PAGE_DEPS[table];
   if (affected && !affected.includes(router.current)) return;
@@ -406,6 +441,7 @@ router.register('dashboard', () => {
     .slice(0, 10);
   const reach90 = DB.getProbationDue(90);
   const reach119 = DB.getProbationDue(119);
+  const pendingUniform = DB.getUniformRequests({ status: 'pending' });
 
   window.afterRender = () => renderDashboardCharts(s, monthly, trailing12);
 
@@ -454,6 +490,49 @@ router.register('dashboard', () => {
         <div class="sw-stat-change"><span class="sw-dot ${tvDot}"></span>${tvLabel} · YTD ${kpi.turnoverYTD.toFixed(2)}%</div>
       </div>
     </div>
+
+    ${pendingUniform.length ? `
+    <div class="sw-section-label">แจ้งเตือนด่วน</div>
+    <div class="sw-chart-card" style="border-left:4px solid var(--danger);background:linear-gradient(90deg, rgba(220,38,38,0.04), transparent 60%)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+        <div class="sw-chart-title" style="display:flex;align-items:center;gap:10px">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></svg>
+          <span style="color:var(--danger)">มีคำขอจัดชุดรอดำเนินการ</span>
+          <span class="badge badge-danger" style="font-size:12px;padding:4px 12px;font-weight:700">${pendingUniform.length} รายการ</span>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="router.go('uniform')">ไปจัดชุด →</button>
+      </div>
+      <div class="sw-chart-sub" style="margin-bottom:14px">Recruit แจ้งมาแล้ว — Benefit ต้องดำเนินการก่อนวันเริ่มงาน</div>
+      <div style="max-height:240px;overflow-y:auto">
+        ${pendingUniform.slice(0, 8).map(r => {
+          let name = '-', branchInfo = '-', refBadge = '';
+          if (r.employeeId) {
+            const e = DB.getEmployee(r.employeeId) || {};
+            name = `${e.firstName || ''} ${e.lastName || ''}`.trim();
+            branchInfo = e.branch || '-';
+            refBadge = '<span class="badge badge-success" style="font-size:10px">พนักงาน</span>';
+          } else if (r.applicantId) {
+            const ap = DB.getApplicant(r.applicantId) || {};
+            name = `${ap.firstName || ''} ${ap.lastName || ''}`.trim();
+            branchInfo = ap.branch || '-';
+            refBadge = '<span class="badge badge-warning" style="font-size:10px">ผู้สมัคร</span>';
+          }
+          const daysLeft = r.neededBy ? Math.ceil((new Date(r.neededBy) - new Date()) / 86400000) : null;
+          const urgentBadge = daysLeft != null && daysLeft <= 3
+            ? `<span class="badge badge-danger" style="font-size:10.5px;margin-left:6px">⏰ เหลือ ${daysLeft} วัน</span>`
+            : '';
+          return `
+          <div style="display:flex;align-items:center;gap:14px;padding:10px 8px;border-bottom:1px solid var(--border);cursor:pointer" onclick="router.go('uniform')">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:13.5px">${escapeHtml(name)} ${refBadge}${urgentBadge}</div>
+              <div class="muted-2" style="font-size:12px;margin-top:2px">สาขา ${escapeHtml(branchInfo)} · แจ้งโดย ${escapeHtml(r.requestedBy || '-')}${r.neededBy ? ' · ต้องการก่อน ' + fmt.date(r.neededBy) : ''}</div>
+            </div>
+          </div>`;
+        }).join('')}
+        ${pendingUniform.length > 8 ? `<div class="muted-2" style="text-align:center;padding:10px;font-size:12px">+ อีก ${pendingUniform.length - 8} รายการ</div>` : ''}
+      </div>
+    </div>
+    ` : ''}
 
     ${(reach90.length || reach119.length) ? `
     <div class="sw-section-label">ทดลองงาน</div>
