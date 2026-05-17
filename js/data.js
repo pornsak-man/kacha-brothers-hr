@@ -79,27 +79,51 @@ const DB = {
   },
 
   // ─── DATA LOAD ───
+  // Supabase default คืน max 1000 rows ต่อ query — ใช้ pagination ดึงทุก batch ต่อเนื่อง
+  async _fetchAllPages(table, orderField, ascending = true) {
+    const PAGE = 1000;
+    const all = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await this.client
+        .from(table)
+        .select('*')
+        .order(orderField, { ascending })
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return all;
+  },
+
   async loadAll() {
-    const [deps, pos, emps, loans, advs, allow, evals, sal, cal, comp] = await Promise.all([
+    // ตารางเล็ก / คงที่ — single query พอ
+    const [deps, pos, cal, comp] = await Promise.all([
       this.client.from('departments').select('*').order('id'),
       this.client.from('position_levels').select('*').order('id'),
-      this.client.from('employees').select('*').order('id'),
-      this.client.from('loans').select('*').order('date', { ascending: false }),
-      this.client.from('advances').select('*').order('date', { ascending: false }),
-      this.client.from('allowances').select('*').order('month', { ascending: false }),
-      this.client.from('evaluations').select('*').order('date', { ascending: false }),
-      this.client.from('salary_history').select('*').order('date', { ascending: false }),
       this.client.from('calendar_items').select('*').order('date'),
       this.client.from('company_settings').select('*').eq('id', 1).maybeSingle()
     ]);
+    // ตารางที่อาจมีเกิน 1000 records — ดึงด้วย pagination
+    const [emps, loans, advs, allow, evals, sal] = await Promise.all([
+      this._fetchAllPages('employees', 'id', true),
+      this._fetchAllPages('loans', 'date', false),
+      this._fetchAllPages('advances', 'date', false),
+      this._fetchAllPages('allowances', 'month', false),
+      this._fetchAllPages('evaluations', 'date', false),
+      this._fetchAllPages('salary_history', 'date', false)
+    ]);
     this.data.departments = (deps.data || []).map(this._depFromDB);
     this.data.positionLevels = (pos.data || []).map(this._posFromDB);
-    this.data.employees = (emps.data || []).map(this._empFromDB);
-    this.data.loans = (loans.data || []).map(this._loanFromDB);
-    this.data.advances = (advs.data || []).map(this._advFromDB);
-    this.data.allowances = (allow.data || []).map(this._allowFromDB);
-    this.data.evaluations = (evals.data || []).map(this._evalFromDB);
-    this.data.salaryHistory = (sal.data || []).map(this._salFromDB);
+    this.data.employees = emps.map(this._empFromDB);
+    this.data.loans = loans.map(this._loanFromDB);
+    this.data.advances = advs.map(this._advFromDB);
+    this.data.allowances = allow.map(this._allowFromDB);
+    this.data.evaluations = evals.map(this._evalFromDB);
+    this.data.salaryHistory = sal.map(this._salFromDB);
     this.data.calendar = (cal.data || []).map(this._calFromDB);
     if (comp.data) this.data.company = this._compFromDB(comp.data);
   },
