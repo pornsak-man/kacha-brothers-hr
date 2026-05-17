@@ -5,33 +5,64 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+// ─── TIMEZONE: บังคับใช้เวลาประเทศไทย (Asia/Bangkok) ───
+// ทุก default/computed date ใช้เวลาไทย ไม่ขึ้นกับ browser/server TZ
+const TZ = 'Asia/Bangkok';
+const tz = {
+  // วันนี้ในรูปแบบ YYYY-MM-DD ตามเวลาไทย
+  today: () => new Date().toLocaleDateString('en-CA', { timeZone: TZ }),
+  // เดือนนี้ YYYY-MM ตามเวลาไทย
+  thisMonth: () => tz.today().slice(0, 7),
+  // ปีปัจจุบัน ค.ศ. ตามเวลาไทย
+  thisYear: () => parseInt(tz.today().slice(0, 4), 10)
+};
+
+// parse "YYYY-MM-DD" → [year, month(1-12), day] — ไม่ผ่าน Date object เพื่อเลี่ยง TZ issues
+function parseYMD(s) {
+  const m = String(s || '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? [+m[1], +m[2], +m[3]] : null;
+}
+
 const fmt = {
   money: (n) => (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
   num: (n) => (Number(n) || 0).toLocaleString('th-TH'),
   date: (d) => {
     if (!d) return '-';
-    try { return new Date(d).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }); }
+    const ymd = parseYMD(d);
+    if (ymd) {
+      // สร้าง Date จาก components — แสดงตามเวลาไทยเสมอ
+      return new Date(ymd[0], ymd[1] - 1, ymd[2]).toLocaleDateString('th-TH', {
+        year: 'numeric', month: 'short', day: 'numeric'
+      });
+    }
+    try { return new Date(d).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', timeZone: TZ }); }
     catch (e) { return d; }
   },
   dateLong: (d) => {
     if (!d) return '-';
-    try { return new Date(d).toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }); }
-    catch (e) { return d; }
+    try {
+      return new Date(d).toLocaleDateString('th-TH', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        timeZone: TZ
+      });
+    } catch (e) { return d; }
   },
   age: (dob) => {
-    if (!dob) return '-';
-    const today = new Date(), birth = new Date(dob);
-    let age = today.getFullYear() - birth.getFullYear();
-    const m = today.getMonth() - birth.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    const b = parseYMD(dob);
+    if (!b) return '-';
+    const t = parseYMD(tz.today());
+    let age = t[0] - b[0];
+    if (t[1] < b[1] || (t[1] === b[1] && t[2] < b[2])) age--;
+    if (age < 0) return '-';
     return age + ' ปี';
   },
   serviceYears: (hireDate, endDate = null) => {
-    if (!hireDate) return '-';
-    const end = endDate ? new Date(endDate) : new Date();
-    const start = new Date(hireDate);
-    let years = end.getFullYear() - start.getFullYear();
-    let months = end.getMonth() - start.getMonth();
+    const s = parseYMD(hireDate);
+    if (!s) return '-';
+    const e = parseYMD(endDate) || parseYMD(tz.today());
+    let years = e[0] - s[0];
+    let months = e[1] - s[1];
+    if (e[2] < s[2]) months--;
     if (months < 0) { years--; months += 12; }
     if (years < 0) return '-';
     return years + ' ปี ' + months + ' เดือน';
@@ -466,7 +497,7 @@ function openEmployeeForm(id = null) {
     department: DB.getDepartments()[0]?.id || '', branch: '',
     position: DB.getPositions()[0]?.id || '', positionTitle: '',
     employeeType: 'พนักงานประจำ',
-    hireDate: new Date().toISOString().slice(0, 10),
+    hireDate: tz.today(),
     terminationDate: '',
     salary: 0,
     allowancePosition: 0, allowanceTravel: 0, allowanceFood: 0,
@@ -871,7 +902,7 @@ function parseImportRow(row) {
   const parseDate = (k) => {
     const v = row[k];
     if (!v) return null;
-    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    if (v instanceof Date) return v.toLocaleDateString('en-CA', { timeZone: TZ });
     const s = String(v).trim();
     // ลอง parse string
     const m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
@@ -902,7 +933,7 @@ function parseImportRow(row) {
     position: get('รหัสระดับตำแหน่ง'),
     positionTitle: get('ตำแหน่ง'),
     employeeType: get('ประเภทพนักงาน') || 'พนักงานประจำ',
-    hireDate: parseDate('วันเริ่มงาน') || new Date().toISOString().slice(0, 10),
+    hireDate: parseDate('วันเริ่มงาน') || tz.today(),
     terminationDate: parseDate('วันพ้นสภาพ') || '',
     bank: get('ธนาคาร'),
     bankAccount: get('เลขบัญชี'),
@@ -1290,7 +1321,7 @@ function exportEmployeesXLSX() {
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'พนักงาน');
-  XLSX.writeFile(wb, `คชา-บราเธอร์ส-พนักงาน-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(wb, `คชา-บราเธอร์ส-พนักงาน-${tz.today()}.xlsx`);
   toast('ส่งออกไฟล์ Excel แล้ว', 'success');
 }
 
@@ -1478,7 +1509,7 @@ function openSalaryAdjustForm() {
     <form id="adjForm">
       <div class="form-grid">
         <div class="form-group span-2"><label>พนักงาน *</label><select name="employeeId" id="adjEmp" required><option value="">- เลือกพนักงาน -</option>${emps.map(e => `<option value="${e.id}">${escapeHtml(e.id + ' — ' + e.firstName + ' ' + e.lastName + ' (' + fmt.money(e.salary) + ')')}</option>`).join('')}</select></div>
-        <div class="form-group"><label>วันที่ *</label><input name="date" type="date" value="${new Date().toISOString().slice(0, 10)}" required/></div>
+        <div class="form-group"><label>วันที่ *</label><input name="date" type="date" value="${tz.today()}" required/></div>
         <div class="form-group"><label>เงินเดือนเก่า</label><input id="adjOld" type="number" readonly /></div>
         <div class="form-group"><label>เงินเดือนใหม่ *</label><input name="newSalary" type="number" min="0" step="100" required/></div>
         <div class="form-group"><label>ระดับตำแหน่งใหม่</label><select name="newPosition"><option value="">- ไม่เปลี่ยน -</option>${positions.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}</select></div>
@@ -1544,7 +1575,7 @@ router.register('loans', () => {
 
 function openLoanForm(id = null) {
   if (!requireAdmin()) return;
-  const l = id ? DB.getLoans().find(x => x.id === id) : { id: '', employeeId: '', date: new Date().toISOString().slice(0, 10), amount: 0, monthlyPayment: 0, remaining: 0, status: 'active', reason: '' };
+  const l = id ? DB.getLoans().find(x => x.id === id) : { id: '', employeeId: '', date: tz.today(), amount: 0, monthlyPayment: 0, remaining: 0, status: 'active', reason: '' };
   const emps = DB.getEmployees({ status: 'active' });
   modal.open(id ? 'แก้ไขการกู้' : 'บันทึกการกู้', `
     <form id="loanForm">
@@ -1612,7 +1643,7 @@ router.register('advances', () => {
 
 function openAdvanceForm(id = null) {
   if (!requireAdmin()) return;
-  const a = id ? DB.getAdvances().find(x => x.id === id) : { employeeId: '', date: new Date().toISOString().slice(0, 10), amount: 0, reason: '', status: 'pending' };
+  const a = id ? DB.getAdvances().find(x => x.id === id) : { employeeId: '', date: tz.today(), amount: 0, reason: '', status: 'pending' };
   const emps = DB.getEmployees({ status: 'active' });
   modal.open(id ? 'แก้ไข' : 'บันทึกการเบิกล่วงหน้า', `
     <form id="advForm">
@@ -1678,7 +1709,7 @@ router.register('allowance', () => {
 
 function openAllowanceForm(id = null) {
   if (!requireAdmin()) return;
-  const a = id ? DB.getAllowances().find(x => x.id === id) : { employeeId: '', month: new Date().toISOString().slice(0, 7), type: 'ค่าเดินทาง', amount: 0, note: '' };
+  const a = id ? DB.getAllowances().find(x => x.id === id) : { employeeId: '', month: tz.thisMonth(), type: 'ค่าเดินทาง', amount: 0, note: '' };
   const emps = DB.getEmployees({ status: 'active' });
   modal.open(id ? 'แก้ไข' : 'บันทึกเบี้ยเลี้ยง', `
     <form id="allowForm">
@@ -1755,7 +1786,7 @@ function scoreToGrade(s) {
 
 function openEvalForm(id = null) {
   if (!requireAdmin()) return;
-  const v = id ? DB.getEvaluations().find(x => x.id === id) : { employeeId: '', date: new Date().toISOString().slice(0, 10), period: 'ครึ่งปี ' + new Date().getFullYear(), score: 0, grade: 'C', note: '' };
+  const v = id ? DB.getEvaluations().find(x => x.id === id) : { employeeId: '', date: tz.today(), period: 'ครึ่งปี ' + tz.thisYear(), score: 0, grade: 'C', note: '' };
   const emps = DB.getEmployees({ status: 'active' });
   modal.open(id ? 'แก้ไข' : 'บันทึกการประเมิน', `
     <form id="evalForm">
@@ -1831,7 +1862,7 @@ router.register('reports', () => {
 
 function exportPayrollXLSX() {
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportPayrollXLSX, 800); return; }
-  const month = new Date().toISOString().slice(0, 7);
+  const month = tz.thisMonth();
   const rows = DB.getEmployees({ status: 'active' }).map(e => {
     const extraAllow = DB.getAllowances(e.id).filter(a => a.month === month).reduce((s, a) => s + (a.amount || 0), 0);
     const adv = DB.getAdvances(e.id).filter(a => a.status === 'paid' && (a.date || '').startsWith(month)).reduce((s, a) => s + (a.amount || 0), 0);
@@ -1876,7 +1907,7 @@ function exportLoansXLSX() {
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'การกู้');
-  XLSX.writeFile(wb, `คชา-รายการกู้-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(wb, `คชา-รายการกู้-${tz.today()}.xlsx`);
   toast('ส่งออกแล้ว', 'success');
 }
 
@@ -1886,7 +1917,7 @@ function exportDataJSON() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `คชา-ข้อมูลสำรอง-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `คชา-ข้อมูลสำรอง-${tz.today()}.json`;
   a.click();
   URL.revokeObjectURL(url);
   toast('สำรองข้อมูลแล้ว', 'success');
@@ -1897,7 +1928,7 @@ function exportDataJSON() {
 // ═══════════════════════════════════════════════════════
 router.register('calendar', () => {
   const items = DB.getCalendar();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = tz.today();
   const upcoming = items.filter(c => c.date >= today).slice(0, 5);
   return `
     <div class="page-header">
@@ -1935,7 +1966,7 @@ router.register('calendar', () => {
 
 function openCalForm(id = null) {
   if (!requireAdmin()) return;
-  const c = id ? DB.getCalendar().find(x => x.id === id) : { date: new Date().toISOString().slice(0, 10), title: '', type: 'holiday' };
+  const c = id ? DB.getCalendar().find(x => x.id === id) : { date: tz.today(), title: '', type: 'holiday' };
   modal.open(id ? 'แก้ไข' : 'เพิ่มกิจกรรม / วันหยุด', `
     <form id="calForm">
       <div class="form-grid">
