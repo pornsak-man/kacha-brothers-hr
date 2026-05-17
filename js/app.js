@@ -343,7 +343,7 @@ function renderDashboardCharts(s) {
 // ═══════════════════════════════════════════════════════
 //  PAGE: EMPLOYEES
 // ═══════════════════════════════════════════════════════
-const empState = { search: '', department: '', status: 'active', page: 1, pageSize: 50 };
+const empState = { search: '', branch: '', status: 'active', page: 1, pageSize: 50 };
 let _empSearchTimer = null;
 
 router.register('employees', () => {
@@ -359,10 +359,10 @@ router.register('employees', () => {
     </div>
     <div class="card">
       <div class="toolbar">
-        <input class="search-input" id="empSearch" placeholder="ค้นหา ชื่อ / รหัส / ชื่อเล่น / ตำแหน่ง..." value="${escapeHtml(empState.search)}" />
-        <select class="filter-select" id="empDept">
-          <option value="">ทุกฝ่าย</option>
-          ${DB.getDepartments().map(d => `<option value="${d.id}" ${empState.department === d.id ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}
+        <input class="search-input" id="empSearch" placeholder="ค้นหา ชื่อ / รหัส / ชื่อเล่น / ตำแหน่ง / เลขประชาชน..." value="${escapeHtml(empState.search)}" />
+        <select class="filter-select" id="empBranch">
+          <option value="">ทุกสาขา</option>
+          ${DB.getBranches().map(b => `<option value="${escapeHtml(b)}" ${empState.branch === b ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('')}
         </select>
         <select class="filter-select" id="empStatus">
           <option value="">ทุกสถานะ</option>
@@ -386,7 +386,7 @@ function wireEmployeePage() {
       renderEmployeeList();
     }, 200);
   });
-  $('#empDept')?.addEventListener('change', (e) => { empState.department = e.target.value; empState.page = 1; renderEmployeeList(); });
+  $('#empBranch')?.addEventListener('change', (e) => { empState.branch = e.target.value; empState.page = 1; renderEmployeeList(); });
   $('#empStatus')?.addEventListener('change', (e) => { empState.status = e.target.value; empState.page = 1; renderEmployeeList(); });
 }
 

@@ -216,16 +216,29 @@ const DB = {
     let list = this.data.employees.slice();
     if (filter.search) {
       const s = filter.search.toLowerCase();
+      // strip non-digit version of search สำหรับเทียบเลขประชาชน (ลบขีด/ช่องว่าง)
+      const sDigits = s.replace(/\D/g, '');
       list = list.filter(e =>
         (e.firstName + ' ' + e.lastName).toLowerCase().includes(s) ||
-        e.id.toLowerCase().includes(s) ||
+        String(e.id).toLowerCase().includes(s) ||
         (e.nickname || '').toLowerCase().includes(s) ||
-        (e.positionTitle || '').toLowerCase().includes(s)
+        (e.positionTitle || '').toLowerCase().includes(s) ||
+        (sDigits && (e.nationalId || '').includes(sDigits))
       );
     }
+    if (filter.branch) list = list.filter(e => e.branch === filter.branch);
     if (filter.department) list = list.filter(e => e.department === filter.department);
     if (filter.status) list = list.filter(e => e.status === filter.status);
     return list;
+  },
+
+  // ดึงรายชื่อสาขาทั้งหมด (unique, sorted) จากข้อมูลพนักงาน
+  getBranches() {
+    const set = new Set();
+    for (const e of this.data.employees) {
+      if (e.branch && e.branch.trim()) set.add(e.branch.trim());
+    }
+    return [...set].sort();
   },
   getEmployee(id) { return this.data.employees.find(e => e.id === id); },
 
