@@ -1278,6 +1278,57 @@ const DB = {
     if (error) throw error;
   },
 
+  // ─── EMPLOYEE ACCOUNT MANAGEMENT (admin only — RPC calls) ───
+  async refetchUserProfiles() {
+    // ใช้เพื่อรีเฟรช cache ของบัญชีหลังสร้าง/แก้ไข
+    const { data, error } = await this.client.from('user_profiles').select('*');
+    if (error) throw error;
+    this._userProfiles = data || [];
+    return this._userProfiles;
+  },
+
+  async getUserProfilesList() {
+    if (!this._userProfiles) await this.refetchUserProfiles();
+    return this._userProfiles;
+  },
+
+  async createEmployeeAccount(employeeId) {
+    if (!this.isAdmin) throw new Error('ต้องเป็น admin');
+    const { data, error } = await this.client.rpc('create_employee_account', { p_employee_id: employeeId });
+    if (error) throw error;
+    await this.refetchUserProfiles();
+    return data;
+  },
+
+  async bulkCreateEmployeeAccounts() {
+    if (!this.isAdmin) throw new Error('ต้องเป็น admin');
+    const { data, error } = await this.client.rpc('bulk_create_employee_accounts');
+    if (error) throw error;
+    await this.refetchUserProfiles();
+    return data || [];
+  },
+
+  async resetEmployeePassword(employeeId, newPassword = null) {
+    if (!this.isAdmin) throw new Error('ต้องเป็น admin');
+    const { data, error } = await this.client.rpc('reset_employee_password', {
+      p_employee_id: employeeId,
+      p_new_password: newPassword
+    });
+    if (error) throw error;
+    return data;
+  },
+
+  async setEmployeeRole(employeeId, role) {
+    if (!this.isAdmin) throw new Error('ต้องเป็น admin');
+    const { data, error } = await this.client.rpc('set_employee_role', {
+      p_employee_id: employeeId,
+      p_role: role
+    });
+    if (error) throw error;
+    await this.refetchUserProfiles();
+    return data;
+  },
+
   // ─── AUDIT LOG (admin only) ───
   // ไม่ cache — query on demand เพราะข้อมูลโตเรื่อยๆ + ต้องการ filter
   // คืน { rows: [...], total: N } — pagination ที่ฝั่งเซิร์ฟเวอร์

@@ -363,6 +363,7 @@ const router = {
     if (window.afterRender) { window.afterRender(); window.afterRender = null; }
     if (name === 'employees') wireEmployeePage();
     if (name === 'recruit') wireRecruitPage();
+    if (name === 'settings' && typeof renderEmpAccounts === 'function') renderEmpAccounts();
     $('#sidebar').classList.remove('open');
   },
   refresh() { this.go(this.current); }
@@ -6063,6 +6064,16 @@ router.register('settings', () => {
       </form>
     </div>
 
+    ${DB.isAdmin ? `<div class="card">
+      <div class="card-header">
+        <div class="card-title">บัญชีผู้ใช้พนักงาน</div>
+        <div class="muted-2" style="font-size:12px;margin-top:4px">สร้างบัญชีให้พนักงานเข้าใช้ระบบ · email = {รหัส}@kacha.local · รหัสเริ่มต้น = รหัสพนักงาน · พนักงานเปลี่ยนรหัสได้เองในหน้านี้</div>
+      </div>
+      <div id="empAccountsBox" style="margin-top:8px">
+        <div class="muted-2" style="padding:14px 0">กำลังโหลด...</div>
+      </div>
+    </div>` : ''}
+
     <div class="card">
       <div class="card-header"><div class="card-title">ข้อมูลและการสำรอง</div></div>
       <div class="flex gap-2" style="flex-wrap:wrap">
@@ -6081,6 +6092,95 @@ router.register('settings', () => {
     </div>
   `;
 });
+
+// ─── Employee Account Management (Settings page) ───
+async function renderEmpAccounts() {
+  const box = document.getElementById('empAccountsBox');
+  if (!box || !DB.isAdmin) return;
+  try {
+    const profiles = await DB.getUserProfilesList();
+    const byEmpId = new Map(profiles.filter(p => p.employee_id).map(p => [p.employee_id, p]));
+    const active = DB.data.employees.filter(e => DB.empStatus(e) !== 'resigned');
+    const withAcc = active.filter(e => byEmpId.has(e.id));
+    const withoutAcc = active.filter(e => !byEmpId.has(e.id));
+    box.innerHTML = `
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:var(--surface-2);border-radius:8px">
+        <div style="font-size:13px">มีบัญชี: <strong style="color:var(--success)">${withAcc.length}</strong> · ยังไม่มี: <strong style="color:var(--warning)">${withoutAcc.length}</strong> · รวมพนักงานที่ยัง active: <strong>${active.length}</strong></div>
+        ${withoutAcc.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="bulkCreateAccounts()">🚀 สร้างบัญชีให้ ${withoutAcc.length} คนที่เหลือ</button>` : ''}
+      </div>
+      <div class="table-wrap" style="max-height:480px;overflow:auto"><table class="table table-compact">
+        <thead><tr><th>รหัส</th><th>ชื่อพนักงาน</th><th>สาขา</th><th>Email login</th><th>Role</th><th>สถานะ</th><th></th></tr></thead>
+        <tbody>
+          ${active.map(e => {
+            const p = byEmpId.get(e.id);
+            const hasAcc = !!p;
+            const email = `${e.id.toLowerCase()}@kacha.local`;
+            return `<tr>
+              <td><code style="font-size:11.5px">${escapeHtml(e.id)}</code></td>
+              <td><strong>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</strong></td>
+              <td style="font-size:12.5px">${escapeHtml(e.branch || '-')}</td>
+              <td><code style="font-size:11.5px">${escapeHtml(email)}</code></td>
+              <td>${hasAcc ? (p.role === 'admin'
+                ? '<span class="badge badge-success">Admin</span>'
+                : '<span class="badge">Viewer</span>') : '<span class="muted-2">-</span>'}</td>
+              <td>${hasAcc ? '<span class="badge badge-success">✓ มีบัญชี</span>' : '<span class="badge badge-warning">⚠️ ยังไม่มี</span>'}</td>
+              <td class="actions">
+                ${!hasAcc ? `<button class="btn btn-primary btn-sm" onclick="createOneAccount('${escapeHtml(e.id)}')">สร้างบัญชี</button>` : ''}
+                ${hasAcc ? `<button class="btn btn-ghost btn-sm" onclick="resetEmpPassword('${escapeHtml(e.id)}')">รีเซ็ตรหัส</button>
+                  <button class="btn btn-ghost btn-sm" onclick="toggleEmpRole('${escapeHtml(e.id)}', '${p.role}')">เปลี่ยนเป็น ${p.role === 'admin' ? 'viewer' : 'admin'}</button>` : ''}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+    `;
+  } catch (ex) {
+    box.innerHTML = `<div style="color:var(--danger);padding:14px 0">โหลดไม่สำเร็จ: ${escapeHtml(ex.message || String(ex))}</div>`;
+  }
+}
+
+async function createOneAccount(empId) {
+  if (!requireAdmin()) return;
+  try {
+    const res = await DB.createEmployeeAccount(empId);
+    toast(`✓ ${res.message || 'สำเร็จ'} · email: ${res.email} · รหัส: ${empId}`, 'success');
+    renderEmpAccounts();
+  } catch (ex) { toast('สร้างไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+}
+
+async function bulkCreateAccounts() {
+  if (!requireAdmin()) return;
+  if (!await modal.confirm('สร้างบัญชีทั้งหมด', 'สร้างบัญชีให้พนักงานทุกคนที่ยังไม่มีบัญชีในระบบ?\n\nemail = {รหัส}@kacha.local\nรหัสเริ่มต้น = รหัสพนักงาน\nrole = viewer')) return;
+  try {
+    const results = await DB.bulkCreateEmployeeAccounts();
+    const okCount = results.filter(r => r.created).length;
+    const skipCount = results.filter(r => !r.created && !String(r.message).startsWith('ERROR')).length;
+    const errCount = results.filter(r => String(r.message).startsWith('ERROR')).length;
+    toast(`✓ สร้าง ${okCount} ใหม่ · ข้าม ${skipCount} · ผิดพลาด ${errCount}`, errCount > 0 ? 'warning' : 'success');
+    renderEmpAccounts();
+  } catch (ex) { toast('ไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+}
+
+async function resetEmpPassword(empId) {
+  if (!requireAdmin()) return;
+  const newPwd = await modal.prompt('รีเซ็ตรหัสผ่าน', `รหัสผ่านใหม่สำหรับ "${empId}" (เว้นว่างเพื่อรีเซ็ตเป็นรหัสพนักงาน):`, '');
+  if (newPwd === null) return;
+  try {
+    const res = await DB.resetEmployeePassword(empId, newPwd.trim() || null);
+    toast(`✓ รีเซ็ตแล้ว · รหัสใหม่: ${res.password}`, 'success');
+  } catch (ex) { toast('รีเซ็ตไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+}
+
+async function toggleEmpRole(empId, currentRole) {
+  if (!requireAdmin()) return;
+  const newRole = currentRole === 'admin' ? 'viewer' : 'admin';
+  if (!await modal.confirm('เปลี่ยน role', `เปลี่ยน "${empId}" จาก ${currentRole} → ${newRole} ?`)) return;
+  try {
+    await DB.setEmployeeRole(empId, newRole);
+    toast(`✓ เปลี่ยน role เป็น ${newRole}`, 'success');
+    renderEmpAccounts();
+  } catch (ex) { toast('ไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+}
 
 document.addEventListener('submit', async (e) => {
   if (e.target.id === 'companyForm') {
