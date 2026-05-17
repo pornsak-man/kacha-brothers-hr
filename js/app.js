@@ -324,6 +324,7 @@ router.register('dashboard', () => {
   const kpi = DB.getDashboardKPI();
   const yearly = DB.getYearlyHireExit();
   const monthly = yearly.months;
+  const trailing12 = DB.getMonthlyHireExit(12);
   const branchStats = DB.getBranchStats();
   const recentEmps = DB.getEmployees()
     .filter(e => DB.empStatus(e) !== 'resigned')
@@ -332,7 +333,7 @@ router.register('dashboard', () => {
   const reach90 = DB.getProbationDue(90);
   const reach119 = DB.getProbationDue(119);
 
-  window.afterRender = () => renderDashboardCharts(s, monthly, null);
+  window.afterRender = () => renderDashboardCharts(s, monthly, trailing12);
 
   const todayStr = new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' });
   const tvColor = kpi.turnoverAnnualized <= 5 ? 'var(--success)' : kpi.turnoverAnnualized <= 10 ? 'var(--warning)' : 'var(--danger)';
@@ -362,13 +363,15 @@ router.register('dashboard', () => {
         <div class="sw-stat-icon">${ICON.trendUp}</div>
         <div class="sw-stat-label">เข้าใหม่ เดือนนี้</div>
         <div class="sw-stat-value" style="color:var(--success)">${fmt.num(kpi.newThisMonth)}</div>
-        <div class="sw-stat-change">รวมปี ${kpi.year}: ${fmt.num(kpi.hireYTD)} คน</div>
+        <div class="sw-stat-change">รวมปี ${kpi.year}: ${fmt.num(kpi.hireYTD)} คน · 12 เดือนย้อนหลัง</div>
+        <div class="sw-stat-spark"><canvas id="sparkHires"></canvas></div>
       </div>
       <div class="sw-stat-card sw-accent-red">
         <div class="sw-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 13 12 18 17 13"/><polyline points="7 7 12 12 17 7"/></svg></div>
         <div class="sw-stat-label">พ้นสภาพ เดือนนี้</div>
         <div class="sw-stat-value" style="color:var(--danger)">${fmt.num(kpi.exitThisMonth)}</div>
-        <div class="sw-stat-change">รวมปี ${kpi.year}: ${fmt.num(kpi.exitYTD)} คน</div>
+        <div class="sw-stat-change">รวมปี ${kpi.year}: ${fmt.num(kpi.exitYTD)} คน · 12 เดือนย้อนหลัง</div>
+        <div class="sw-stat-spark"><canvas id="sparkExits"></canvas></div>
       </div>
       <div class="sw-stat-card sw-accent-amber" style="border-left:4px solid ${tvColor}">
         <div class="sw-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg></div>
@@ -500,11 +503,11 @@ function destroyAllCharts() {
   _chartInstances.clear();
 }
 
-function renderDashboardCharts(s, monthly, branchStats) {
-  if (typeof Chart === 'undefined') { setTimeout(() => renderDashboardCharts(s, monthly, branchStats), 200); return; }
+function renderDashboardCharts(s, monthly, trailing12) {
+  if (typeof Chart === 'undefined') { setTimeout(() => renderDashboardCharts(s, monthly, trailing12), 200); return; }
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   Chart.defaults.color = isDark ? '#c9cfd6' : '#525249';
-  Chart.defaults.font.family = 'Prompt, sans-serif';
+  Chart.defaults.font.family = 'Inter, "IBM Plex Sans Thai", system-ui, sans-serif';
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
 
   // ── Monthly hire/exit chart — smooth line chart (Jan-Dec ของปีปัจจุบัน) ──
@@ -641,6 +644,42 @@ function renderDashboardCharts(s, monthly, branchStats) {
         }
       }
     });
+  }
+
+  // ── KPI Sparklines: trailing-12-month hire/exit mini charts ──
+  if (trailing12 && trailing12.length) {
+    const sparkOpts = (color) => ({
+      type: 'line',
+      data: {
+        labels: trailing12.map(m => m.ym),
+        datasets: [{
+          data: [],
+          borderColor: color,
+          borderWidth: 1.75,
+          tension: 0.35,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          fill: true,
+          backgroundColor: color.replace('rgb', 'rgba').replace(')', ',0.10)')
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false, beginAtZero: true } },
+        elements: { line: { borderJoinStyle: 'round' } }
+      }
+    });
+    if ($('#sparkHires')) {
+      const cfg = sparkOpts('rgb(22,163,74)');
+      cfg.data.datasets[0].data = trailing12.map(m => m.hires);
+      makeChart('sparkHires', cfg);
+    }
+    if ($('#sparkExits')) {
+      const cfg = sparkOpts('rgb(220,38,38)');
+      cfg.data.datasets[0].data = trailing12.map(m => m.exits);
+      makeChart('sparkExits', cfg);
+    }
   }
 
   // ── อัตราค่าจ้างต่อตำแหน่งงาน — bar chart โทนทอง (editorial) ──
