@@ -3442,10 +3442,27 @@ function renderUniformRequestsTable() {
       </tbody>
     </table></div>
     <style>
-      .uniform-req-table td { vertical-align: middle; line-height: 1.5; }
-      .uniform-req-table td.note-cell { max-width: 240px; white-space: pre-wrap; font-size: 12.5px; }
-      .uniform-req-table td.actions { white-space: nowrap; }
-      .uniform-req-table .badge { display: inline-block; vertical-align: middle; }
+      .uniform-req-table { background: var(--surface); }
+      .uniform-req-table tbody tr { background: var(--surface); }
+      .uniform-req-table tbody tr:hover { background: var(--surface-2); }
+      .uniform-req-table td {
+        vertical-align: top;
+        line-height: 1.55;
+        padding: 14px 12px;
+        background: transparent;
+      }
+      .uniform-req-table td.note-cell {
+        max-width: 260px;
+        white-space: pre-wrap;
+        font-size: 12.5px;
+        color: var(--text-2);
+      }
+      .uniform-req-table td.actions {
+        white-space: nowrap;
+        text-align: right;
+      }
+      .uniform-req-table td.actions .btn { vertical-align: top; }
+      .uniform-req-table .badge { display: inline-block; vertical-align: baseline; }
     </style>
   `;
 }
