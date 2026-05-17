@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- TABLES
 -- ═══════════════════════════════════════════════════════════
 
--- ── ฝ่าย / แผนก ──
+-- ── ฝ่าย ──
 CREATE TABLE IF NOT EXISTS public.departments (
   id          TEXT PRIMARY KEY,
   name        TEXT NOT NULL,

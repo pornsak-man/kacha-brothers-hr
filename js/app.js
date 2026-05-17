@@ -216,7 +216,7 @@ const router = {
     const titles = {
       dashboard: 'แดชบอร์ด',
       employees: 'ทะเบียนพนักงาน',
-      departments: 'ฝ่าย / แผนก',
+      departments: 'ฝ่าย',
       positions: 'ระดับตำแหน่ง',
       'salary-adjust': 'ปรับเงินเดือน / ตำแหน่ง',
       loans: 'การกู้เงินบริษัท',
@@ -1333,7 +1333,7 @@ router.register('departments', () => {
   const emps = DB.getEmployees({ status: 'active' });
   return `
     <div class="page-header">
-      <h2>ฝ่าย / แผนก</h2>
+      <h2>ฝ่าย</h2>
       <div class="actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openDeptForm()">+ เพิ่มฝ่าย</button>' : ''}</div>
     </div>
     <div class="card">
