@@ -785,28 +785,122 @@ img.emp-avatar-lg {
 .toast.warning { border-left-color: var(--warning); }
 @keyframes slideIn { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
-/* ═════════════ EMPLOYEE DETAIL ═════════════ */
+/* ═════════════ EMPLOYEE DETAIL — HERO ═════════════ */
+.emp-hero {
+  display: flex; align-items: center; gap: 24px;
+  padding: 24px;
+  background: linear-gradient(135deg, var(--primary-soft) 0%, var(--surface) 60%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.emp-hero::before {
+  content: ''; position: absolute; top: -40px; right: -40px;
+  width: 160px; height: 160px; border-radius: 50%;
+  background: radial-gradient(circle, var(--primary-soft), transparent 70%);
+  opacity: 0.6; pointer-events: none;
+}
+.emp-hero-avatar {
+  width: 110px; height: 110px; border-radius: var(--radius-lg);
+  overflow: hidden; flex-shrink: 0;
+  box-shadow: 0 12px 28px rgba(30, 58, 138, 0.25), 0 0 0 4px rgba(255,255,255,0.9);
+  position: relative; z-index: 1;
+}
+.emp-hero-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.emp-avatar-fallback {
+  width: 100%; height: 100%;
+  background: linear-gradient(135deg, var(--navy-400), var(--navy-700));
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  font-size: 46px; font-weight: 700; letter-spacing: -0.02em;
+}
+.emp-hero-info { flex: 1; min-width: 0; position: relative; z-index: 1; }
+.emp-hero-id {
+  font-size: 11px; color: var(--text-3); text-transform: uppercase;
+  letter-spacing: 1.4px; font-weight: 600; margin-bottom: 4px;
+}
+.emp-hero-name {
+  font-size: 24px; font-weight: 600; letter-spacing: -0.025em;
+  color: var(--text); margin: 0 0 4px; line-height: 1.2;
+}
+.emp-hero-title {
+  font-size: 14px; color: var(--text-2); font-weight: 500;
+  margin-bottom: 12px;
+}
+.emp-hero-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.emp-chip {
+  display: inline-flex; align-items: center;
+  padding: 4px 10px; border-radius: var(--radius-full);
+  background: var(--surface); border: 1px solid var(--border);
+  font-size: 11.5px; color: var(--text-2); font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.emp-chip.muted { color: var(--text-3); }
+[data-theme="dark"] .emp-hero { background: linear-gradient(135deg, rgba(30,58,138,0.15) 0%, var(--surface) 60%); }
+
+/* ═════════════ EMPLOYEE STATS ROW ═════════════ */
+.emp-stats-row {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 20px;
+}
+.emp-stat-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 18px;
+  transition: all var(--transition);
+}
+.emp-stat-card:hover {
+  border-color: var(--primary); transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+.emp-stat-label {
+  font-size: 11px; color: var(--text-3); text-transform: uppercase;
+  letter-spacing: 0.8px; font-weight: 600; margin-bottom: 6px;
+}
+.emp-stat-value {
+  font-size: 18px; font-weight: 700; color: var(--text);
+  letter-spacing: -0.015em; font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+@media (max-width: 600px) { .emp-stats-row { grid-template-columns: 1fr; } }
+
+/* ═════════════ EMPLOYEE INFO GRID — refined ═════════════ */
+.emp-info-grid {
+  display: grid; gap: 4px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.emp-info-row {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+.emp-info-row:hover { background: var(--surface-2); }
+.emp-info-row .label {
+  font-size: 10.5px; color: var(--text-3); text-transform: uppercase;
+  letter-spacing: 0.8px; font-weight: 600; margin-bottom: 4px;
+}
+.emp-info-row .value {
+  font-size: 14px; color: var(--text); font-weight: 500;
+  line-height: 1.4;
+}
+.emp-info-row .value.mono { font-variant-numeric: tabular-nums; letter-spacing: 0.5px; }
+.emp-info-row.span-2 { grid-column: span 2; }
+
+/* Backward compat - old code may still use .emp-profile / .emp-avatar-lg */
 .emp-profile { display: grid; grid-template-columns: 200px 1fr; gap: 28px; }
 .emp-avatar-lg {
   width: 180px; height: 180px; border-radius: var(--radius-lg);
   background: linear-gradient(135deg, var(--navy-400), var(--navy-600));
   color: #fff; display: flex; align-items: center; justify-content: center;
   font-size: 64px; font-weight: 700;
-  box-shadow: 0 16px 40px rgba(30, 58, 138, 0.3),
-              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  box-shadow: 0 16px 40px rgba(30, 58, 138, 0.3);
   letter-spacing: -0.02em;
 }
-.emp-info-grid { display: grid; gap: 14px 28px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
-.emp-info-row .label {
-  font-size: 11px; color: var(--text-3); text-transform: uppercase;
-  letter-spacing: 0.6px; font-weight: 500;
-}
-.emp-info-row .value {
-  font-size: 14px; color: var(--text); margin-top: 4px;
-  font-weight: 500;
-}
-.emp-info-row.span-2 { grid-column: span 2; }
+img.emp-avatar-lg { object-fit: cover; }
+
 @media (max-width: 700px) {
+  .emp-hero { flex-direction: column; text-align: center; align-items: center; gap: 16px; }
   .emp-profile { grid-template-columns: 1fr; }
   .emp-info-row.span-2 { grid-column: span 1; }
 }

@@ -750,30 +750,57 @@ function viewEmployee(id) {
   const evals = DB.getEvaluations(id);
   const history = DB.getSalaryHistory(id);
 
+  // Quick stats values
+  const statusInfo = (() => {
+    const st = DB.empStatus(e);
+    if (st === 'active') return { label: 'ปฏิบัติงาน', cls: 'badge-success' };
+    if (st === 'pending') return { label: 'นัดพ้นสภาพ', cls: 'badge-warning' };
+    return { label: 'พ้นสภาพแล้ว', cls: 'badge-danger' };
+  })();
+  const levelTxt = pos.level ? ` · ระดับ ${pos.level}` : '';
+
   modal.open('ข้อมูลพนักงาน', `
-    <div class="emp-profile">
-      <div>
+    <div class="emp-hero">
+      <div class="emp-hero-avatar">
         ${e.photoUrl
-          ? `<img src="${escapeHtml(e.photoUrl)}" class="emp-avatar-lg" alt="" loading="lazy"/>`
-          : `<div class="emp-avatar-lg">${escapeHtml(initials)}</div>`}
-        <div class="text-center mt-4">
-          <div style="font-size:13px;color:var(--text-2)">รหัสพนักงาน</div>
-          <div style="font-size:18px;font-weight:600">${escapeHtml(e.id)}</div>
-        </div>
+          ? `<img src="${escapeHtml(e.photoUrl)}" alt="" loading="lazy"/>`
+          : `<div class="emp-avatar-fallback">${escapeHtml(initials)}</div>`}
       </div>
-      <div>
-        <h3 style="font-size:22px;font-weight:600;letter-spacing:-0.02em;margin-bottom:6px">${escapeHtml((e.title || '') + e.firstName + ' ' + e.lastName)}</h3>
-        <div class="muted">${escapeHtml(e.positionTitle || pos.name || '-')} • ${escapeHtml(dept.name || '-')}${e.branch ? ' • สาขา ' + escapeHtml(e.branch) : ''}</div>
-        <div class="muted-2 mt-2" style="font-size:12px">${escapeHtml(e.employeeType || '')}${e.nickname ? ' • ชื่อเล่น "' + escapeHtml(e.nickname) + '"' : ''}</div>
+      <div class="emp-hero-info">
+        <div class="emp-hero-id">รหัส ${escapeHtml(e.id)}</div>
+        <h2 class="emp-hero-name">${escapeHtml((e.title || '') + e.firstName + ' ' + e.lastName)}</h2>
+        <div class="emp-hero-title">${escapeHtml(e.positionTitle || pos.name || '-')}${levelTxt}</div>
+        <div class="emp-hero-chips">
+          ${dept.name ? `<span class="emp-chip">${escapeHtml(dept.name)}</span>` : ''}
+          ${e.branch ? `<span class="emp-chip">📍 ${escapeHtml(e.branch)}</span>` : ''}
+          ${e.employeeType ? `<span class="emp-chip">${escapeHtml(e.employeeType)}</span>` : ''}
+          ${e.nickname ? `<span class="emp-chip muted">${escapeHtml(e.nickname)}</span>` : ''}
+          <span class="badge ${statusInfo.cls}" style="font-size:11.5px">${statusInfo.label}</span>
+        </div>
       </div>
     </div>
 
-    <div class="form-section mt-4">
+    <div class="emp-stats-row">
+      <div class="emp-stat-card">
+        <div class="emp-stat-label">รายได้รวม/เดือน</div>
+        <div class="emp-stat-value">${fmt.money(totalIncome(e))}</div>
+      </div>
+      <div class="emp-stat-card">
+        <div class="emp-stat-label">อายุงาน</div>
+        <div class="emp-stat-value">${e.hireDate ? fmt.serviceYears(e.hireDate, e.terminationDate) : '-'}</div>
+      </div>
+      <div class="emp-stat-card">
+        <div class="emp-stat-label">อายุพนักงาน</div>
+        <div class="emp-stat-value">${e.dob ? fmt.age(e.dob) : '-'}</div>
+      </div>
+    </div>
+
+    <div class="form-section">
       <h3>ข้อมูลส่วนตัว</h3>
       <div class="emp-info-grid">
         <div class="emp-info-row"><div class="label">เพศ</div><div class="value">${escapeHtml(e.gender || '-')}</div></div>
-        <div class="emp-info-row"><div class="label">วันเกิด</div><div class="value">${fmt.date(e.dob)}${e.dob ? ' (' + fmt.age(e.dob) + ')' : ''}</div></div>
-        <div class="emp-info-row"><div class="label">เลขประชาชน</div><div class="value">${escapeHtml(e.nationalId || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">วันเกิด</div><div class="value">${fmt.date(e.dob)}${e.dob ? ' <span class="muted-2" style="font-size:12px">(' + fmt.age(e.dob) + ')</span>' : ''}</div></div>
+        <div class="emp-info-row"><div class="label">เลขประชาชน</div><div class="value mono">${escapeHtml(e.nationalId || '-')}</div></div>
         <div class="emp-info-row"><div class="label">สัญชาติ</div><div class="value">${escapeHtml(e.nationality || '-')}</div></div>
         <div class="emp-info-row"><div class="label">ศาสนา</div><div class="value">${escapeHtml(e.religion || '-')}</div></div>
         <div class="emp-info-row"><div class="label">วุฒิการศึกษา</div><div class="value">${escapeHtml(e.education || '-')}</div></div>
@@ -798,7 +825,7 @@ function viewEmployee(id) {
       <div class="emp-info-grid">
         <div class="emp-info-row"><div class="label">ฝ่าย</div><div class="value">${escapeHtml(dept.name || '-')}</div></div>
         <div class="emp-info-row"><div class="label">สาขา</div><div class="value">${escapeHtml(e.branch || '-')}</div></div>
-        <div class="emp-info-row"><div class="label">ระดับตำแหน่งงาน</div><div class="value">${escapeHtml(pos.name || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">ระดับตำแหน่งงาน</div><div class="value">${pos.name ? escapeHtml(pos.name) + (pos.level ? ` <span class="badge badge-info" style="margin-left:6px">ระดับ ${pos.level}</span>` : '') : '-'}</div></div>
         <div class="emp-info-row"><div class="label">ตำแหน่ง</div><div class="value">${escapeHtml(e.positionTitle || '-')}</div></div>
         <div class="emp-info-row"><div class="label">ประเภทพนักงาน</div><div class="value">${escapeHtml(e.employeeType || '-')}</div></div>
         <div class="emp-info-row"><div class="label">วันเริ่มงาน</div><div class="value">${fmt.date(e.hireDate)}</div></div>
