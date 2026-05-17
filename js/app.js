@@ -460,8 +460,14 @@ router.register('dashboard', () => {
     </div>
 
     <div class="chart-row">
-      <div class="chart-box"><div class="sw-chart-title">พนักงานตามฝ่าย</div><div class="sw-chart-sub">นับเฉพาะที่ยังปฏิบัติงาน</div><canvas id="chartByDept"></canvas></div>
+      <div class="chart-box"><div class="sw-chart-title">พนักงานตามตำแหน่งงาน</div><div class="sw-chart-sub">${s.byPosition.length} ตำแหน่ง · เรียงจากจำนวนมาก → น้อย</div><canvas id="chartByPosition"></canvas></div>
       <div class="chart-box"><div class="sw-chart-title">สัดส่วนเพศ</div><div class="sw-chart-sub">${fmt.num(s.activeEmployees)} คนทำงานอยู่</div><canvas id="chartByGender"></canvas></div>
+    </div>
+
+    <div class="sw-chart-card">
+      <div class="sw-chart-title">ช่วงอายุพนักงาน</div>
+      <div class="sw-chart-sub">นับเฉพาะที่ยังปฏิบัติงาน · ${fmt.num(s.byAge.reduce((sum, b) => sum + b.count, 0))} คน</div>
+      <canvas id="chartByAge" style="max-height:280px"></canvas>
     </div>
   `;
 });
@@ -551,16 +557,59 @@ function renderDashboardCharts(s, monthly, branchStats) {
 
   // (Branch distribution ใช้ HTML list — ไม่ใช้ Chart.js แล้ว)
 
-  if ($('#chartByDept')) makeChart('chartByDept', {
-    type: 'bar',
-    data: { labels: s.byDepartment.map(d => d.name), datasets: [{ label: 'จำนวน', data: s.byDepartment.map(d => d.count), backgroundColor: '#1e3a8a', borderRadius: 8, borderSkipped: false }] },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: gridColor } } } }
-  });
+  // ── พนักงานตามตำแหน่งงาน (แทน chartByDept เดิม) ──
+  if ($('#chartByPosition') && s.byPosition?.length) {
+    makeChart('chartByPosition', {
+      type: 'bar',
+      data: {
+        labels: s.byPosition.map(p => p.name),
+        datasets: [{ label: 'จำนวน', data: s.byPosition.map(p => p.count), backgroundColor: '#1e3a8a', borderRadius: 6, borderSkipped: false, barPercentage: 0.7 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y} คน` } } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 11 }, maxRotation: 45, minRotation: 30, autoSkip: false } },
+          y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: gridColor } }
+        }
+      }
+    });
+  }
+
   if ($('#chartByGender')) makeChart('chartByGender', {
     type: 'doughnut',
     data: { labels: ['ชาย', 'หญิง'], datasets: [{ data: [s.byGender.male, s.byGender.female], backgroundColor: ['#3b82f6', '#f472b6'], borderWidth: 0, hoverOffset: 8 }] },
     options: { responsive: true, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle' } } } }
   });
+
+  // ── ช่วงอายุพนักงาน — bar chart ──
+  if ($('#chartByAge') && s.byAge?.length) {
+    // gradient: เด็ก → ม่วงอ่อน, แก่ → ส้มเข้ม (ดู age scale ได้แม้ไม่อ่าน label)
+    const palette = ['#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#fb923c', '#ef4444', '#94a3b8'];
+    makeChart('chartByAge', {
+      type: 'bar',
+      data: {
+        labels: s.byAge.map(b => b.label),
+        datasets: [{
+          label: 'จำนวน',
+          data: s.byAge.map(b => b.count),
+          backgroundColor: s.byAge.map((_, i) => palette[i % palette.length]),
+          borderRadius: 6, borderSkipped: false, barPercentage: 0.65
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y} คน` } }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 12 } } },
+          y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: gridColor } }
+        }
+      }
+    });
+  }
 }
 
 // ═══════════════════════════════════════════════════════

@@ -779,6 +779,37 @@ const DB = {
     return months;
   },
 
+  // ─── AGE DISTRIBUTION ───
+  // คำนวณช่วงอายุของพนักงานที่ยังปฏิบัติงาน
+  // คืน [{ label, count }] สำหรับ chart — ครอบคลุม < 20, 20-29, 30-39, 40-49, 50-59, 60+, ไม่ระบุ
+  getAgeDistribution() {
+    const buckets = [
+      { label: 'ต่ำกว่า 20 ปี', min: 0,  max: 19,  count: 0 },
+      { label: '20-29 ปี',       min: 20, max: 29,  count: 0 },
+      { label: '30-39 ปี',       min: 30, max: 39,  count: 0 },
+      { label: '40-49 ปี',       min: 40, max: 49,  count: 0 },
+      { label: '50-59 ปี',       min: 50, max: 59,  count: 0 },
+      { label: '60 ปีขึ้นไป',    min: 60, max: 200, count: 0 }
+    ];
+    const noBirth = { label: 'ไม่ระบุวันเกิด', count: 0 };
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const [ty, tm, td] = today.split('-').map(Number);
+
+    for (const e of this.data.employees) {
+      if (this.empStatus(e) === 'resigned') continue;
+      const m = String(e.dob || '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (!m) { noBirth.count++; continue; }
+      let age = ty - +m[1];
+      if (tm < +m[2] || (tm === +m[2] && td < +m[3])) age--;
+      if (age < 0 || age > 120) { noBirth.count++; continue; }
+      const b = buckets.find(x => age >= x.min && age <= x.max);
+      if (b) b.count++;
+    }
+    const result = buckets.filter(b => b.count > 0).map(b => ({ label: b.label, count: b.count }));
+    if (noBirth.count > 0) result.push(noBirth);
+    return result;
+  },
+
   // ─── STATS ───
   getStats() {
     const emps = this.data.employees;
@@ -787,6 +818,11 @@ const DB = {
     const totalSalary = active.reduce((s, e) => s + (e.salary || 0), 0);
     const activeLoans = this.data.loans.filter(l => l.status !== 'completed').length;
     const pendingAdvances = this.data.advances.filter(a => a.status !== 'paid').length;
+    // byPosition: เรียงจำนวนมาก → น้อย (โชว์ตำแหน่งที่มีคนเยอะก่อน), ตัดที่ count = 0 ออก
+    const byPosition = this.data.positionLevels
+      .map(p => ({ name: p.name, count: active.filter(e => e.position === p.id).length, level: p.level || 0 }))
+      .filter(p => p.count > 0)
+      .sort((a, b) => b.count - a.count || (b.level - a.level));
     return {
       totalEmployees: emps.length,
       activeEmployees: active.length,
@@ -798,10 +834,8 @@ const DB = {
         name: d.name,
         count: active.filter(e => e.department === d.id).length
       })),
-      byPosition: this.data.positionLevels.map(p => ({
-        name: p.name,
-        count: active.filter(e => e.position === p.id).length
-      })),
+      byPosition,
+      byAge: this.getAgeDistribution(),
       byGender: {
         male: active.filter(e => e.gender === 'ชาย').length,
         female: active.filter(e => e.gender === 'หญิง').length
