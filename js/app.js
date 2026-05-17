@@ -6,7 +6,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 const fmt = {
-  money: (n) => 'บาท ' + (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
+  money: (n) => (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
   num: (n) => (Number(n) || 0).toLocaleString('th-TH'),
   date: (d) => {
     if (!d) return '-';
