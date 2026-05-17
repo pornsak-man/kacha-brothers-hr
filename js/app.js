@@ -2572,23 +2572,94 @@ function openApplicantForm(id = null) {
         </div>
       </div>
 
-      <div class="form-section">
-        <h3>การจัดชุดพนักงาน <span class="muted-2" style="font-weight:normal;font-size:12px">(ส่งให้ Benefit ดำเนินการจัดชุดก่อนวันเริ่มงาน)</span></h3>
-        <div class="form-grid">
-          <div class="form-group span-2">
-            <label>
-              <input type="checkbox" name="needUniform" id="needUniformChk" ${existingUniReq || !id ? 'checked' : ''}/>
-              ต้องจัดชุดให้พนักงานใหม่
-            </label>
+      ${(() => {
+        // ─── สร้าง structured rows สำหรับการจัดชุด ───
+        // ดึงประเภทชุดจาก uniform_items (active only); fallback list ถ้า master ยังว่าง
+        const masterItems = DB.getUniformItems({ activeOnly: true });
+        let typeNames = [...new Set(masterItems.map(i => i.name))];
+        if (typeNames.length === 0) typeNames = ['เสื้อยูนิฟอร์ม', 'กางเกง', 'หมวก', 'รองเท้า', 'ผ้ากันเปื้อน'];
+        const sizesByType = {};
+        for (const it of masterItems) {
+          if (!sizesByType[it.name]) sizesByType[it.name] = new Set();
+          if (it.size) sizesByType[it.name].add(it.size);
+        }
+        const unitOf = (name) => {
+          if (/หมวก/.test(name)) return 'ใบ';
+          if (/รองเท้า/.test(name)) return 'คู่';
+          if (/ผ้า/.test(name)) return 'ผืน';
+          return 'ตัว';
+        };
+        // พยายาม parse note เดิม → preset structured rows + ส่วนเกินไป "หมายเหตุเพิ่มเติม"
+        const presets = {};   // typeName → { size, qty }
+        let extraNote = '';
+        if (existingUniReq?.note) {
+          const lines = existingUniReq.note.split('\n');
+          const extraLines = [];
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            let matched = false;
+            for (const tn of typeNames) {
+              if (trimmed.startsWith(tn)) {
+                const rest = trimmed.slice(tn.length).trim();
+                // pattern: "<size> <qty>" or just "<qty>"
+                const m = rest.match(/^(\S+)\s+(\d+)/) || rest.match(/^(\d+)/);
+                if (m) {
+                  if (m[2] != null) { presets[tn] = { size: m[1], qty: m[2] }; }
+                  else { presets[tn] = { size: '', qty: m[1] }; }
+                  matched = true;
+                  break;
+                }
+              }
+            }
+            if (!matched) extraLines.push(trimmed);
+          }
+          extraNote = extraLines.join('\n');
+        }
+
+        return `
+        <div class="form-section">
+          <h3>การจัดชุดพนักงาน <span class="muted-2" style="font-weight:normal;font-size:12px">(ส่งให้ Benefit ดำเนินการจัดชุดก่อนวันเริ่มงาน)</span></h3>
+          <div class="form-grid">
+            <div class="form-group span-2">
+              <label>
+                <input type="checkbox" name="needUniform" id="needUniformChk" ${existingUniReq || !id ? 'checked' : ''}/>
+                ต้องจัดชุดให้พนักงานใหม่
+              </label>
+            </div>
+            <div class="form-group"><label>ต้องการก่อน (วันเริ่มงาน)</label><input name="uniformNeededBy" type="date" value="${existingUniReq?.neededBy || ''}"/></div>
+            <div class="form-group"><label>HR ที่แจ้ง</label><input name="uniformRequestedBy" value="${escapeHtml(existingUniReq?.requestedBy || DB.profile?.name || DB.user?.email || '')}" placeholder="ชื่อ HR คนแจ้ง"/></div>
           </div>
-          <div class="form-group"><label>ต้องการก่อน (วันเริ่มงาน)</label><input name="uniformNeededBy" type="date" value="${existingUniReq?.neededBy || ''}"/></div>
-          <div class="form-group"><label>HR ที่แจ้ง</label><input name="uniformRequestedBy" value="${escapeHtml(existingUniReq?.requestedBy || DB.profile?.name || DB.user?.email || '')}" placeholder="ชื่อ HR คนแจ้ง"/></div>
-          <div class="form-group span-2"><label>รายละเอียดชุด (size, ประเภท, จำนวน)</label>
-            <textarea name="uniformNote" rows="3" placeholder="เช่น:&#10;เสื้อยูนิฟอร์ม M 2 ตัว&#10;กางเกง L 2 ตัว&#10;หมวก ฟรีไซส์ 1 ใบ&#10;รองเท้า 38">${escapeHtml(existingUniReq?.note || '')}</textarea>
+
+          <div style="margin-top:14px">
+            <label style="font-size:13px;font-weight:600;color:var(--text);display:block;margin-bottom:10px">รายการชุดที่ต้องจัด <span class="muted-2" style="font-weight:normal;font-size:11px">(กรอกจำนวน → ถ้าไม่ต้องการให้ใส่ 0 หรือเว้นว่าง)</span></label>
+            <div style="background:var(--surface-2);border-radius:8px;padding:14px 16px;border:1px solid var(--border)">
+              <div style="display:grid;grid-template-columns:1.6fr 1fr 100px 60px;gap:10px;font-size:11.5px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;padding:0 4px">
+                <div>ประเภทชุด</div><div>ขนาด</div><div style="text-align:center">จำนวน</div><div>หน่วย</div>
+              </div>
+              ${typeNames.map((tn, idx) => {
+                const sizes = [...(sizesByType[tn] || [])];
+                const preset = presets[tn] || {};
+                return `
+                <div style="display:grid;grid-template-columns:1.6fr 1fr 100px 60px;gap:10px;align-items:center;margin-bottom:8px">
+                  <input type="text" value="${escapeHtml(tn)}" readonly style="font-weight:600;background:var(--surface)" data-uni-type/>
+                  <input type="text" name="uniSize_${idx}" list="dl-unisize-${idx}" value="${escapeHtml(preset.size || '')}" placeholder="size" autocomplete="off"/>
+                  <datalist id="dl-unisize-${idx}">${sizes.map(s => `<option value="${escapeHtml(s)}">`).join('')}</datalist>
+                  <input type="number" name="uniQty_${idx}" min="0" value="${preset.qty || ''}" placeholder="0" style="text-align:center"/>
+                  <div style="font-size:13px;color:var(--text-3);text-align:center">${unitOf(tn)}</div>
+                </div>`;
+              }).join('')}
+            </div>
           </div>
-        </div>
-        ${existingUniReq ? `<div class="muted-2" style="font-size:12px;padding:8px 12px;background:var(--surface-2);border-radius:6px;margin-top:8px">📋 มีคำขอจัดชุดอยู่แล้ว · สถานะ: <strong>${UNIFORM_STATUS[existingUniReq.status]?.label || existingUniReq.status}</strong>${existingUniReq.totalCost > 0 ? ` · ค่าชุดรวม ${fmt.money(existingUniReq.totalCost)} บาท` : ''}</div>` : ''}
-      </div>
+
+          <div class="form-grid" style="margin-top:14px">
+            <div class="form-group span-2"><label>หมายเหตุเพิ่มเติม <span class="muted-2" style="font-weight:normal;font-size:11px">(เช่น แพ้ผ้าบางชนิด, สีพิเศษ, ฯลฯ)</span></label>
+              <textarea name="uniformExtraNote" rows="2" placeholder="ระบุข้อมูลพิเศษนอกเหนือจากรายการด้านบน">${escapeHtml(extraNote)}</textarea>
+            </div>
+          </div>
+          ${existingUniReq ? `<div class="muted-2" style="font-size:12px;padding:8px 12px;background:var(--surface-2);border-radius:6px;margin-top:8px">📋 มีคำขอจัดชุดอยู่แล้ว · สถานะ: <strong>${UNIFORM_STATUS[existingUniReq.status]?.label || existingUniReq.status}</strong>${existingUniReq.totalCost > 0 ? ` · ค่าชุดรวม ${fmt.money(existingUniReq.totalCost)} บาท` : ''}</div>` : ''}
+        </div>`;
+      })()}
 
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
@@ -2603,10 +2674,26 @@ function openApplicantForm(id = null) {
       const data = Object.fromEntries(new FormData(e.target).entries());
       const needUniform = data.needUniform === 'on';
       const uniformNeededBy = data.uniformNeededBy || '';
-      const uniformNote = data.uniformNote || '';
       const uniformRequestedBy = data.uniformRequestedBy || '';
+      // รวบ structured rows → formatted note
+      const masterItems = DB.getUniformItems({ activeOnly: true });
+      let typeNames = [...new Set(masterItems.map(i => i.name))];
+      if (typeNames.length === 0) typeNames = ['เสื้อยูนิฟอร์ม', 'กางเกง', 'หมวก', 'รองเท้า', 'ผ้ากันเปื้อน'];
+      const unitOf = (name) => /หมวก/.test(name) ? 'ใบ' : /รองเท้า/.test(name) ? 'คู่' : /ผ้า/.test(name) ? 'ผืน' : 'ตัว';
+      const lines = [];
+      for (let idx = 0; idx < typeNames.length; idx++) {
+        const size = (data[`uniSize_${idx}`] || '').trim();
+        const qty = Number(data[`uniQty_${idx}`] || 0);
+        if (qty > 0) {
+          lines.push(`${typeNames[idx]}${size ? ' ' + size : ''} ${qty} ${unitOf(typeNames[idx])}`);
+        }
+      }
+      const extraNote = (data.uniformExtraNote || '').trim();
+      const uniformNote = [lines.join('\n'), extraNote].filter(Boolean).join('\n');
+
       // ตัด field ที่ไม่ใช่ของ applicant ออก
-      delete data.needUniform; delete data.uniformNeededBy; delete data.uniformNote; delete data.uniformRequestedBy;
+      delete data.needUniform; delete data.uniformNeededBy; delete data.uniformRequestedBy; delete data.uniformExtraNote;
+      for (let idx = 0; idx < typeNames.length; idx++) { delete data[`uniSize_${idx}`]; delete data[`uniQty_${idx}`]; }
       data.expectedSalary = Number(data.expectedSalary || 0);
       if (id) data.id = id;
       const saved = await DB.saveApplicant(data);
