@@ -3645,7 +3645,10 @@ function renderUniformRequestsTable() {
     </table></div>
     <style>
       .uniform-req-table { background: var(--surface); }
-      .uniform-req-table tbody tr { background: var(--surface); }
+      .uniform-req-table tbody tr {
+        background: var(--surface);
+        height: 96px;  /* enforce minimum row height — most reliable across browsers */
+      }
       .uniform-req-table tbody tr:hover { background: var(--surface-2); }
       .uniform-req-table td {
         vertical-align: top;
@@ -3657,7 +3660,6 @@ function renderUniformRequestsTable() {
         max-width: 260px;
         font-size: 12.5px;
         color: var(--text-2);
-        height: calc(1.5em * 3 + 28px);  /* 3 lines @ line-height 1.5 + td padding 14px*2 → row บังคับสูงเท่ากันทุกแถว */
       }
       .uniform-req-table .note-clamp {
         display: -webkit-box;
