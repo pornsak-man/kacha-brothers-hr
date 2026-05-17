@@ -50,6 +50,20 @@ function excelNum(s) {
   return str;
 }
 
+// CSV Injection guard — ถ้าค่าขึ้นต้นด้วยอักขระสูตร Excel จะรันสูตร (อาจเป็นมัลแวร์)
+// เช่น =1+cmd|'/c calc'!A1 → Excel เปิดเครื่องคิดเลข; @SUM(A:A) → คำนวณ
+// แก้โดย prefix อะพอสทรอฟี ' (Excel แสดงค่าเป็น text)
+function csvSafe(v) {
+  if (v == null || v === '') return v;
+  if (typeof v !== 'string') return v;
+  // อักขระอันตราย: = + - @ และ \t (tab) \r (CR)
+  if (/^[=+\-@\t\r]/.test(v)) return "'" + v;
+  return v;
+}
+
+// Excel file size limit (MB) — ป้องกัน user upload ไฟล์ใหญ่ทำ browser ค้าง
+const EXCEL_MAX_MB = 25;
+
 const fmt = {
   money: (n) => (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
   num: (n) => (Number(n) || 0).toLocaleString('th-TH'),
@@ -239,6 +253,8 @@ const router = {
   register(name, fn) { this.pages[name] = fn; },
   go(name) {
     this.current = name;
+    // destroy charts ก่อนเปลี่ยนหน้า — canvas เก่าจะถูกทิ้ง, ป้องกัน memory leak + ghost tooltips
+    if (typeof destroyAllCharts === 'function') destroyAllCharts();
     $$('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.page === name));
     const titles = {
       dashboard: 'แดชบอร์ด',
@@ -264,12 +280,40 @@ const router = {
   refresh() { this.go(this.current); }
 };
 
-// Realtime: เมื่อข้อมูลเปลี่ยนจากเครื่องอื่น ให้ refresh หน้าปัจจุบัน (ถ้าไม่ได้เปิด modal อยู่)
-window.onRealtimeChange = () => {
+// ─── REALTIME UPDATE — TARGETED REFRESH ───
+// ตาราง → หน้าที่ขึ้นกับตารางนั้น (ถ้า user ไม่ได้อยู่หน้านี้ จะไม่ refresh)
+const _RT_PAGE_DEPS = {
+  employees: ['dashboard', 'employees', 'departments', 'positions', 'salary-adjust', 'loans', 'advances', 'allowance', 'evaluations', 'reports'],
+  departments: ['dashboard', 'employees', 'departments'],
+  position_levels: ['employees', 'positions'],
+  salary_history: ['dashboard', 'salary-adjust'],
+  loans: ['loans'],
+  advances: ['advances'],
+  allowances: ['allowance'],
+  evaluations: ['evaluations'],
+  calendar_items: ['dashboard', 'calendar'],
+  company_settings: ['settings'],
+  user_profiles: ['settings']
+};
+
+window.onRealtimeChange = (payload) => {
   if ($('#modalRoot').children.length > 0) return; // ไม่รบกวน modal ที่กำลังเปิด
-  // throttle: refresh ไม่เกิน 1 ครั้ง/วินาที
+  const table = payload?.table;
+  // ถ้าเปลี่ยน table ที่หน้านี้ไม่ได้ใช้ → skip
+  const affected = _RT_PAGE_DEPS[table];
+  if (affected && !affected.includes(router.current)) return;
+
+  // FAST PATH: หน้าพนักงาน + employees table → re-render เฉพาะตาราง (ไม่รีเฟรชทั้งหน้า)
+  if (router.current === 'employees' && table === 'employees' && typeof renderEmployeeList === 'function') {
+    clearTimeout(window._rtTimer);
+    window._rtTimer = setTimeout(() => renderEmployeeList(), 250);
+    return;
+  }
+
+  // dashboard มี chart + KPI ซับซ้อน — throttle นาน + animation chart รบกวนน้อยลง
+  const delay = router.current === 'dashboard' ? 1500 : 400;
   clearTimeout(window._rtTimer);
-  window._rtTimer = setTimeout(() => router.refresh(), 300);
+  window._rtTimer = setTimeout(() => router.refresh(), delay);
 };
 
 // ═══════════════════════════════════════════════════════
@@ -422,6 +466,23 @@ router.register('dashboard', () => {
   `;
 });
 
+// ─── CHART MANAGER ───
+// เก็บ Chart instance ตาม canvas — destroy ของเก่าก่อนสร้างใหม่ (เลี่ยง memory leak + flicker)
+const _chartInstances = new Map();
+function makeChart(canvasId, config) {
+  const el = $(`#${canvasId}`);
+  if (!el) return null;
+  const old = _chartInstances.get(canvasId);
+  if (old) old.destroy();
+  const inst = new Chart(el, config);
+  _chartInstances.set(canvasId, inst);
+  return inst;
+}
+function destroyAllCharts() {
+  for (const c of _chartInstances.values()) c.destroy();
+  _chartInstances.clear();
+}
+
 function renderDashboardCharts(s, monthly, branchStats) {
   if (typeof Chart === 'undefined') { setTimeout(() => renderDashboardCharts(s, monthly, branchStats), 200); return; }
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -430,13 +491,12 @@ function renderDashboardCharts(s, monthly, branchStats) {
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
 
   // ── Monthly hire/exit chart — outline-style bars (Jan-Dec ของปีปัจจุบัน) ──
-  const ctxM = $('#chartMonthly');
-  if (ctxM && monthly) {
+  if ($('#chartMonthly') && monthly) {
     const labels = monthly.map(m => {
       const d = new Date(m.year, m.month - 1, 1);
       return d.toLocaleDateString('th-TH', { month: 'short' });
     });
-    new Chart(ctxM, {
+    makeChart('chartMonthly', {
       type: 'bar',
       data: {
         labels,
@@ -484,14 +544,12 @@ function renderDashboardCharts(s, monthly, branchStats) {
 
   // (Branch distribution ใช้ HTML list — ไม่ใช้ Chart.js แล้ว)
 
-  const ctx1 = $('#chartByDept');
-  if (ctx1) new Chart(ctx1, {
+  if ($('#chartByDept')) makeChart('chartByDept', {
     type: 'bar',
     data: { labels: s.byDepartment.map(d => d.name), datasets: [{ label: 'จำนวน', data: s.byDepartment.map(d => d.count), backgroundColor: '#1e3a8a', borderRadius: 8, borderSkipped: false }] },
     options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: gridColor } } } }
   });
-  const ctx2 = $('#chartByGender');
-  if (ctx2) new Chart(ctx2, {
+  if ($('#chartByGender')) makeChart('chartByGender', {
     type: 'doughnut',
     data: { labels: ['ชาย', 'หญิง'], datasets: [{ data: [s.byGender.male, s.byGender.female], backgroundColor: ['#3b82f6', '#f472b6'], borderWidth: 0, hoverOffset: 8 }] },
     options: { responsive: true, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle' } } } }
@@ -1415,7 +1473,13 @@ function parseImportRow(row) {
     allowancePerDiem: num('ค่าเบี้ยเลี้ยง'),
     allowanceLanguage: num('ค่าภาษา'),
     allowanceOther: num('ค่าอื่นๆ'),
-    status: get('สถานะ') === 'resigned' ? 'resigned' : 'active',
+    // sync status กับวันพ้นสภาพ — ถ้าวันพ้นสภาพอยู่ในอดีต/วันนี้ → resigned; อนาคต/ไม่มี → active
+    // ไม่ใช้ field "สถานะ" จาก Excel เพราะอาจ stale (DB.empStatus() เป็น single source of truth)
+    status: (() => {
+      const td = parseDate('วันพ้นสภาพ');
+      if (!td) return 'active';
+      return td <= tz.today() ? 'resigned' : 'active';
+    })(),
     note: get('หมายเหตุ'),
     photoUrl: ''
   };
@@ -1442,14 +1506,21 @@ function validateImportRows(rows) {
 }
 
 async function readExcelFile(file) {
+  // ตรวจขนาดไฟล์ก่อนอ่าน (กัน browser freeze)
+  if (file.size > EXCEL_MAX_MB * 1024 * 1024) {
+    throw new Error(`ไฟล์ใหญ่เกิน ${EXCEL_MAX_MB} MB — กรุณาแบ่งไฟล์เป็นหลายไฟล์ย่อย`);
+  }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
+        // yield ให้ UI render "กำลังอ่าน..." ก่อน parse สูตร XLSX (sync, อาจ block 1-2 sec)
+        await new Promise(r => setTimeout(r, 0));
         const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
         // หา sheet "พนักงาน" หรือ sheet แรก
         const sheetName = wb.SheetNames.find(n => n.includes('พนักงาน')) || wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
+        await new Promise(r => setTimeout(r, 0));
         const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
         resolve(rows.map(parseImportRow));
       } catch (ex) { reject(ex); }
@@ -1769,22 +1840,24 @@ function renderBulkPhotoPreview(total, matches, unmatched) {
 
 function exportEmployeesXLSX() {
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportEmployeesXLSX, 800); return; }
+  // text fields ผ่าน csvSafe() เพื่อกัน CSV-injection (ชื่อขึ้นต้น = + - @ จะถูก prefix ด้วย ')
+  const cs = csvSafe;
   const rows = DB.getEmployees().map(e => ({
-    'รหัส': excelNum(e.id), 'คำนำหน้า': e.title, 'ชื่อ': e.firstName, 'นามสกุล': e.lastName,
-    'ชื่อเล่น': e.nickname,
-    'เลขประชาชน': excelNum(e.nationalId), 'Passport': e.passportNumber, 'Work Permit': e.workPermitNumber, 'วันเกิด': excelDate(e.dob), 'เพศ': e.gender,
-    'สัญชาติ': e.nationality, 'ศาสนา': e.religion, 'วุฒิการศึกษา': e.education,
-    'เบอร์โทร': e.phone, 'อีเมล': e.email,
-    'ที่อยู่': e.address, 'แขวง/ตำบล': e.subDistrict, 'เขต/อำเภอ': e.district,
-    'จังหวัด': e.province, 'รหัสไปรษณีย์': e.postalCode,
-    'ฝ่าย': (DB.getDepartment(e.department) || {}).name || '',
-    'สาขา': e.branch,
-    'ระดับตำแหน่งงาน': (DB.getPosition(e.position) || {}).name || '',
-    'ตำแหน่ง': e.positionTitle,
-    'ประเภทพนักงาน': e.employeeType,
+    'รหัส': excelNum(e.id), 'คำนำหน้า': cs(e.title), 'ชื่อ': cs(e.firstName), 'นามสกุล': cs(e.lastName),
+    'ชื่อเล่น': cs(e.nickname),
+    'เลขประชาชน': excelNum(e.nationalId), 'Passport': cs(e.passportNumber), 'Work Permit': cs(e.workPermitNumber), 'วันเกิด': excelDate(e.dob), 'เพศ': cs(e.gender),
+    'สัญชาติ': cs(e.nationality), 'ศาสนา': cs(e.religion), 'วุฒิการศึกษา': cs(e.education),
+    'เบอร์โทร': cs(e.phone), 'อีเมล': cs(e.email),
+    'ที่อยู่': cs(e.address), 'แขวง/ตำบล': cs(e.subDistrict), 'เขต/อำเภอ': cs(e.district),
+    'จังหวัด': cs(e.province), 'รหัสไปรษณีย์': cs(e.postalCode),
+    'ฝ่าย': cs((DB.getDepartment(e.department) || {}).name || ''),
+    'สาขา': cs(e.branch),
+    'ระดับตำแหน่งงาน': cs((DB.getPosition(e.position) || {}).name || ''),
+    'ตำแหน่ง': cs(e.positionTitle),
+    'ประเภทพนักงาน': cs(e.employeeType),
     'วันเริ่มงาน': excelDate(e.hireDate),
     'วันพ้นสภาพ': excelDate(e.terminationDate),
-    'ธนาคาร': e.bank, 'เลขบัญชี': e.bankAccount,
+    'ธนาคาร': cs(e.bank), 'เลขบัญชี': cs(e.bankAccount),
     'เงินเดือน': Number(e.salary || 0),
     'ค่าตำแหน่ง': Number(e.allowancePosition || 0),
     'ค่าเดินทาง': Number(e.allowanceTravel || 0),
@@ -1794,7 +1867,7 @@ function exportEmployeesXLSX() {
     'ค่าอื่นๆ': Number(e.allowanceOther || 0),
     'รวมรายได้': totalIncome(e),
     'สถานะ': e.status === 'active' ? 'ปฏิบัติงาน' : 'ลาออก',
-    'หมายเหตุ': e.note
+    'หมายเหตุ': cs(e.note)
   }));
   const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true, dateNF: 'dd mmm yyyy' });
   // เลขประชาชน (column index 5 — ลำดับใน rows: รหัส,คำนำหน้า,ชื่อ,นามสกุล,ชื่อเล่น,เลขประชาชน,...)
@@ -2611,5 +2684,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (ex) {
     console.error('Init error:', ex);
     auth.showLogin();
+  } finally {
+    // ซ่อน boot splash หลังจาก init เสร็จ (ไม่ว่า login หรือ app)
+    const splash = $('#bootSplash');
+    if (splash) {
+      splash.style.transition = 'opacity .25s ease';
+      splash.style.opacity = '0';
+      setTimeout(() => splash.remove(), 260);
+    }
   }
 });

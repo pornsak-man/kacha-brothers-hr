@@ -25,6 +25,16 @@ const DB = {
     calendar: []
   },
 
+  // ─── INDEX CACHES (O(1) lookup; rebuild lazily after data change) ───
+  _empIndex: null,
+  _deptIndex: null,
+  _posIndex: null,
+  _invalidateIndex(table) {
+    if (table === 'employees' || !table) this._empIndex = null;
+    if (table === 'departments' || !table) this._deptIndex = null;
+    if (table === 'position_levels' || !table) this._posIndex = null;
+  },
+
   // ─── INIT / AUTH ───
   async init() {
     if (typeof supabase === 'undefined') throw new Error('Supabase SDK not loaded');
@@ -126,6 +136,7 @@ const DB = {
     this.data.salaryHistory = sal.map(this._salFromDB);
     this.data.calendar = (cal.data || []).map(this._calFromDB);
     if (comp.data) this.data.company = this._compFromDB(comp.data);
+    this._invalidateIndex();
   },
 
   // ─── REALTIME ───
@@ -156,7 +167,6 @@ const DB = {
     const m = map[table];
     if (!m) return;
     const list = this.data[m.list];
-    const idKey = newRow?.id ? 'id' : null;
     if (eventType === 'INSERT' && newRow) {
       if (!list.find(x => x.id === newRow.id)) list.unshift(m.from(newRow));
     } else if (eventType === 'UPDATE' && newRow) {
@@ -166,6 +176,7 @@ const DB = {
     } else if (eventType === 'DELETE' && oldRow) {
       this.data[m.list] = list.filter(x => x.id !== oldRow.id);
     }
+    this._invalidateIndex(table);
   },
 
   // ─── ROW MAPPERS (DB ↔ JS) ───
@@ -283,7 +294,13 @@ const DB = {
     }
     return [...set].sort();
   },
-  getEmployee(id) { return this.data.employees.find(e => e.id === id); },
+  getEmployee(id) {
+    if (!this._empIndex) {
+      this._empIndex = new Map();
+      for (const e of this.data.employees) this._empIndex.set(e.id, e);
+    }
+    return this._empIndex.get(id);
+  },
 
   async saveEmployee(emp) {
     // auto-set status จาก terminationDate
@@ -295,12 +312,14 @@ const DB = {
     const idx = this.data.employees.findIndex(e => e.id === mapped.id);
     if (idx >= 0) this.data.employees[idx] = mapped;
     else this.data.employees.unshift(mapped);
+    this._invalidateIndex('employees');
     return mapped;
   },
   async deleteEmployee(id) {
     const { error } = await this.client.from('employees').delete().eq('id', id);
     if (error) throw error;
     this.data.employees = this.data.employees.filter(e => e.id !== id);
+    this._invalidateIndex('employees');
   },
   nextEmployeeId() {
     // รหัสพนักงาน: ตัวเลขล้วน ไม่มี padding (เช่น "8", "121", "62002")
@@ -409,6 +428,7 @@ const DB = {
           if (idx >= 0) this.data.employees[idx] = mapped;
           else this.data.employees.push(mapped);
         }
+        this._invalidateIndex('employees');
       }
       if (onProgress) onProgress(Math.min(i + CHUNK_SIZE, rows.length), rows.length);
       // ปล่อย event loop เพื่อให้ progress UI update ไหลลื่น
@@ -419,7 +439,13 @@ const DB = {
 
   // ─── DEPARTMENTS ───
   getDepartments() { return this.data.departments.slice(); },
-  getDepartment(id) { return this.data.departments.find(d => d.id === id); },
+  getDepartment(id) {
+    if (!this._deptIndex) {
+      this._deptIndex = new Map();
+      for (const d of this.data.departments) this._deptIndex.set(d.id, d);
+    }
+    return this._deptIndex.get(id);
+  },
   async saveDepartment(dept) {
     const { data, error } = await this.client.from('departments').upsert(this._depToDB(dept)).select().single();
     if (error) throw error;
@@ -427,6 +453,7 @@ const DB = {
     const idx = this.data.departments.findIndex(d => d.id === mapped.id);
     if (idx >= 0) this.data.departments[idx] = mapped;
     else this.data.departments.push(mapped);
+    this._invalidateIndex('departments');
     return mapped;
   },
   async deleteDepartment(id) {
@@ -434,6 +461,7 @@ const DB = {
     const { error } = await this.client.from('departments').delete().eq('id', id);
     if (error) throw error;
     this.data.departments = this.data.departments.filter(d => d.id !== id);
+    this._invalidateIndex('departments');
     return true;
   },
   nextDepartmentId() {
@@ -444,7 +472,13 @@ const DB = {
 
   // ─── POSITIONS ───
   getPositions() { return this.data.positionLevels.slice(); },
-  getPosition(id) { return this.data.positionLevels.find(p => p.id === id); },
+  getPosition(id) {
+    if (!this._posIndex) {
+      this._posIndex = new Map();
+      for (const p of this.data.positionLevels) this._posIndex.set(p.id, p);
+    }
+    return this._posIndex.get(id);
+  },
   async savePosition(pos) {
     const { data, error } = await this.client.from('position_levels').upsert(this._posToDB(pos)).select().single();
     if (error) throw error;
@@ -452,6 +486,7 @@ const DB = {
     const idx = this.data.positionLevels.findIndex(p => p.id === mapped.id);
     if (idx >= 0) this.data.positionLevels[idx] = mapped;
     else this.data.positionLevels.push(mapped);
+    this._invalidateIndex('position_levels');
     return mapped;
   },
   async deletePosition(id) {
@@ -459,6 +494,7 @@ const DB = {
     const { error } = await this.client.from('position_levels').delete().eq('id', id);
     if (error) throw error;
     this.data.positionLevels = this.data.positionLevels.filter(p => p.id !== id);
+    this._invalidateIndex('position_levels');
     return true;
   },
   nextPositionId() {

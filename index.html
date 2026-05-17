@@ -8,9 +8,16 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <!-- CDN scripts มี SRI hash (sha384) — ถ้า jsdelivr ถูก tamper browser จะ block; pinned versions ห้ามอัพเดทโดยไม่อัพ hash -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+          integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g"
+          crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+          integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw"
+          crossorigin="anonymous" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"
+          integrity="sha384-rwykjmWNwVxboyFmvK9OXN0wj9hnMHA2aAHtits54DuACyCq0M2PrSNxhRb+hvXT"
+          crossorigin="anonymous" defer></script>
   <link rel="stylesheet" href="css/style.css" />
   <script>
     (function(){
@@ -23,11 +30,20 @@
 </head>
 <body>
 
+<!-- ═══════════════════════ BOOT SPLASH (แสดงระหว่าง DB.init โหลด session) ═══════════════════════ -->
+<div id="bootSplash" style="position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#1e3a8a;color:#fff;z-index:9999;font-family:Prompt,sans-serif">
+  <img src="img/logo-hr.png?v=2" alt="" style="width:96px;height:96px;border-radius:18px;margin-bottom:18px;box-shadow:0 8px 32px rgba(0,0,0,.35)"/>
+  <div style="font-size:18px;font-weight:600;letter-spacing:.5px">KACHA BROTHERS HR</div>
+  <div style="font-size:13px;opacity:.75;margin-top:6px">กำลังโหลดระบบ...</div>
+  <div style="margin-top:18px;width:36px;height:36px;border:3px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:bootspin .8s linear infinite"></div>
+  <style>@keyframes bootspin{to{transform:rotate(360deg)}}</style>
+</div>
+
 <!-- ═══════════════════════ LOGIN SCREEN ═══════════════════════ -->
-<div class="login-screen" id="loginScreen">
+<div class="login-screen" id="loginScreen" style="display:none">
   <div class="login-card">
     <div class="login-logo">
-      <img src="img/logo-hr.png" alt="Kacha Brothers HR" class="login-logo-img"/>
+      <img src="img/logo-hr.png?v=2" alt="Kacha Brothers HR" class="login-logo-img"/>
       <h1>บริษัท คชา บราเธอร์ส จำกัด</h1>
       <p>ระบบบริหารทรัพยากรบุคคล</p>
     </div>
@@ -56,7 +72,7 @@
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
     <div class="sidebar-logo">
-      <div class="sidebar-logo-wrap"><img src="img/logo-hr.png" alt="" class="sidebar-logo-img"/></div>
+      <div class="sidebar-logo-wrap"><img src="img/logo-hr.png?v=2" alt="" class="sidebar-logo-img"/></div>
       <div class="sidebar-logo-text">
         <span class="logo-name">KACHA BROTHERS</span>
         <span class="logo-sub">Human Resources</span>

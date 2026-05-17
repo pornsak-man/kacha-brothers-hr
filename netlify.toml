@@ -1,6 +1,7 @@
 [build]
   publish = "."
 
+# ─── JS / CSS: revalidate ทุกครั้ง (ป้องกัน user เห็นโค้ดเก่าหลัง deploy) ───
 [[headers]]
   for = "/js/*"
   [headers.values]
@@ -10,3 +11,40 @@
   for = "/css/*"
   [headers.values]
     Cache-Control = "max-age=0, must-revalidate"
+
+# ─── รูป: cache นาน (เปลี่ยน rarely; ใส่ ?v= ใน URL ตอนเปลี่ยน) ───
+[[headers]]
+  for = "/img/*"
+  [headers.values]
+    Cache-Control = "public, max-age=2592000, immutable"
+
+# ─── SECURITY HEADERS (apply ทุก response) ───
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # HTTPS only — บอก browser ห้าม downgrade ไป HTTP เป็นเวลา 2 ปี
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+
+    # ป้องกัน MIME-sniffing
+    X-Content-Type-Options = "nosniff"
+
+    # ป้องกัน clickjacking (ห้าม iframe โดยเว็บอื่น)
+    X-Frame-Options = "DENY"
+
+    # ลด info leak ใน referer header
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+    # ปิดสิทธิ์เข้าถึง hardware ที่ app ไม่ใช้
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=()"
+
+    # CSP — จำกัด source ของ resource ทุกประเภท
+    # script-src: เฉพาะ self + jsdelivr (มี SRI ป้องกัน tamper) + 'unsafe-inline' สำหรับ onclick (legacy)
+    # connect-src: Supabase REST + Realtime (wss)
+    # frame-ancestors: ห้าม embed ในเว็บอื่น
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co https://*.supabase.in; connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co wss://*.supabase.in; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+
+    # ป้องกัน cross-origin isolation issues
+    Cross-Origin-Opener-Policy = "same-origin"
+
+    # ปิด FLoC (Federated Learning of Cohorts) tracking
+    X-Permitted-Cross-Domain-Policies = "none"
