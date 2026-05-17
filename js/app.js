@@ -5005,30 +5005,75 @@ function renderChangeImportPreview(rows, errors) {
 // ═══════════════════════════════════════════════════════
 router.register('loans', () => {
   const loans = DB.getLoans();
+  const active = loans.filter(l => l.status !== 'completed');
+  const totalOut = loans.reduce((s, l) => s + Number(l.amount || 0), 0);
+  const totalRem = active.reduce((s, l) => s + Number(l.remaining || 0), 0);
   return `
-    <div class="page-header">
-      <h2>การกู้เงินบริษัท</h2>
-      <div class="actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openLoanForm()">+ บันทึกการกู้</button>' : ''}</div>
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">การกู้เงินบริษัท</div>
+        <div class="sw-page-subtitle">บันทึกการให้กู้และติดตามยอดผ่อนต่อพนักงาน</div>
+      </div>
+      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openLoanForm()">+ บันทึกการกู้</button>' : ''}</div>
     </div>
-    <div class="card">
+    <div class="sw-stats-grid" style="margin-bottom:28px">
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(30,58,138,0.12);color:var(--primary)">${ICON.bank}</div>
+        <div class="sw-stat-label">รายการกู้ทั้งหมด</div>
+        <div class="sw-stat-value">${fmt.num(loans.length)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">รวมทุกสถานะ</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(217,119,6,0.12);color:var(--warning)">⏳</div>
+        <div class="sw-stat-label">กำลังผ่อน</div>
+        <div class="sw-stat-value" style="color:var(--warning)">${fmt.num(active.length)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">ยังไม่ปิดยอด</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(124,58,237,0.12);color:#7c3aed">💰</div>
+        <div class="sw-stat-label">ยอดให้กู้รวม</div>
+        <div class="sw-stat-value">${fmt.money(totalOut)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">บาท · สะสมตลอด</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(220,38,38,0.12);color:var(--danger)">📌</div>
+        <div class="sw-stat-label">ยอดคงเหลือ</div>
+        <div class="sw-stat-value" style="color:var(--danger)">${fmt.money(totalRem)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">บาท · ที่ต้องเก็บ</div>
+      </div>
+    </div>
+    <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">รายการกู้ <span class="sw-chart-count">${fmt.num(loans.length)}</span></div>
+          <div class="sw-chart-sub">เรียงจากใหม่สุด · ปิดยอด = ผ่อนหมดแล้ว</div>
+        </div>
+      </div>
       ${loans.length ? `
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>วันที่</th><th>พนักงาน</th><th class="num">จำนวน</th><th class="num">ผ่อน/เดือน</th><th class="num">คงเหลือ</th><th>สถานะ</th><th>เหตุผล</th><th></th></tr></thead>
-          <tbody>
-            ${loans.map(l => { const e = DB.getEmployee(l.employeeId) || {}; return `<tr>
-                <td>${fmt.date(l.date)}</td>
-                <td>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</td>
-                <td class="num">${fmt.money(l.amount)}</td>
-                <td class="num">${fmt.money(l.monthlyPayment)}</td>
-                <td class="num">${fmt.money(l.remaining)}</td>
-                <td>${l.status === 'completed' ? '<span class="badge badge-success">ปิดยอด</span>' : '<span class="badge badge-warning">ผ่อนอยู่</span>'}</td>
-                <td>${escapeHtml(l.reason || '-')}</td>
-                <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openLoanForm('${l.id}')">แก้ไข</button><button class="btn btn-ghost btn-sm" onclick="deleteLoanRec('${l.id}')">ลบ</button>` : ''}</td>
-              </tr>`; }).join('')}
-          </tbody>
-        </table>
-      </div>` : `<div class="empty-state"><div class="icon">${ICON.bank}</div><div class="title">ยังไม่มีรายการกู้</div></div>`}
+      <div class="table-wrap"><table class="table table-compact sw-emp-table">
+        <thead><tr><th>วันที่</th><th>พนักงาน</th><th class="num">จำนวน</th><th class="num">ผ่อน/เดือน</th><th class="num">คงเหลือ</th><th>สถานะ</th><th>เหตุผล</th><th></th></tr></thead>
+        <tbody>
+          ${loans.map(l => { const e = DB.getEmployee(l.employeeId) || {}; return `<tr>
+              <td class="sw-cell-meta">${fmt.date(l.date)}</td>
+              <td>
+                <div class="sw-emp-cell">
+                  <strong>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</strong>
+                  <span class="muted-2">${escapeHtml(l.employeeId || '—')}${e.branch ? ' · ' + escapeHtml(e.branch) : ''}</span>
+                </div>
+              </td>
+              <td class="num"><strong>${fmt.money(l.amount)}</strong></td>
+              <td class="num">${fmt.money(l.monthlyPayment)}</td>
+              <td class="num" style="color:${Number(l.remaining) > 0 ? 'var(--danger)' : 'var(--text-2)'}">${fmt.money(l.remaining)}</td>
+              <td>${l.status === 'completed' ? '<span class="badge badge-success">✓ ปิดยอด</span>' : '<span class="badge badge-warning">⏳ ผ่อนอยู่</span>'}</td>
+              <td class="sw-reason-cell">${escapeHtml(l.reason || '—')}</td>
+              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openLoanForm('${l.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteLoanRec('${l.id}')">ลบ</button>` : ''}</td>
+            </tr>`; }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state" style="padding:60px 20px">
+        <div style="font-size:42px;margin-bottom:12px;opacity:0.35">🏦</div>
+        <div class="title" style="font-size:16px;font-weight:600">ยังไม่มีรายการกู้</div>
+        <div class="hint" style="margin-top:6px">กดปุ่ม + บันทึกการกู้ เพื่อเริ่ม</div>
+      </div>`}
     </div>`;
 });
 
@@ -5076,28 +5121,76 @@ async function deleteLoanRec(id) {
 // ═══════════════════════════════════════════════════════
 router.register('advances', () => {
   const list = DB.getAdvances();
+  const pending = list.filter(a => a.status === 'pending');
+  const paid = list.filter(a => a.status === 'paid');
+  const totalPending = pending.reduce((s, a) => s + Number(a.amount || 0), 0);
+  const thisMonth = (new Date()).toISOString().slice(0, 7);
+  const monthList = list.filter(a => (a.date || '').startsWith(thisMonth));
+  const totalMonth = monthList.reduce((s, a) => s + Number(a.amount || 0), 0);
   return `
-    <div class="page-header">
-      <h2>เบิกเงินเดือนล่วงหน้า</h2>
-      <div class="actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openAdvanceForm()">+ บันทึกการเบิก</button>' : ''}</div>
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">เบิกเงินเดือนล่วงหน้า</div>
+        <div class="sw-page-subtitle">รายการเบิกจ่ายเงินล่วงหน้าจากเงินเดือนของพนักงาน</div>
+      </div>
+      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openAdvanceForm()">+ บันทึกการเบิก</button>' : ''}</div>
     </div>
-    <div class="card">
+    <div class="sw-stats-grid" style="margin-bottom:28px">
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(30,58,138,0.12);color:var(--primary)">${ICON.cash}</div>
+        <div class="sw-stat-label">รายการทั้งหมด</div>
+        <div class="sw-stat-value">${fmt.num(list.length)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">รวมทุกสถานะ</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(217,119,6,0.12);color:var(--warning)">⏳</div>
+        <div class="sw-stat-label">รอจ่าย</div>
+        <div class="sw-stat-value" style="color:${pending.length > 0 ? 'var(--warning)' : 'var(--text)'}">${fmt.num(pending.length)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">รวม ${fmt.money(totalPending)} บาท</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(22,163,74,0.12);color:var(--success)">✓</div>
+        <div class="sw-stat-label">จ่ายแล้ว</div>
+        <div class="sw-stat-value" style="color:var(--success)">${fmt.num(paid.length)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">สะสมตลอด</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(124,58,237,0.12);color:#7c3aed">📅</div>
+        <div class="sw-stat-label">เบิกเดือนนี้</div>
+        <div class="sw-stat-value">${fmt.money(totalMonth)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">บาท · ${fmt.num(monthList.length)} รายการ</div>
+      </div>
+    </div>
+    <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">รายการเบิก <span class="sw-chart-count">${fmt.num(list.length)}</span></div>
+          <div class="sw-chart-sub">เรียงจากใหม่สุด · เปลี่ยนสถานะเป็น "จ่ายแล้ว" หลังโอนเงินให้พนักงาน</div>
+        </div>
+      </div>
       ${list.length ? `
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>วันที่</th><th>พนักงาน</th><th class="num">จำนวน</th><th>เหตุผล</th><th>สถานะ</th><th></th></tr></thead>
-          <tbody>
-            ${list.map(a => { const e = DB.getEmployee(a.employeeId) || {}; return `<tr>
-                <td>${fmt.date(a.date)}</td>
-                <td>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</td>
-                <td class="num">${fmt.money(a.amount)}</td>
-                <td>${escapeHtml(a.reason || '-')}</td>
-                <td>${a.status === 'paid' ? '<span class="badge badge-success">จ่ายแล้ว</span>' : '<span class="badge badge-warning">รอจ่าย</span>'}</td>
-                <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openAdvanceForm('${a.id}')">แก้ไข</button><button class="btn btn-ghost btn-sm" onclick="deleteAdvRec('${a.id}')">ลบ</button>` : ''}</td>
-              </tr>`; }).join('')}
-          </tbody>
-        </table>
-      </div>` : `<div class="empty-state"><div class="icon">${ICON.cash}</div><div class="title">ยังไม่มีรายการเบิก</div></div>`}
+      <div class="table-wrap"><table class="table table-compact sw-emp-table">
+        <thead><tr><th>วันที่</th><th>พนักงาน</th><th class="num">จำนวน</th><th>เหตุผล</th><th>สถานะ</th><th></th></tr></thead>
+        <tbody>
+          ${list.map(a => { const e = DB.getEmployee(a.employeeId) || {}; return `<tr>
+              <td class="sw-cell-meta">${fmt.date(a.date)}</td>
+              <td>
+                <div class="sw-emp-cell">
+                  <strong>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</strong>
+                  <span class="muted-2">${escapeHtml(a.employeeId || '—')}${e.branch ? ' · ' + escapeHtml(e.branch) : ''}</span>
+                </div>
+              </td>
+              <td class="num"><strong>${fmt.money(a.amount)}</strong></td>
+              <td class="sw-reason-cell">${escapeHtml(a.reason || '—')}</td>
+              <td>${a.status === 'paid' ? '<span class="badge badge-success">✓ จ่ายแล้ว</span>' : '<span class="badge badge-warning">⏳ รอจ่าย</span>'}</td>
+              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openAdvanceForm('${a.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteAdvRec('${a.id}')">ลบ</button>` : ''}</td>
+            </tr>`; }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state" style="padding:60px 20px">
+        <div style="font-size:42px;margin-bottom:12px;opacity:0.35">💵</div>
+        <div class="title" style="font-size:16px;font-weight:600">ยังไม่มีรายการเบิก</div>
+        <div class="hint" style="margin-top:6px">กดปุ่ม + บันทึกการเบิก เพื่อเริ่ม</div>
+      </div>`}
     </div>`;
 });
 
@@ -5143,28 +5236,78 @@ async function deleteAdvRec(id) {
 // ═══════════════════════════════════════════════════════
 router.register('allowance', () => {
   const list = DB.getAllowances();
+  const thisMonth = (new Date()).toISOString().slice(0, 7);
+  const monthList = list.filter(a => a.month === thisMonth);
+  const totalMonth = monthList.reduce((s, a) => s + Number(a.amount || 0), 0);
+  const total = list.reduce((s, a) => s + Number(a.amount || 0), 0);
+  // group by type
+  const byType = {};
+  for (const a of list) byType[a.type || 'อื่นๆ'] = (byType[a.type || 'อื่นๆ'] || 0) + Number(a.amount || 0);
+  const topType = Object.entries(byType).sort((a, b) => b[1] - a[1])[0];
   return `
-    <div class="page-header">
-      <h2>เบี้ยเลี้ยงรายเดือน</h2>
-      <div class="actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openAllowanceForm()">+ บันทึก</button>' : ''}</div>
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">เบี้ยเลี้ยงรายเดือน</div>
+        <div class="sw-page-subtitle">บันทึกเบี้ยเลี้ยงพิเศษ — ค่าเดินทาง · ค่าโทรศัพท์ · ค่าตำแหน่ง · ค่าครองชีพ ฯลฯ</div>
+      </div>
+      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openAllowanceForm()">+ บันทึก</button>' : ''}</div>
     </div>
-    <div class="card">
+    <div class="sw-stats-grid" style="margin-bottom:28px">
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(30,58,138,0.12);color:var(--primary)">${ICON.clipboard}</div>
+        <div class="sw-stat-label">รายการทั้งหมด</div>
+        <div class="sw-stat-value">${fmt.num(list.length)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">สะสมทุกเดือน</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(22,163,74,0.12);color:var(--success)">📅</div>
+        <div class="sw-stat-label">เดือนนี้</div>
+        <div class="sw-stat-value" style="color:var(--success)">${fmt.num(monthList.length)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">${fmt.money(totalMonth)} บาท</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(124,58,237,0.12);color:#7c3aed">💰</div>
+        <div class="sw-stat-label">รวมทั้งหมด</div>
+        <div class="sw-stat-value">${fmt.money(total)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">บาท · สะสม</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(217,119,6,0.12);color:var(--warning)">🏆</div>
+        <div class="sw-stat-label">ประเภทยอดสูงสุด</div>
+        <div class="sw-stat-value" style="font-size:20px">${topType ? escapeHtml(topType[0]) : '—'}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">${topType ? fmt.money(topType[1]) + ' บาท' : ''}</div>
+      </div>
+    </div>
+    <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">รายการเบี้ยเลี้ยง <span class="sw-chart-count">${fmt.num(list.length)}</span></div>
+          <div class="sw-chart-sub">เรียงจากใหม่สุด · กลุ่มตามเดือนและประเภท</div>
+        </div>
+      </div>
       ${list.length ? `
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>เดือน</th><th>พนักงาน</th><th>ประเภท</th><th class="num">จำนวน</th><th>หมายเหตุ</th><th></th></tr></thead>
-          <tbody>
-            ${list.map(a => { const e = DB.getEmployee(a.employeeId) || {}; return `<tr>
-                <td>${escapeHtml(a.month || '-')}</td>
-                <td>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</td>
-                <td>${escapeHtml(a.type || '-')}</td>
-                <td class="num">${fmt.money(a.amount)}</td>
-                <td>${escapeHtml(a.note || '-')}</td>
-                <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openAllowanceForm('${a.id}')">แก้ไข</button><button class="btn btn-ghost btn-sm" onclick="deleteAllowRec('${a.id}')">ลบ</button>` : ''}</td>
-              </tr>`; }).join('')}
-          </tbody>
-        </table>
-      </div>` : `<div class="empty-state"><div class="icon">${ICON.clipboard}</div><div class="title">ยังไม่มีรายการ</div></div>`}
+      <div class="table-wrap"><table class="table table-compact sw-emp-table">
+        <thead><tr><th>เดือน</th><th>พนักงาน</th><th>ประเภท</th><th class="num">จำนวน</th><th>หมายเหตุ</th><th></th></tr></thead>
+        <tbody>
+          ${list.map(a => { const e = DB.getEmployee(a.employeeId) || {}; return `<tr>
+              <td class="sw-cell-meta">${escapeHtml(a.month || '—')}</td>
+              <td>
+                <div class="sw-emp-cell">
+                  <strong>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</strong>
+                  <span class="muted-2">${escapeHtml(a.employeeId || '—')}${e.branch ? ' · ' + escapeHtml(e.branch) : ''}</span>
+                </div>
+              </td>
+              <td><span class="badge badge-info" style="font-size:11px">${escapeHtml(a.type || '—')}</span></td>
+              <td class="num"><strong>${fmt.money(a.amount)}</strong></td>
+              <td class="sw-reason-cell">${escapeHtml(a.note || '—')}</td>
+              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openAllowanceForm('${a.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteAllowRec('${a.id}')">ลบ</button>` : ''}</td>
+            </tr>`; }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state" style="padding:60px 20px">
+        <div style="font-size:42px;margin-bottom:12px;opacity:0.35">📋</div>
+        <div class="title" style="font-size:16px;font-weight:600">ยังไม่มีรายการเบี้ยเลี้ยง</div>
+        <div class="hint" style="margin-top:6px">กดปุ่ม + บันทึก เพื่อเริ่ม</div>
+      </div>`}
     </div>`;
 });
 
@@ -5210,29 +5353,75 @@ async function deleteAllowRec(id) {
 // ═══════════════════════════════════════════════════════
 router.register('evaluations', () => {
   const list = DB.getEvaluations();
+  const avgScore = list.length ? Math.round(list.reduce((s, v) => s + Number(v.score || 0), 0) / list.length * 10) / 10 : 0;
+  const aCount = list.filter(v => Number(v.score) >= 80).length;
+  const fCount = list.filter(v => Number(v.score) < 50).length;
+  const gradeColor = (s) => s >= 90 ? 'var(--success)' : s >= 70 ? 'var(--primary)' : s >= 50 ? 'var(--warning)' : 'var(--danger)';
   return `
-    <div class="page-header">
-      <h2>ประเมินผลงาน</h2>
-      <div class="actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openEvalForm()">+ บันทึกการประเมิน</button>' : ''}</div>
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">ประเมินผลงาน</div>
+        <div class="sw-page-subtitle">บันทึกคะแนนและเกรดของพนักงานต่อรอบประเมิน</div>
+      </div>
+      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openEvalForm()">+ บันทึกการประเมิน</button>' : ''}</div>
     </div>
-    <div class="card">
+    <div class="sw-stats-grid" style="margin-bottom:28px">
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(30,58,138,0.12);color:var(--primary)">${ICON.chart}</div>
+        <div class="sw-stat-label">รายการประเมิน</div>
+        <div class="sw-stat-value">${fmt.num(list.length)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">รวมทุกรอบ</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(124,58,237,0.12);color:#7c3aed">📊</div>
+        <div class="sw-stat-label">คะแนนเฉลี่ย</div>
+        <div class="sw-stat-value" style="color:${gradeColor(avgScore)}">${avgScore}<span style="font-size:18px;color:var(--text-2);font-weight:500"> /100</span></div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">ทุกการประเมิน</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(22,163,74,0.12);color:var(--success)">🏆</div>
+        <div class="sw-stat-label">เกรดดี (B+ ขึ้น)</div>
+        <div class="sw-stat-value" style="color:var(--success)">${fmt.num(aCount)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">คะแนน 80+</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(220,38,38,0.12);color:var(--danger)">⚠️</div>
+        <div class="sw-stat-label">เกรดต่ำ (D ลง)</div>
+        <div class="sw-stat-value" style="color:${fCount > 0 ? 'var(--danger)' : 'var(--text)'}">${fmt.num(fCount)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">คะแนนต่ำกว่า 50</div>
+      </div>
+    </div>
+    <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">ประวัติการประเมิน <span class="sw-chart-count">${fmt.num(list.length)}</span></div>
+          <div class="sw-chart-sub">เรียงจากใหม่สุด · เกรด: A 90+ · B+ 80+ · B 70+ · C 60+ · D 50+ · F < 50</div>
+        </div>
+      </div>
       ${list.length ? `
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>วันที่</th><th>พนักงาน</th><th>รอบ</th><th class="num">คะแนน</th><th>เกรด</th><th>หมายเหตุ</th><th></th></tr></thead>
-          <tbody>
-            ${list.map(v => { const e = DB.getEmployee(v.employeeId) || {}; return `<tr>
-                <td>${fmt.date(v.date)}</td>
-                <td>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</td>
-                <td>${escapeHtml(v.period || '-')}</td>
-                <td class="num">${v.score}/100</td>
-                <td><span class="badge badge-info">${escapeHtml(v.grade || '-')}</span></td>
-                <td>${escapeHtml(v.note || '-')}</td>
-                <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openEvalForm('${v.id}')">แก้ไข</button><button class="btn btn-ghost btn-sm" onclick="deleteEvalRec('${v.id}')">ลบ</button>` : ''}</td>
-              </tr>`; }).join('')}
-          </tbody>
-        </table>
-      </div>` : `<div class="empty-state"><div class="icon">${ICON.chart}</div><div class="title">ยังไม่มีการประเมิน</div></div>`}
+      <div class="table-wrap"><table class="table table-compact sw-emp-table">
+        <thead><tr><th>วันที่</th><th>พนักงาน</th><th>รอบ</th><th class="num">คะแนน</th><th>เกรด</th><th>หมายเหตุ</th><th></th></tr></thead>
+        <tbody>
+          ${list.map(v => { const e = DB.getEmployee(v.employeeId) || {}; const sc = Number(v.score || 0); return `<tr>
+              <td class="sw-cell-meta">${fmt.date(v.date)}</td>
+              <td>
+                <div class="sw-emp-cell">
+                  <strong>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))}</strong>
+                  <span class="muted-2">${escapeHtml(v.employeeId || '—')}${e.branch ? ' · ' + escapeHtml(e.branch) : ''}</span>
+                </div>
+              </td>
+              <td class="sw-cell-meta">${escapeHtml(v.period || '—')}</td>
+              <td class="num"><strong style="color:${gradeColor(sc)};font-size:14px">${v.score}</strong><span class="muted-2" style="font-size:11px">/100</span></td>
+              <td><span class="badge ${sc >= 80 ? 'badge-success' : sc >= 50 ? 'badge-info' : 'badge-danger'}">${escapeHtml(v.grade || '—')}</span></td>
+              <td class="sw-reason-cell">${escapeHtml(v.note || '—')}</td>
+              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openEvalForm('${v.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteEvalRec('${v.id}')">ลบ</button>` : ''}</td>
+            </tr>`; }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state" style="padding:60px 20px">
+        <div style="font-size:42px;margin-bottom:12px;opacity:0.35">⭐</div>
+        <div class="title" style="font-size:16px;font-weight:600">ยังไม่มีการประเมิน</div>
+        <div class="hint" style="margin-top:6px">กดปุ่ม + บันทึกการประเมิน เพื่อเริ่ม</div>
+      </div>`}
     </div>`;
 });
 
