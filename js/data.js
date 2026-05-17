@@ -136,7 +136,7 @@ const DB = {
       this._fetchAllPages('uniform_requests', 'requested_date', false).catch(() => []),
       this._fetchAllPages('uniform_issues', 'issued_date', false).catch(() => []),
       this._fetchAllPages('uniform_delivery_schedule', 'branch_code', true).catch(() => []),
-      this._fetchAllPages('branches', 'code', true).catch(() => [])
+      this._fetchAllPages('branches', 'id', true).catch(() => [])
     ]);
     this.data.departments = (deps.data || []).map(this._depFromDB);
     this.data.positionLevels = (pos.data || []).map(this._posFromDB);
