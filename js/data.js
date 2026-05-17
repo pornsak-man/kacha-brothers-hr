@@ -382,6 +382,7 @@ const DB = {
   _uniReqFromDB: (r) => ({
     id: r.id,
     employeeId: r.employee_id || '',
+    applicantId: r.applicant_id || '',
     requestedBy: r.requested_by || '',
     requestedDate: r.requested_date || '',
     neededBy: r.needed_by || '',
@@ -391,6 +392,7 @@ const DB = {
   }),
   _uniReqToDB: (r) => ({
     employee_id: r.employeeId || null,
+    applicant_id: r.applicantId || null,
     requested_by: r.requestedBy || null,
     requested_date: r.requestedDate || null,
     needed_by: r.neededBy || null,
@@ -1009,6 +1011,27 @@ const DB = {
     return list.sort((a, b) => (b.requestedDate || '').localeCompare(a.requestedDate || ''));
   },
   getUniformRequest(id) { return this.data.uniformRequests.find(r => r.id === id); },
+  // หาคำขอที่ link กับ applicant (อาจจะมี 1 รายการ ถ้าสร้างจาก recruit flow)
+  getUniformRequestByApplicant(applicantId) {
+    return this.data.uniformRequests.find(r => r.applicantId === applicantId);
+  },
+  // เรียกหลัง hire → link คำขอเดิมของ applicant ไปยัง employee_id ใหม่
+  async linkUniformRequestToEmployee(applicantId, employeeId) {
+    const req = this.getUniformRequestByApplicant(applicantId);
+    if (!req || req.employeeId) return null;
+    const { data, error } = await this.client.from('uniform_requests')
+      .update({ employee_id: employeeId })
+      .eq('id', req.id)
+      .select().single();
+    if (error) throw error;
+    const mapped = this._uniReqFromDB(data);
+    const idx = this.data.uniformRequests.findIndex(r => r.id === req.id);
+    if (idx >= 0) this.data.uniformRequests[idx] = mapped;
+    // อัปเดต issues ที่ link กับ request นี้ด้วย
+    await this.client.from('uniform_issues').update({ employee_id: employeeId }).eq('request_id', req.id);
+    this.data.uniformIssues.forEach(i => { if (i.requestId === req.id) i.employeeId = employeeId; });
+    return mapped;
+  },
   async saveUniformRequest(req) {
     const row = this._uniReqToDB(req);
     if (req.id) row.id = req.id;

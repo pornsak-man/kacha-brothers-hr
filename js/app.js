@@ -2527,6 +2527,8 @@ function openApplicantForm(id = null) {
   };
   const positions = DB.getPositions();
   const depts = DB.getDepartments();
+  // ดึงคำขอจัดชุดที่มีอยู่ (ถ้าเป็น edit + มี applicant_id)
+  const existingUniReq = id ? DB.getUniformRequestByApplicant(id) : null;
 
   modal.open(id ? 'แก้ไขข้อมูลผู้สมัคร' : 'เพิ่มผู้สมัครใหม่', `
     <form id="applForm">
@@ -2570,6 +2572,24 @@ function openApplicantForm(id = null) {
         </div>
       </div>
 
+      <div class="form-section">
+        <h3>การจัดชุดพนักงาน <span class="muted-2" style="font-weight:normal;font-size:12px">(ส่งให้ Benefit ดำเนินการจัดชุดก่อนวันเริ่มงาน)</span></h3>
+        <div class="form-grid">
+          <div class="form-group span-2">
+            <label>
+              <input type="checkbox" name="needUniform" id="needUniformChk" ${existingUniReq || !id ? 'checked' : ''}/>
+              ต้องจัดชุดให้พนักงานใหม่
+            </label>
+          </div>
+          <div class="form-group"><label>ต้องการก่อน (วันเริ่มงาน)</label><input name="uniformNeededBy" type="date" value="${existingUniReq?.neededBy || ''}"/></div>
+          <div class="form-group"><label>HR ที่แจ้ง</label><input name="uniformRequestedBy" value="${escapeHtml(existingUniReq?.requestedBy || DB.profile?.name || DB.user?.email || '')}" placeholder="ชื่อ HR คนแจ้ง"/></div>
+          <div class="form-group span-2"><label>รายละเอียดชุด (size, ประเภท, จำนวน)</label>
+            <textarea name="uniformNote" rows="3" placeholder="เช่น:&#10;เสื้อยูนิฟอร์ม M 2 ตัว&#10;กางเกง L 2 ตัว&#10;หมวก ฟรีไซส์ 1 ใบ&#10;รองเท้า 38">${escapeHtml(existingUniReq?.note || '')}</textarea>
+          </div>
+        </div>
+        ${existingUniReq ? `<div class="muted-2" style="font-size:12px;padding:8px 12px;background:var(--surface-2);border-radius:6px;margin-top:8px">📋 มีคำขอจัดชุดอยู่แล้ว · สถานะ: <strong>${UNIFORM_STATUS[existingUniReq.status]?.label || existingUniReq.status}</strong>${existingUniReq.totalCost > 0 ? ` · ค่าชุดรวม ${fmt.money(existingUniReq.totalCost)} บาท` : ''}</div>` : ''}
+      </div>
+
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
         <button type="submit" class="btn btn-primary">บันทึก</button>
@@ -2581,11 +2601,42 @@ function openApplicantForm(id = null) {
     e.preventDefault();
     try {
       const data = Object.fromEntries(new FormData(e.target).entries());
+      const needUniform = data.needUniform === 'on';
+      const uniformNeededBy = data.uniformNeededBy || '';
+      const uniformNote = data.uniformNote || '';
+      const uniformRequestedBy = data.uniformRequestedBy || '';
+      // ตัด field ที่ไม่ใช่ของ applicant ออก
+      delete data.needUniform; delete data.uniformNeededBy; delete data.uniformNote; delete data.uniformRequestedBy;
       data.expectedSalary = Number(data.expectedSalary || 0);
       if (id) data.id = id;
-      await DB.saveApplicant(data);
+      const saved = await DB.saveApplicant(data);
+
+      // จัดการคำขอจัดชุด — สร้าง/อัปเดต/ลบตาม checkbox
+      try {
+        if (needUniform) {
+          const reqData = {
+            applicantId: saved.id,
+            employeeId: existingUniReq?.employeeId || '',  // ถ้ามี link ไว้แล้ว ก็คงไว้
+            requestedBy: uniformRequestedBy,
+            requestedDate: existingUniReq?.requestedDate || tz.today(),
+            neededBy: uniformNeededBy,
+            status: existingUniReq?.status || 'pending',
+            totalCost: existingUniReq?.totalCost || 0,
+            note: uniformNote
+          };
+          if (existingUniReq) reqData.id = existingUniReq.id;
+          await DB.saveUniformRequest(reqData);
+        } else if (existingUniReq) {
+          // ถ้า uncheck → ลบคำขอเดิม
+          await DB.deleteUniformRequest(existingUniReq.id);
+        }
+      } catch (uniEx) {
+        console.warn('Uniform request save failed:', uniEx);
+        toast('บันทึกผู้สมัครแล้ว แต่บันทึกคำขอจัดชุดล้มเหลว: ' + (uniEx.message || uniEx), 'warning');
+      }
+
       modal.close();
-      toast(id ? 'บันทึกแล้ว' : 'เพิ่มผู้สมัครแล้ว', 'success');
+      toast(id ? 'บันทึกแล้ว' : 'เพิ่มผู้สมัครแล้ว — แจ้งทีม Benefit จัดชุดแล้ว', 'success');
       router.go('recruit');
     } catch (ex) { toast('บันทึกไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
   });
@@ -2629,13 +2680,20 @@ function hireApplicant(applicantId) {
       note: `จากผู้สมัคร · ช่องทาง ${a.source || '-'}\n${a.note || ''}`.trim()
     },
     async (saved) => {
-      // หลังบันทึกพนักงานสำเร็จ → อัปเดตสถานะ applicant เป็น 'hired' + link employee_id
+      // หลังบันทึกพนักงานสำเร็จ → อัปเดตสถานะ applicant + link uniform_request
       try {
         await DB.setApplicantStatus(applicantId, 'hired', {
           hired_employee_id: saved.id,
           decided_date: tz.today()
         });
-        toast(`รับเข้าทำงานแล้ว · รหัสพนักงาน ${saved.id}`, 'success');
+        // Link คำขอจัดชุดที่ recruit สร้างไว้ → ไปที่ employee_id ใหม่
+        let uniLinked = false;
+        try {
+          const linked = await DB.linkUniformRequestToEmployee(applicantId, saved.id);
+          uniLinked = !!linked;
+        } catch (uniEx) { console.warn('Link uniform request failed:', uniEx); }
+
+        toast(`รับเข้าทำงานแล้ว · รหัสพนักงาน ${saved.id}${uniLinked ? ' · เชื่อมคำขอจัดชุดให้แล้ว' : ''}`, 'success');
         if (router.current === 'recruit') router.go('recruit');
       } catch (ex) {
         toast('สร้างพนักงานแล้ว แต่อัปเดตสถานะใบสมัครไม่สำเร็จ: ' + (ex.message || ex), 'warning');
@@ -3178,25 +3236,39 @@ async function deleteUniformSchedule(id) {
 
 function renderUniformRequestsTable() {
   const reqs = DB.getUniformRequests();
-  if (!reqs.length) return `<div class="empty-state"><div class="icon">${ICON.clipboard}</div><div class="title">ยังไม่มีคำขอ</div><div class="hint">กดปุ่ม "+ คำขอใหม่" เพื่อเริ่ม</div></div>`;
+  if (!reqs.length) return `<div class="empty-state"><div class="icon">${ICON.clipboard}</div><div class="title">ยังไม่มีคำขอ</div><div class="hint">คำขอจะถูกสร้างอัตโนมัติเมื่อ recruit เพิ่มผู้สมัครใหม่</div></div>`;
   return `
     <div class="table-wrap"><table class="table table-compact">
       <thead><tr>
-        <th>วันที่แจ้ง</th><th>พนักงาน</th><th>แจ้งโดย</th>
-        <th>ต้องการก่อน</th><th>สถานะ</th><th class="num">ค่าชุดรวม</th><th>บันทึก</th><th></th>
+        <th>วันที่แจ้ง</th><th>พนักงาน / ผู้สมัคร</th><th>สาขา</th><th>แจ้งโดย</th>
+        <th>ต้องการก่อน</th><th>สถานะ</th><th class="num">ค่าชุดรวม</th><th>รายละเอียด</th><th></th>
       </tr></thead>
       <tbody>
         ${reqs.map(r => {
-          const e = DB.getEmployee(r.employeeId) || {};
           const s = UNIFORM_STATUS[r.status] || UNIFORM_STATUS.pending;
+          // หาเจ้าของคำขอ — ถ้ามี employee_id ใช้ employee, ไม่งั้นใช้ applicant
+          let name = '-', refLabel = '-', branch = '-', isApplicant = false;
+          if (r.employeeId) {
+            const e = DB.getEmployee(r.employeeId) || {};
+            name = (e.firstName || '') + ' ' + (e.lastName || '');
+            refLabel = `<span class="badge badge-success" style="font-size:10.5px">พนักงาน</span> ${escapeHtml(r.employeeId)}`;
+            branch = e.branch || '-';
+          } else if (r.applicantId) {
+            const ap = DB.getApplicant(r.applicantId) || {};
+            name = (ap.firstName || '') + ' ' + (ap.lastName || '');
+            refLabel = `<span class="badge badge-warning" style="font-size:10.5px">ผู้สมัคร</span>`;
+            branch = ap.branch || '-';
+            isApplicant = true;
+          }
           return `<tr>
             <td>${fmt.date(r.requestedDate)}</td>
-            <td>${escapeHtml(e.firstName ? e.firstName + ' ' + (e.lastName || '') : '-')} <span class="muted-2" style="font-size:11.5px">(${escapeHtml(r.employeeId || '-')})</span></td>
+            <td><strong>${escapeHtml(name)}</strong><br><span style="font-size:11.5px">${refLabel}</span></td>
+            <td>${escapeHtml(branch)}</td>
             <td>${escapeHtml(r.requestedBy || '-')}</td>
             <td>${r.neededBy ? fmt.date(r.neededBy) : '-'}</td>
             <td><span class="badge ${s.cls}">${s.label}</span></td>
             <td class="num"><strong>${fmt.money(r.totalCost)}</strong></td>
-            <td>${escapeHtml(r.note || '-')}</td>
+            <td style="max-width:240px;white-space:pre-wrap;font-size:12.5px">${escapeHtml(r.note || '-')}</td>
             <td class="actions">
               ${DB.isAdmin ? `<button class="btn btn-primary btn-sm" onclick="openIssueItemsForm('${r.id}')">จัดชุด</button>
               <button class="btn btn-ghost btn-sm" onclick="openUniformRequestForm('${r.id}')">แก้</button>
@@ -3352,17 +3424,37 @@ function openIssueItemsForm(requestId) {
   if (!requireAdmin()) return;
   const req = DB.getUniformRequest(requestId);
   if (!req) return;
-  const emp = DB.getEmployee(req.employeeId);
+  // หาเจ้าของคำขอ — รองรับทั้ง employee และ applicant
+  let owner = null, ownerLabel = '', refLabel = '';
+  if (req.employeeId) {
+    const e = DB.getEmployee(req.employeeId);
+    if (e) {
+      owner = e;
+      ownerLabel = `${e.firstName} ${e.lastName || ''} (${req.employeeId})`;
+      refLabel = 'พนักงาน';
+    }
+  }
+  if (!owner && req.applicantId) {
+    const ap = DB.getApplicant(req.applicantId);
+    if (ap) {
+      owner = ap;
+      ownerLabel = `${ap.firstName} ${ap.lastName || ''} (ผู้สมัคร · ยังไม่ออกรหัสพนักงาน)`;
+      refLabel = 'ผู้สมัคร';
+    }
+  }
+  if (!owner) { toast('ไม่พบเจ้าของคำขอ', 'error'); return; }
+
   const items = DB.getUniformItems({ activeOnly: true });
   const existing = DB.getUniformIssues({ requestId });
   const issuedBy = DB.profile?.name || DB.user?.email || '';
 
-  modal.open(`บันทึกการจัดชุด — ${escapeHtml((emp?.firstName || '') + ' ' + (emp?.lastName || ''))}`, `
+  modal.open(`บันทึกการจัดชุด — ${escapeHtml(owner.firstName + ' ' + (owner.lastName || ''))}`, `
     <div class="form-section">
-      <h3>ข้อมูลคำขอ</h3>
+      <h3>ข้อมูลคำขอ <span class="badge ${refLabel === 'ผู้สมัคร' ? 'badge-warning' : 'badge-success'}" style="margin-left:8px;font-size:11px">${refLabel}</span></h3>
       <div class="form-grid">
-        <div class="form-group"><label>พนักงาน</label><input type="text" readonly value="${escapeHtml((emp?.firstName || '') + ' ' + (emp?.lastName || '') + ' (' + (req.employeeId || '-') + ')')}"/></div>
+        <div class="form-group"><label>เจ้าของคำขอ</label><input type="text" readonly value="${escapeHtml(ownerLabel)}"/></div>
         <div class="form-group"><label>ต้องการก่อน</label><input type="text" readonly value="${req.neededBy ? fmt.date(req.neededBy) : '-'}"/></div>
+        ${req.note ? `<div class="form-group span-2"><label>รายละเอียดที่ recruit แจ้ง</label><textarea readonly rows="3" style="white-space:pre-wrap">${escapeHtml(req.note)}</textarea></div>` : ''}
       </div>
     </div>
 
@@ -3429,7 +3521,8 @@ function openIssueItemsForm(requestId) {
       data.itemName = opt?.dataset.name || '';
       data.size = opt?.dataset.size || '';
       data.requestId = requestId;
-      data.employeeId = req.employeeId;
+      // employee_id อาจยังว่าง ถ้า applicant ยังไม่รับเข้า — issue จะ link ผ่าน request_id ก่อน
+      data.employeeId = req.employeeId || '';
       data.qty = Number(data.qty);
       data.unitCost = Number(data.unitCost);
       const stock = Number(opt?.dataset.stock || 0);
