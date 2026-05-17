@@ -811,21 +811,30 @@ const DB = {
   },
 
   // ─── SALARY BY POSITION ───
-  // คำนวณเงินเดือน avg/min/max ต่อตำแหน่งงาน (เฉพาะที่ยังปฏิบัติงาน)
+  // คำนวณรายได้รวม (เงินเดือน + ค่าตำแหน่ง + เดินทาง + อาหาร + เบี้ยเลี้ยง + ภาษา + อื่นๆ)
+  // avg/min/max ต่อตำแหน่งงาน — เฉพาะที่ยังปฏิบัติงาน
   // คืน [{ name, avg, min, max, count, level }] เรียง avg มาก → น้อย
   getSalaryByPosition() {
+    const totalIncome = (e) =>
+      Number(e.salary || 0) +
+      Number(e.allowancePosition || 0) +
+      Number(e.allowanceTravel || 0) +
+      Number(e.allowanceFood || 0) +
+      Number(e.allowancePerDiem || 0) +
+      Number(e.allowanceLanguage || 0) +
+      Number(e.allowanceOther || 0);
     const map = new Map();
     for (const e of this.data.employees) {
       if (this.empStatus(e) === 'resigned') continue;
       if (!e.position) continue;
-      const sal = Number(e.salary) || 0;
-      if (sal <= 0) continue; // ข้าม row ที่ไม่มีเงินเดือน
+      const income = totalIncome(e);
+      if (income <= 0) continue; // ข้าม row ที่ไม่มีรายได้เลย
       if (!map.has(e.position)) map.set(e.position, { sum: 0, count: 0, min: Infinity, max: -Infinity });
       const stat = map.get(e.position);
-      stat.sum += sal;
+      stat.sum += income;
       stat.count++;
-      if (sal < stat.min) stat.min = sal;
-      if (sal > stat.max) stat.max = sal;
+      if (income < stat.min) stat.min = income;
+      if (income > stat.max) stat.max = income;
     }
     const result = [];
     for (const [posId, stat] of map) {

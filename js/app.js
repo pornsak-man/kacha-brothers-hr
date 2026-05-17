@@ -472,7 +472,7 @@ router.register('dashboard', () => {
 
     <div class="sw-chart-card">
       <div class="sw-chart-title">อัตราค่าจ้างต่อตำแหน่งงาน</div>
-      <div class="sw-chart-sub">เงินเดือนเฉลี่ย (บาท/เดือน) · เรียงสูงสุด → ต่ำสุด · ${s.salaryByPosition.length} ตำแหน่ง</div>
+      <div class="sw-chart-sub">รายได้รวมเฉลี่ย (เงินเดือน + ค่าตำแหน่ง + เดินทาง + อาหาร + เบี้ยเลี้ยง + ภาษา + อื่นๆ) · เรียงสูงสุด → ต่ำสุด · ${s.salaryByPosition.length} ตำแหน่ง</div>
       <canvas id="chartSalaryByPosition" style="max-height:320px"></canvas>
     </div>
   `;
@@ -646,7 +646,7 @@ function renderDashboardCharts(s, monthly, branchStats) {
       data: {
         labels: data.map(d => d.name),
         datasets: [{
-          label: 'เงินเดือนเฉลี่ย',
+          label: 'รายได้รวมเฉลี่ย',
           data: data.map(d => d.avg),
           backgroundColor: '#b45309',
           hoverBackgroundColor: '#92400e',
@@ -662,7 +662,7 @@ function renderDashboardCharts(s, monthly, branchStats) {
               label: (ctx) => {
                 const d = data[ctx.dataIndex];
                 return [
-                  `เฉลี่ย: ${d.avg.toLocaleString('th-TH')} บาท`,
+                  `รายได้รวมเฉลี่ย: ${d.avg.toLocaleString('th-TH')} บาท/เดือน`,
                   `ต่ำสุด: ${d.min.toLocaleString('th-TH')} บาท`,
                   `สูงสุด: ${d.max.toLocaleString('th-TH')} บาท`,
                   `จำนวน: ${d.count} คน`
