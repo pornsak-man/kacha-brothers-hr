@@ -326,6 +326,7 @@ const router = {
       employees: 'ทะเบียนพนักงาน',
       departments: 'ฝ่าย',
       positions: 'ระดับตำแหน่ง',
+      branches: 'สาขา',
       recruit: 'รับสมัครงาน',
       uniform: 'จัดชุดพนักงาน',
       'salary-adjust': 'ปรับค่าจ้าง / ตำแหน่ง / สาขา',
@@ -365,7 +366,8 @@ const _RT_PAGE_DEPS = {
   applicants: ['dashboard', 'recruit'],
   uniform_items: ['uniform'],
   uniform_requests: ['uniform'],
-  uniform_issues: ['uniform']
+  uniform_issues: ['uniform'],
+  branches: ['dashboard', 'employees', 'branches', 'uniform']
 };
 
 window.onRealtimeChange = (payload) => {
@@ -1198,7 +1200,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
         <h3>การทำงาน</h3>
         <div class="form-grid">
           <div class="form-group"><label>ฝ่าย *</label><select name="department" required>${depts.map(d => `<option value="${d.id}" ${emp.department === d.id ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}</select></div>
-          <div class="form-group"><label>สาขา</label><input name="branch" value="${escapeHtml(emp.branch)}" placeholder="เช่น สำนักงานใหญ่"/></div>
+          <div class="form-group"><label>สาขา</label><input name="branch" list="dl-emp-branches" value="${escapeHtml(emp.branch)}" placeholder="เช่น KMB, GE" autocomplete="off"/><datalist id="dl-emp-branches">${DB.getBranchMaster({ activeOnly: true }).map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name || b.id)}</option>`).join('')}</datalist></div>
           <div class="form-group"><label>ระดับตำแหน่งงาน *</label>${(() => {
             // จัดกลุ่มตาม track: ฝ่ายปฏิบัติการ / ฝ่ายครัว / อื่นๆ
             const kitchen = [], ops = [], common = [];
@@ -2224,6 +2226,116 @@ function exportEmployeesXLSX() {
 // ═══════════════════════════════════════════════════════
 //  PAGE: DEPARTMENTS
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+//  PAGE: BRANCHES (สาขา — master list)
+// ═══════════════════════════════════════════════════════
+router.register('branches', () => {
+  const list = DB.getBranchMaster();
+  const totalEmps = list.reduce((s, b) => s + DB.getBranchEmployeeCount(b.id), 0);
+  return `
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">สาขา</div>
+        <div class="sw-page-subtitle">จัดการรายการสาขาของบริษัท · ${fmt.num(list.length)} สาขา · พนักงานปัจจุบัน ${fmt.num(totalEmps)} คน</div>
+      </div>
+      <div class="sw-page-actions">
+        ${DB.isAdmin ? `<button class="btn btn-primary" onclick="openBranchForm()">+ เพิ่มสาขา</button>` : ''}
+      </div>
+    </div>
+    <div class="sw-chart-card">
+      ${list.length ? `
+        <div class="table-wrap"><table class="table table-compact">
+          <thead><tr>
+            <th style="width:60px;text-align:right">No.</th>
+            <th>รหัสสาขา</th>
+            <th>ชื่อเต็ม</th>
+            <th class="num">พนักงานปัจจุบัน</th>
+            <th>สถานะ</th>
+            <th>หมายเหตุ</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            ${list.map((b, i) => {
+              const count = DB.getBranchEmployeeCount(b.id);
+              return `<tr>
+                <td class="num muted-2">${i + 1}</td>
+                <td><strong style="font-size:14px">${escapeHtml(b.id)}</strong></td>
+                <td>${escapeHtml(b.name || '-')}</td>
+                <td class="num"><strong>${fmt.num(count)}</strong></td>
+                <td>${b.active ? '<span class="badge badge-success">ใช้งาน</span>' : '<span class="badge">ปิด</span>'}</td>
+                <td>${escapeHtml(b.note || '-')}</td>
+                <td class="actions">
+                  ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openBranchForm('${escapeHtml(b.id)}')">แก้ไข</button>
+                  <button class="btn btn-ghost btn-sm" onclick="deleteBranch('${escapeHtml(b.id)}')">ลบ</button>` : ''}
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>
+      ` : `<div class="empty-state"><div class="title">ยังไม่มีสาขา</div><div class="hint">กด "+ เพิ่มสาขา" เพื่อเริ่มต้น</div></div>`}
+    </div>
+  `;
+});
+
+function openBranchForm(id = null) {
+  if (!requireAdmin()) return;
+  const b = id ? DB.getBranch(id) : { id: '', name: '', active: true, note: '' };
+  if (id && !b) { toast('ไม่พบสาขา', 'error'); return; }
+  modal.open(id ? `แก้ไขสาขา "${id}"` : 'เพิ่มสาขาใหม่', `
+    <form id="branchForm">
+      <div class="form-grid">
+        <div class="form-group"><label>รหัสสาขา *</label>
+          <input name="id" value="${escapeHtml(b.id)}" required maxlength="20" ${id ? 'readonly' : ''} placeholder="เช่น KMB, GE, JM" style="${id ? 'background:var(--surface-2)' : ''}"/>
+          ${id ? '<small class="muted-2" style="font-size:11px">รหัสสาขาเปลี่ยนไม่ได้หลังสร้าง (กระทบข้อมูลพนักงานที่อ้างอิงอยู่)</small>' : '<small class="muted-2" style="font-size:11px">ใส่ตัวอักษร/ตัวเลข ห้ามซ้ำกับสาขาที่มี</small>'}
+        </div>
+        <div class="form-group"><label>ชื่อเต็ม (optional)</label><input name="name" value="${escapeHtml(b.name)}" placeholder="ชื่อเต็มของสาขา"/></div>
+        <div class="form-group"><label>สถานะ</label>
+          <select name="active">
+            <option value="true" ${b.active ? 'selected' : ''}>ใช้งาน</option>
+            <option value="false" ${!b.active ? 'selected' : ''}>ปิดใช้งาน</option>
+          </select>
+        </div>
+        <div class="form-group span-2"><label>หมายเหตุ</label><textarea name="note" rows="2" placeholder="ที่อยู่, เบอร์โทรสาขา, ฯลฯ">${escapeHtml(b.note)}</textarea></div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
+        <button type="submit" class="btn btn-primary">บันทึก</button>
+      </div>
+    </form>
+  `);
+  $('#branchForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      data.id = (data.id || '').trim().toUpperCase();
+      data.active = data.active === 'true';
+      if (!id && DB.getBranch(data.id)) { toast(`รหัสสาขา "${data.id}" มีอยู่แล้ว`, 'error'); return; }
+      await DB.saveBranch(data);
+      modal.close();
+      toast(id ? 'บันทึกแล้ว' : 'เพิ่มสาขาแล้ว', 'success');
+      router.go('branches');
+    } catch (ex) { toast('บันทึกไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+  });
+}
+
+async function deleteBranch(id) {
+  if (!requireAdmin()) return;
+  const b = DB.getBranch(id);
+  if (!b) return;
+  const count = DB.getBranchEmployeeCount(id);
+  if (count > 0) {
+    toast(`ลบไม่ได้ — มีพนักงาน ${count} คนใช้สาขานี้ (ย้ายสาขาก่อน หรือเปลี่ยนเป็น "ปิดใช้งาน")`, 'error');
+    return;
+  }
+  if (!await modal.confirm('ลบสาขา', `ลบสาขา "${id}" ใช่หรือไม่?`)) return;
+  try {
+    const result = await DB.deleteBranch(id);
+    if (!result.ok) { toast(result.reason || 'ลบไม่ได้', 'error'); return; }
+    toast('ลบแล้ว', 'success');
+    router.go('branches');
+  } catch (ex) { toast('ลบไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
+}
+
 router.register('departments', () => {
   const depts = DB.getDepartments();
   const emps = DB.getEmployees({ status: 'active' });

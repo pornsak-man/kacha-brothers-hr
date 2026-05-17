@@ -27,7 +27,8 @@ const DB = {
     uniformItems: [],
     uniformRequests: [],
     uniformIssues: [],
-    uniformSchedule: []
+    uniformSchedule: [],
+    branches: []
   },
 
   // ─── INDEX CACHES (O(1) lookup; rebuild lazily after data change) ───
@@ -123,7 +124,7 @@ const DB = {
       this.client.from('company_settings').select('*').eq('id', 1).maybeSingle()
     ]);
     // ตารางที่อาจมีเกิน 1000 records — ดึงด้วย pagination
-    const [emps, loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues, uniSched] = await Promise.all([
+    const [emps, loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues, uniSched, branchRows] = await Promise.all([
       this._fetchAllPages('employees', 'id', true),
       this._fetchAllPages('loans', 'date', false),
       this._fetchAllPages('advances', 'date', false),
@@ -134,7 +135,8 @@ const DB = {
       this._fetchAllPages('uniform_items', 'name', true).catch(() => []),
       this._fetchAllPages('uniform_requests', 'requested_date', false).catch(() => []),
       this._fetchAllPages('uniform_issues', 'issued_date', false).catch(() => []),
-      this._fetchAllPages('uniform_delivery_schedule', 'branch_code', true).catch(() => [])
+      this._fetchAllPages('uniform_delivery_schedule', 'branch_code', true).catch(() => []),
+      this._fetchAllPages('branches', 'code', true).catch(() => [])
     ]);
     this.data.departments = (deps.data || []).map(this._depFromDB);
     this.data.positionLevels = (pos.data || []).map(this._posFromDB);
@@ -150,6 +152,7 @@ const DB = {
     this.data.uniformRequests = (uniReqs || []).map(this._uniReqFromDB);
     this.data.uniformIssues = (uniIssues || []).map(this._uniIssueFromDB);
     this.data.uniformSchedule = (uniSched || []).map(this._uniSchedFromDB);
+    this.data.branches = (branchRows || []).map(this._branchFromDB);
     if (comp.data) this.data.company = this._compFromDB(comp.data);
     this._invalidateIndex();
   },
@@ -182,7 +185,8 @@ const DB = {
       uniform_items: { list: 'uniformItems', from: this._uniItemFromDB },
       uniform_requests: { list: 'uniformRequests', from: this._uniReqFromDB },
       uniform_issues: { list: 'uniformIssues', from: this._uniIssueFromDB },
-      uniform_delivery_schedule: { list: 'uniformSchedule', from: this._uniSchedFromDB }
+      uniform_delivery_schedule: { list: 'uniformSchedule', from: this._uniSchedFromDB },
+      branches: { list: 'branches', from: this._branchFromDB }
     };
     const m = map[table];
     if (!m) return;
@@ -440,6 +444,18 @@ const DB = {
     active: s.active !== false,
     note: s.note || null
   }),
+  _branchFromDB: (r) => ({
+    id: r.id,
+    name: r.name || '',
+    active: r.active !== false,
+    note: r.note || ''
+  }),
+  _branchToDB: (b) => ({
+    id: b.id,
+    name: b.name || null,
+    active: b.active !== false,
+    note: b.note || null
+  }),
 
   // ─── EMPLOYEES ───
   // สถานะที่แท้จริง (effective status) — คำนวณจาก terminationDate
@@ -482,13 +498,50 @@ const DB = {
     return list;
   },
 
-  // ดึงรายชื่อสาขาทั้งหมด (unique, sorted) จากข้อมูลพนักงาน
+  // ดึงรายชื่อสาขาทั้งหมด — รวม master (active) + ที่ใช้จริงในพนักงาน
   getBranches() {
     const set = new Set();
+    // master ก่อน (active เท่านั้น)
+    for (const b of this.data.branches) {
+      if (b.active && b.id) set.add(b.id);
+    }
+    // employees field — เผื่อ legacy ที่ยังไม่ได้ register
     for (const e of this.data.employees) {
       if (e.branch && e.branch.trim()) set.add(e.branch.trim());
     }
     return [...set].sort();
+  },
+  // ─── BRANCH MASTER ───
+  getBranchMaster({ activeOnly = false } = {}) {
+    let list = this.data.branches.slice();
+    if (activeOnly) list = list.filter(b => b.active);
+    return list.sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+  },
+  getBranch(id) { return this.data.branches.find(b => b.id === id); },
+  // นับจำนวนพนักงานที่ใช้สาขานี้ (เฉพาะที่ยังปฏิบัติงาน)
+  getBranchEmployeeCount(branchId) {
+    return this.data.employees.filter(e => e.branch === branchId && this.empStatus(e) !== 'resigned').length;
+  },
+  async saveBranch(branch) {
+    if (!branch.id) throw new Error('รหัสสาขาว่าง');
+    const row = this._branchToDB(branch);
+    const { data, error } = await this.client.from('branches').upsert(row).select().single();
+    if (error) throw error;
+    const mapped = this._branchFromDB(data);
+    const idx = this.data.branches.findIndex(b => b.id === mapped.id);
+    if (idx >= 0) this.data.branches[idx] = mapped;
+    else this.data.branches.unshift(mapped);
+    return mapped;
+  },
+  async deleteBranch(id) {
+    // เช็คก่อน — ห้ามลบถ้ามีพนักงานใช้สาขานี้อยู่
+    if (this.data.employees.some(e => e.branch === id)) {
+      return { ok: false, reason: 'มีพนักงานใช้สาขานี้อยู่' };
+    }
+    const { error } = await this.client.from('branches').delete().eq('id', id);
+    if (error) throw error;
+    this.data.branches = this.data.branches.filter(b => b.id !== id);
+    return { ok: true };
   },
   getEmployee(id) {
     if (!this._empIndex) {
