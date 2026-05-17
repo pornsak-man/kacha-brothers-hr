@@ -554,7 +554,7 @@ function openEmployeeForm(id = null) {
           <div class="form-group"><label>รหัสพนักงาน *</label><input name="id" value="${escapeHtml(emp.id)}" required ${id ? 'readonly' : ''}/></div>
           <div class="form-group"><label>คำนำหน้า</label><select name="title">${opt(EMP_OPTIONS.titles, emp.title)}</select></div>
           <div class="form-group"><label>ชื่อ *</label><input name="firstName" value="${escapeHtml(emp.firstName)}" required/></div>
-          <div class="form-group"><label>นามสกุล *</label><input name="lastName" value="${escapeHtml(emp.lastName)}" required/></div>
+          <div class="form-group"><label>นามสกุล</label><input name="lastName" value="${escapeHtml(emp.lastName)}"/></div>
           <div class="form-group"><label>ชื่อเล่น</label><input name="nickname" value="${escapeHtml(emp.nickname)}"/></div>
           <div class="form-group"><label>เพศ</label><select name="gender">${opt(EMP_OPTIONS.genders, emp.gender)}</select></div>
           <div class="form-group"><label>วันเกิด</label><input name="dob" type="date" value="${emp.dob || ''}"/></div>
@@ -1001,7 +1001,7 @@ function validateImportRows(rows) {
     if (idsSeen.has(r.id)) errors.push({ row: rowNum, msg: 'รหัสซ้ำในไฟล์: ' + r.id });
     idsSeen.add(r.id);
     if (!r.firstName) errors.push({ row: rowNum, msg: 'ชื่อว่าง' });
-    if (!r.lastName) errors.push({ row: rowNum, msg: 'นามสกุลว่าง' });
+    // นามสกุลไม่บังคับ — บางกรณีพนักงานมีชื่อเดียว (เช่น แรงงานต่างด้าว)
     if (r.department && !deptIds.has(r.department))
       errors.push({ row: rowNum, msg: `รหัสฝ่ายไม่มีในระบบ: ${r.department}` });
     if (r.position && !posIds.has(r.position))
