@@ -3622,7 +3622,7 @@ function renderUniformRequestsTable() {
             <td>${r.neededBy ? fmt.date(r.neededBy) : '-'}</td>
             <td><span class="badge ${s.cls}">${s.label}</span></td>
             <td class="num"><strong>${fmt.money(r.totalCost)}</strong></td>
-            <td class="note-cell">${r.note ? escapeHtml(r.note) : '<span style="color:var(--warning);font-weight:600">⚠️ ยังไม่ระบุ</span>'}</td>
+            <td class="note-cell">${r.note ? `<div class="note-clamp" title="${escapeHtml(r.note)}">${escapeHtml(r.note)}</div>` : '<span style="color:var(--warning);font-weight:600">⚠️ ยังไม่ระบุ</span>'}</td>
             <td class="actions">
               ${DB.isAdmin ? `<button class="btn btn-primary btn-sm" onclick="openIssueItemsForm('${r.id}')">จัดชุด</button>
               <button class="btn btn-ghost btn-sm" onclick="openUniformRequestForm('${r.id}')">แก้</button>
@@ -3644,9 +3644,19 @@ function renderUniformRequestsTable() {
       }
       .uniform-req-table td.note-cell {
         max-width: 260px;
-        white-space: pre-wrap;
         font-size: 12.5px;
         color: var(--text-2);
+      }
+      .uniform-req-table .note-clamp {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        white-space: pre-wrap;
+        line-height: 1.5;
+        max-height: calc(1.5em * 3);
+        min-height: calc(1.5em * 3);  /* ทุก row ความสูงเท่ากันเสมอ */
       }
       .uniform-req-table td.actions {
         white-space: nowrap;
