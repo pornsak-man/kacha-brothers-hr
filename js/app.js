@@ -2059,10 +2059,23 @@ function exportEmployeesXLSX() {
     'หมายเหตุ': cs(e.note)
   }));
   const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true, dateNF: 'dd mmm yyyy' });
-  // เลขประชาชน (column index 5 — ลำดับใน rows: รหัส,คำนำหน้า,ชื่อ,นามสกุล,ชื่อเล่น,เลขประชาชน,...)
   const headerKeys = Object.keys(rows[0] || {});
+
+  // เลขประชาชน → ฟอร์แมต '0' กันไม่ให้ Excel แสดงเป็น scientific notation (1.23E+12)
   const nidIdx = headerKeys.indexOf('เลขประชาชน');
   if (nidIdx >= 0) setColumnFormat(ws, nidIdx, '0');
+
+  // รหัสพนักงาน → ฟอร์แมต '0' (number ไม่มีจุดทศนิยม)
+  const idIdx = headerKeys.indexOf('รหัส');
+  if (idIdx >= 0) setColumnFormat(ws, idIdx, '0');
+
+  // ทุกคอลัมน์เงินเดือน/ค่าต่างๆ → '#,##0' (มี comma คั่นพัน, ไม่มีทศนิยม)
+  const moneyCols = ['เงินเดือน', 'ค่าตำแหน่ง', 'ค่าเดินทาง', 'ค่าอาหาร', 'ค่าเบี้ยเลี้ยง', 'ค่าภาษา', 'ค่าอื่นๆ', 'รวมรายได้'];
+  for (const col of moneyCols) {
+    const idx = headerKeys.indexOf(col);
+    if (idx >= 0) setColumnFormat(ws, idx, '#,##0');
+  }
+
   // กำหนดความกว้างคอลัมน์ — เลขประชาชน 16 ตัวอักษรเพื่อให้เห็น 13 หลักเต็ม
   ws['!cols'] = headerKeys.map(k => {
     if (k === 'เลขประชาชน') return { wch: 16 };
@@ -2071,6 +2084,7 @@ function exportEmployeesXLSX() {
     if (k === 'ชื่อ' || k === 'นามสกุล') return { wch: 14 };
     if (k === 'ตำแหน่ง' || k === 'ฝ่าย') return { wch: 22 };
     if (k === 'ที่อยู่') return { wch: 30 };
+    if (moneyCols.includes(k)) return { wch: 12 };
     return { wch: 12 };
   });
   const wb = XLSX.utils.book_new();
@@ -2601,6 +2615,13 @@ function exportApplicantsXLSX() {
   if (!list.length) { toast('ยังไม่มีข้อมูลผู้สมัคร', 'warning'); return; }
   const cs = csvSafe;
   const statusToTH = Object.fromEntries(Object.entries(APPL_STATUS).map(([k, v]) => [k, v.label]));
+
+  // Cell types ออกแบบให้ Excel formula ทำงานได้ครบ:
+  //   • text fields (ชื่อ/อีเมล/รหัสฝ่าย/รหัสตำแหน่ง) → string (cell type 's')
+  //   • เงินเดือน → number (SUM/AVG/SUMIF ทำงานได้)
+  //   • วันที่ → Date object + cellDates:true → Excel date (DATEDIF/MONTH/YEAR ใช้ได้)
+  //   • รหัสพนักงาน → number (ตรง type กับ employee export → VLOOKUP ข้ามไฟล์ได้)
+  //   • เบอร์โทร → string เสมอ (คงเลข 0 นำหน้า + รองรับขีด)
   const rows = list.map(a => ({
     'ชื่อ': cs(a.firstName), 'นามสกุล': cs(a.lastName), 'ชื่อเล่น': cs(a.nickname),
     'เบอร์โทร': cs(a.phone), 'อีเมล': cs(a.email),
@@ -2612,13 +2633,24 @@ function exportApplicantsXLSX() {
     'วันสัมภาษณ์': excelDate(a.interviewDate),
     'วันตัดสินใจ': excelDate(a.decidedDate),
     'หมายเหตุ': cs(a.note),
-    'รหัสพนักงาน (ถ้ารับเข้าแล้ว)': cs(a.hiredEmployeeId)
+    // ใช้ excelNum เพื่อ match employee export — VLOOKUP ระหว่าง 2 ไฟล์จะใช้งานได้
+    'รหัสพนักงาน (ถ้ารับเข้าแล้ว)': excelNum(a.hiredEmployeeId)
   }));
   const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true, dateNF: 'dd mmm yyyy' });
-  ws['!cols'] = Object.keys(rows[0]).map(k => {
+  const headerKeys = Object.keys(rows[0]);
+
+  // Number formats: เงินเดือน = #,##0 ; รหัสพนักงาน = 0 (กัน scientific notation)
+  const salaryIdx = headerKeys.indexOf('เงินเดือนที่ขอ');
+  if (salaryIdx >= 0) setColumnFormat(ws, salaryIdx, '#,##0');
+  const empIdIdx = headerKeys.indexOf('รหัสพนักงาน (ถ้ารับเข้าแล้ว)');
+  if (empIdIdx >= 0) setColumnFormat(ws, empIdIdx, '0');
+
+  ws['!cols'] = headerKeys.map(k => {
     if (k.includes('วัน')) return { wch: 13 };
     if (k === 'ชื่อ' || k === 'นามสกุล') return { wch: 14 };
     if (k === 'หมายเหตุ') return { wch: 30 };
+    if (k === 'เงินเดือนที่ขอ') return { wch: 14 };
+    if (k === 'รหัสพนักงาน (ถ้ารับเข้าแล้ว)') return { wch: 16 };
     return { wch: 14 };
   });
   const wb = XLSX.utils.book_new();
@@ -3223,6 +3255,7 @@ router.register('reports', () => {
 
 function exportPayrollXLSX() {
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportPayrollXLSX, 800); return; }
+  const cs = csvSafe;
   const month = tz.thisMonth();
   const rows = DB.getEmployees({ status: 'active' }).map(e => {
     const extraAllow = DB.getAllowances(e.id).filter(a => a.month === month).reduce((s, a) => s + (a.amount || 0), 0);
@@ -3232,25 +3265,41 @@ function exportPayrollXLSX() {
     const net = gross - adv - loanDed;
     return {
       'รหัส': excelNum(e.id),
-      'ชื่อ-นามสกุล': (e.title || '') + e.firstName + ' ' + e.lastName,
-      'ฝ่าย': (DB.getDepartment(e.department) || {}).name || '',
-      'ตำแหน่ง': e.positionTitle,
-      'เลขบัญชี': (e.bank ? e.bank + ' ' : '') + (e.bankAccount || ''),
-      'เงินเดือน': e.salary || 0,
-      'ค่าตำแหน่ง': e.allowancePosition || 0,
-      'ค่าเดินทาง': e.allowanceTravel || 0,
-      'ค่าอาหาร': e.allowanceFood || 0,
-      'ค่าเบี้ยเลี้ยง': e.allowancePerDiem || 0,
-      'ค่าภาษา': e.allowanceLanguage || 0,
-      'ค่าอื่นๆ': e.allowanceOther || 0,
-      'เบี้ยเลี้ยงพิเศษ': extraAllow,
-      'รวมรายได้': gross,
-      'หักเบิกล่วงหน้า': adv,
-      'หักผ่อนกู้': loanDed,
-      'รับสุทธิ': net
+      'ชื่อ-นามสกุล': cs((e.title || '') + e.firstName + ' ' + e.lastName),
+      'ฝ่าย': cs((DB.getDepartment(e.department) || {}).name || ''),
+      'ตำแหน่ง': cs(e.positionTitle),
+      'เลขบัญชี': cs((e.bank ? e.bank + ' ' : '') + (e.bankAccount || '')),
+      'เงินเดือน': Number(e.salary || 0),
+      'ค่าตำแหน่ง': Number(e.allowancePosition || 0),
+      'ค่าเดินทาง': Number(e.allowanceTravel || 0),
+      'ค่าอาหาร': Number(e.allowanceFood || 0),
+      'ค่าเบี้ยเลี้ยง': Number(e.allowancePerDiem || 0),
+      'ค่าภาษา': Number(e.allowanceLanguage || 0),
+      'ค่าอื่นๆ': Number(e.allowanceOther || 0),
+      'เบี้ยเลี้ยงพิเศษ': Number(extraAllow),
+      'รวมรายได้': Number(gross),
+      'หักเบิกล่วงหน้า': Number(adv),
+      'หักผ่อนกู้': Number(loanDed),
+      'รับสุทธิ': Number(net)
     };
   });
   const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true, dateNF: 'dd mmm yyyy' });
+  const headerKeys = Object.keys(rows[0] || {});
+  // รหัส → '0' (เลขล้วน); เงิน → '#,##0' (มี comma)
+  const idIdx = headerKeys.indexOf('รหัส');
+  if (idIdx >= 0) setColumnFormat(ws, idIdx, '0');
+  const moneyCols = ['เงินเดือน','ค่าตำแหน่ง','ค่าเดินทาง','ค่าอาหาร','ค่าเบี้ยเลี้ยง','ค่าภาษา','ค่าอื่นๆ','เบี้ยเลี้ยงพิเศษ','รวมรายได้','หักเบิกล่วงหน้า','หักผ่อนกู้','รับสุทธิ'];
+  for (const col of moneyCols) {
+    const idx = headerKeys.indexOf(col);
+    if (idx >= 0) setColumnFormat(ws, idx, '#,##0');
+  }
+  ws['!cols'] = headerKeys.map(k => {
+    if (k === 'รหัส') return { wch: 8 };
+    if (k === 'ชื่อ-นามสกุล') return { wch: 22 };
+    if (k === 'ฝ่าย' || k === 'ตำแหน่ง') return { wch: 18 };
+    if (k === 'เลขบัญชี') return { wch: 28 };
+    return { wch: 12 };
+  });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'เงินเดือน ' + month);
   XLSX.writeFile(wb, `คชา-เงินเดือน-${month}.xlsx`);
@@ -3259,13 +3308,35 @@ function exportPayrollXLSX() {
 
 function exportLoansXLSX() {
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportLoansXLSX, 800); return; }
+  const cs = csvSafe;
   const rows = DB.getLoans().map(l => {
     const e = DB.getEmployee(l.employeeId) || {};
-    return { 'วันที่': excelDate(l.date), 'รหัสพนักงาน': excelNum(l.employeeId), 'ชื่อ-นามสกุล': (e.firstName || '') + ' ' + (e.lastName || ''),
-      'จำนวนกู้': Number(l.amount || 0), 'ผ่อน/เดือน': Number(l.monthlyPayment || 0), 'คงเหลือ': Number(l.remaining || 0),
-      'สถานะ': l.status === 'completed' ? 'ปิดยอด' : 'ผ่อนอยู่', 'เหตุผล': l.reason };
+    return {
+      'วันที่': excelDate(l.date),
+      'รหัสพนักงาน': excelNum(l.employeeId),
+      'ชื่อ-นามสกุล': cs((e.firstName || '') + ' ' + (e.lastName || '')),
+      'จำนวนกู้': Number(l.amount || 0),
+      'ผ่อน/เดือน': Number(l.monthlyPayment || 0),
+      'คงเหลือ': Number(l.remaining || 0),
+      'สถานะ': l.status === 'completed' ? 'ปิดยอด' : 'ผ่อนอยู่',
+      'เหตุผล': cs(l.reason || '')
+    };
   });
   const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true, dateNF: 'dd mmm yyyy' });
+  const headerKeys = Object.keys(rows[0] || {});
+  const idIdx = headerKeys.indexOf('รหัสพนักงาน');
+  if (idIdx >= 0) setColumnFormat(ws, idIdx, '0');
+  for (const col of ['จำนวนกู้', 'ผ่อน/เดือน', 'คงเหลือ']) {
+    const idx = headerKeys.indexOf(col);
+    if (idx >= 0) setColumnFormat(ws, idx, '#,##0');
+  }
+  ws['!cols'] = headerKeys.map(k => {
+    if (k === 'วันที่') return { wch: 13 };
+    if (k === 'รหัสพนักงาน') return { wch: 10 };
+    if (k === 'ชื่อ-นามสกุล') return { wch: 22 };
+    if (k === 'เหตุผล') return { wch: 24 };
+    return { wch: 12 };
+  });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'การกู้');
   XLSX.writeFile(wb, `คชา-รายการกู้-${tz.today()}.xlsx`);
