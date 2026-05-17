@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS public.employees (
   bank                TEXT,
   bank_account        TEXT,
   photo_url           TEXT,
+  termination_date    DATE,
   status              TEXT DEFAULT 'active',
   note                TEXT,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),

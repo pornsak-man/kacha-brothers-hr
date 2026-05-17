@@ -505,6 +505,15 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 .table .actions { display: flex; gap: 2px; justify-content: flex-end; }
 .table strong { font-weight: 600; color: var(--text); }
 
+/* Compact variant สำหรับตารางคอลัมน์เยอะ */
+.table.table-compact th,
+.table.table-compact td {
+  padding: 9px 10px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.table.table-compact th { font-size: 10.5px; padding: 10px 10px; }
+
 .badge {
   display: inline-flex; align-items: center; padding: 3px 10px;
   border-radius: var(--radius-full);

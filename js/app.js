@@ -26,12 +26,14 @@ const fmt = {
     if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
     return age + ' ปี';
   },
-  serviceYears: (hireDate) => {
+  serviceYears: (hireDate, endDate = null) => {
     if (!hireDate) return '-';
-    const today = new Date(), start = new Date(hireDate);
-    let years = today.getFullYear() - start.getFullYear();
-    let months = today.getMonth() - start.getMonth();
+    const end = endDate ? new Date(endDate) : new Date();
+    const start = new Date(hireDate);
+    let years = end.getFullYear() - start.getFullYear();
+    let months = end.getMonth() - start.getMonth();
     if (months < 0) { years--; months += 12; }
+    if (years < 0) return '-';
     return years + ' ปี ' + months + ' เดือน';
   }
 };
@@ -353,25 +355,44 @@ function renderEmployeeList() {
   }
   container.innerHTML = `
     <div class="table-wrap">
-      <table class="table">
+      <table class="table table-compact">
         <thead>
-          <tr><th></th><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>ชื่อเล่น</th><th>ฝ่าย</th><th>ตำแหน่ง</th><th class="num">รายได้รวม</th><th>เริ่มงาน</th><th>สถานะ</th><th></th></tr>
+          <tr>
+            <th class="num">ลำดับ</th>
+            <th>รหัสพนักงาน</th>
+            <th>ชื่อ</th>
+            <th>สกุล</th>
+            <th>ชื่อเล่น</th>
+            <th>ตำแหน่ง</th>
+            <th>สาขา</th>
+            <th>ฝ่าย</th>
+            <th>วันเริ่มงาน</th>
+            <th>อายุงาน</th>
+            <th class="num">อายุ</th>
+            <th class="num">เงินเดือน</th>
+            <th>วันพ้นสภาพ</th>
+            <th></th>
+          </tr>
         </thead>
         <tbody>
-          ${list.map(e => `
+          ${list.map((e, i) => `
             <tr>
-              <td style="width:48px">${avatarThumb(e)}</td>
+              <td class="num muted-2">${start + i + 1}</td>
               <td><strong>${escapeHtml(e.id)}</strong></td>
-              <td>${escapeHtml((e.title || '') + e.firstName + ' ' + e.lastName)}</td>
+              <td>${escapeHtml((e.title || '') + e.firstName)}</td>
+              <td>${escapeHtml(e.lastName)}</td>
               <td>${escapeHtml(e.nickname || '-')}</td>
+              <td>${escapeHtml(e.positionTitle || '-')}</td>
+              <td>${escapeHtml(e.branch || '-')}</td>
               <td>${escapeHtml((DB.getDepartment(e.department) || {}).name || '-')}</td>
-              <td>${escapeHtml(e.positionTitle || '')}</td>
-              <td class="num">${fmt.money(totalIncome(e))}</td>
               <td>${fmt.date(e.hireDate)}</td>
-              <td>${e.status === 'active' ? '<span class="badge badge-success">ปฏิบัติงาน</span>' : '<span class="badge badge-neutral">ลาออก</span>'}</td>
+              <td>${fmt.serviceYears(e.hireDate, e.terminationDate)}</td>
+              <td class="num">${e.dob ? fmt.age(e.dob).replace(' ปี', '') : '-'}</td>
+              <td class="num">${fmt.money(e.salary)}</td>
+              <td>${e.terminationDate ? `<span class="badge badge-danger">${fmt.date(e.terminationDate)}</span>` : '<span class="badge badge-success">ปฏิบัติงาน</span>'}</td>
               <td class="actions">
                 <button class="btn btn-ghost btn-sm" onclick="viewEmployee('${e.id}')">ดู</button>
-                ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openEmployeeForm('${e.id}')">แก้ไข</button>
+                ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openEmployeeForm('${e.id}')">แก้</button>
                 <button class="btn btn-ghost btn-sm" onclick="deleteEmployee('${e.id}')">ลบ</button>` : ''}
               </td>
             </tr>`).join('')}
@@ -446,6 +467,7 @@ function openEmployeeForm(id = null) {
     position: DB.getPositions()[0]?.id || '', positionTitle: '',
     employeeType: 'พนักงานประจำ',
     hireDate: new Date().toISOString().slice(0, 10),
+    terminationDate: '',
     salary: 0,
     allowancePosition: 0, allowanceTravel: 0, allowanceFood: 0,
     allowancePerDiem: 0, allowanceLanguage: 0, allowanceOther: 0,
@@ -517,7 +539,8 @@ function openEmployeeForm(id = null) {
           <div class="form-group"><label>ตำแหน่ง</label><input name="positionTitle" value="${escapeHtml(emp.positionTitle)}" placeholder="เช่น ผู้จัดการฝ่ายบุคคล"/></div>
           <div class="form-group"><label>ประเภทพนักงาน</label><select name="employeeType">${opt(EMP_OPTIONS.empTypes, emp.employeeType)}</select></div>
           <div class="form-group"><label>วันเริ่มงาน *</label><input name="hireDate" type="date" value="${emp.hireDate || ''}" required/></div>
-          <div class="form-group"><label>สถานะ</label><select name="status"><option value="active" ${emp.status === 'active' ? 'selected' : ''}>ปฏิบัติงาน</option><option value="resigned" ${emp.status === 'resigned' ? 'selected' : ''}>ลาออก</option></select></div>
+          <div class="form-group"><label>วันพ้นสภาพ <span class="muted-2" style="font-weight:normal;font-size:11px">(ใส่เฉพาะถ้าลาออก/พ้นสภาพ)</span></label><input name="terminationDate" type="date" value="${emp.terminationDate || ''}"/></div>
+          <div class="form-group"><label>สถานะ</label><select name="status"><option value="active" ${emp.status === 'active' ? 'selected' : ''}>ปฏิบัติงาน</option><option value="resigned" ${emp.status === 'resigned' ? 'selected' : ''}>ลาออก/พ้นสภาพ</option></select></div>
         </div>
       </div>
 
@@ -699,7 +722,9 @@ function viewEmployee(id) {
         <div class="emp-info-row"><div class="label">ระดับตำแหน่งงาน</div><div class="value">${escapeHtml(pos.name || '-')}</div></div>
         <div class="emp-info-row"><div class="label">ตำแหน่ง</div><div class="value">${escapeHtml(e.positionTitle || '-')}</div></div>
         <div class="emp-info-row"><div class="label">ประเภทพนักงาน</div><div class="value">${escapeHtml(e.employeeType || '-')}</div></div>
-        <div class="emp-info-row"><div class="label">วันเริ่มงาน</div><div class="value">${fmt.date(e.hireDate)}${e.hireDate ? ' (' + fmt.serviceYears(e.hireDate) + ')' : ''}</div></div>
+        <div class="emp-info-row"><div class="label">วันเริ่มงาน</div><div class="value">${fmt.date(e.hireDate)}</div></div>
+        <div class="emp-info-row"><div class="label">อายุงาน</div><div class="value">${e.hireDate ? fmt.serviceYears(e.hireDate, e.terminationDate) : '-'}</div></div>
+        <div class="emp-info-row"><div class="label">วันพ้นสภาพ</div><div class="value">${e.terminationDate ? fmt.date(e.terminationDate) + ' <span class="badge badge-danger" style="margin-left:6px">พ้นสภาพ</span>' : '<span class="badge badge-success">ยังปฏิบัติงาน</span>'}</div></div>
       </div>
     </div>
 
@@ -772,7 +797,7 @@ const IMPORT_COLUMNS = [
   'วันเกิด', 'เลขประชาชน', 'สัญชาติ', 'ศาสนา', 'วุฒิการศึกษา',
   'เบอร์โทร', 'อีเมล',
   'ที่อยู่', 'แขวง/ตำบล', 'เขต/อำเภอ', 'จังหวัด', 'รหัสไปรษณีย์',
-  'รหัสฝ่าย', 'สาขา', 'รหัสระดับตำแหน่ง', 'ตำแหน่ง', 'ประเภทพนักงาน', 'วันเริ่มงาน',
+  'รหัสฝ่าย', 'สาขา', 'รหัสระดับตำแหน่ง', 'ตำแหน่ง', 'ประเภทพนักงาน', 'วันเริ่มงาน', 'วันพ้นสภาพ',
   'ธนาคาร', 'เลขบัญชี',
   'เงินเดือน', 'ค่าตำแหน่ง', 'ค่าเดินทาง', 'ค่าอาหาร', 'ค่าเบี้ยเลี้ยง', 'ค่าภาษา', 'ค่าอื่นๆ',
   'สถานะ', 'หมายเหตุ'
@@ -791,7 +816,7 @@ function downloadEmployeeTemplate() {
       'จังหวัด': 'กรุงเทพมหานคร', 'รหัสไปรษณีย์': '10110',
       'รหัสฝ่าย': 'D001', 'สาขา': 'สำนักงานใหญ่',
       'รหัสระดับตำแหน่ง': 'P03', 'ตำแหน่ง': 'หัวหน้าทีม',
-      'ประเภทพนักงาน': 'พนักงานประจำ', 'วันเริ่มงาน': '2024-01-01',
+      'ประเภทพนักงาน': 'พนักงานประจำ', 'วันเริ่มงาน': '2024-01-01', 'วันพ้นสภาพ': '',
       'ธนาคาร': 'ธนาคารกสิกรไทย (KBANK)', 'เลขบัญชี': '123-4-56789-0',
       'เงินเดือน': 30000, 'ค่าตำแหน่ง': 3000, 'ค่าเดินทาง': 2000, 'ค่าอาหาร': 1500,
       'ค่าเบี้ยเลี้ยง': 0, 'ค่าภาษา': 0, 'ค่าอื่นๆ': 0,
@@ -878,6 +903,7 @@ function parseImportRow(row) {
     positionTitle: get('ตำแหน่ง'),
     employeeType: get('ประเภทพนักงาน') || 'พนักงานประจำ',
     hireDate: parseDate('วันเริ่มงาน') || new Date().toISOString().slice(0, 10),
+    terminationDate: parseDate('วันพ้นสภาพ') || '',
     bank: get('ธนาคาร'),
     bankAccount: get('เลขบัญชี'),
     salary: num('เงินเดือน'),
@@ -1251,6 +1277,7 @@ function exportEmployeesXLSX() {
     'ตำแหน่ง': e.positionTitle,
     'ประเภทพนักงาน': e.employeeType,
     'วันเริ่มงาน': e.hireDate,
+    'วันพ้นสภาพ': e.terminationDate,
     'ธนาคาร': e.bank, 'เลขบัญชี': e.bankAccount,
     'เงินเดือน': e.salary,
     'ค่าตำแหน่ง': e.allowancePosition, 'ค่าเดินทาง': e.allowanceTravel,

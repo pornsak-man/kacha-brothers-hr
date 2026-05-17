@@ -166,6 +166,7 @@ const DB = {
     allowanceOther: Number(r.allowance_other || 0),
     bank: r.bank || '', bankAccount: r.bank_account || '',
     photoUrl: r.photo_url || '',
+    terminationDate: r.termination_date || '',
     status: r.status || 'active', note: r.note || ''
   }),
   _empToDB: (e) => ({
@@ -189,6 +190,7 @@ const DB = {
     allowance_other: Number(e.allowanceOther || 0),
     bank: e.bank || null, bank_account: e.bankAccount || null,
     photo_url: e.photoUrl || null,
+    termination_date: e.terminationDate || null,
     status: e.status, note: e.note
   }),
   _depFromDB: (r) => ({ id: r.id, name: r.name, manager: r.manager_id || '', note: r.note || '' }),
