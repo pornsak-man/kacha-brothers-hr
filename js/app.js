@@ -2419,11 +2419,13 @@ router.register('branches', () => {
   const closedCount = allBranches.filter(b => !b.active).length;
   const list = _branchPageState.showClosed ? allBranches : allBranches.filter(b => b.active);
   const totalEmps = list.reduce((s, b) => s + DB.getBranchEmployeeCount(b.id), 0);
+  const avgPerBranch = list.length ? Math.round(totalEmps / list.length) : 0;
+  const topBranch = list.map(b => ({ ...b, count: DB.getBranchEmployeeCount(b.id) })).sort((a, b) => b.count - a.count)[0];
   return `
     <div class="sw-page-header">
       <div>
         <div class="sw-page-title">สาขา</div>
-        <div class="sw-page-subtitle">จัดการรายการสาขาของบริษัท · ${fmt.num(list.length)} สาขา${_branchPageState.showClosed ? '' : (closedCount > 0 ? ` (ซ่อน ${closedCount} ที่ปิดอยู่)` : '')} · พนักงานปัจจุบัน ${fmt.num(totalEmps)} คน</div>
+        <div class="sw-page-subtitle">โครงสร้างสาขาและพนักงานต่อสาขา${_branchPageState.showClosed ? '' : (closedCount > 0 ? ` · ซ่อน ${closedCount} ที่ปิดอยู่` : '')}</div>
       </div>
       <div class="sw-page-actions" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         ${closedCount > 0 ? `<label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text-2)">
@@ -2433,37 +2435,72 @@ router.register('branches', () => {
         ${DB.isAdmin ? `<button class="btn btn-primary" onclick="openBranchForm()">+ เพิ่มสาขา</button>` : ''}
       </div>
     </div>
+    <div class="sw-stats-grid" style="margin-bottom:28px">
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(30,58,138,0.12);color:var(--primary)">🏢</div>
+        <div class="sw-stat-label">สาขาที่ใช้งาน</div>
+        <div class="sw-stat-value">${fmt.num(list.length)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">${closedCount > 0 ? `ซ่อน ${closedCount} ที่ปิด` : 'ใช้งานทั้งหมด'}</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(22,163,74,0.12);color:var(--success)">${ICON.users}</div>
+        <div class="sw-stat-label">พนักงานรวม</div>
+        <div class="sw-stat-value" style="color:var(--success)">${fmt.num(totalEmps)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">คน · กระจายในสาขา</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(124,58,237,0.12);color:#7c3aed">📊</div>
+        <div class="sw-stat-label">เฉลี่ย/สาขา</div>
+        <div class="sw-stat-value">${fmt.num(avgPerBranch)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">คน · ค่าเฉลี่ย</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(217,119,6,0.12);color:var(--warning)">🏆</div>
+        <div class="sw-stat-label">สาขายอดสูงสุด</div>
+        <div class="sw-stat-value" style="font-size:20px">${topBranch ? escapeHtml(topBranch.id) : '—'}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">${topBranch ? topBranch.count + ' คน · ' + escapeHtml(topBranch.name || '') : ''}</div>
+      </div>
+    </div>
     <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">รายการสาขา <span class="sw-chart-count">${fmt.num(list.length)}</span></div>
+          <div class="sw-chart-sub">เรียงตามรหัสสาขา · คลิก "แก้" เพื่อเปิด/ปิดสาขา</div>
+        </div>
+      </div>
       ${list.length ? `
-        <div class="table-wrap"><table class="table table-compact">
-          <thead><tr>
-            <th style="width:60px;text-align:right">No.</th>
-            <th>รหัสสาขา</th>
-            <th>ชื่อเต็ม</th>
-            <th class="num">พนักงานปัจจุบัน</th>
-            <th>สถานะ</th>
-            <th>หมายเหตุ</th>
-            <th></th>
-          </tr></thead>
-          <tbody>
-            ${list.map((b, i) => {
-              const count = DB.getBranchEmployeeCount(b.id);
-              return `<tr>
-                <td class="num muted-2">${i + 1}</td>
-                <td><strong style="font-size:14px">${escapeHtml(b.id)}</strong></td>
-                <td>${escapeHtml(b.name || '-')}</td>
-                <td class="num"><strong>${fmt.num(count)}</strong></td>
-                <td>${b.active ? '<span class="badge badge-success">ใช้งาน</span>' : '<span class="badge">ปิด</span>'}</td>
-                <td>${escapeHtml(b.note || '-')}</td>
-                <td class="actions">
-                  ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openBranchForm('${escapeHtml(b.id)}')">แก้ไข</button>
-                  <button class="btn btn-ghost btn-sm" onclick="deleteBranch('${escapeHtml(b.id)}')">ลบ</button>` : ''}
-                </td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table></div>
-      ` : `<div class="empty-state"><div class="title">ยังไม่มีสาขา</div><div class="hint">กด "+ เพิ่มสาขา" เพื่อเริ่มต้น</div></div>`}
+      <div class="table-wrap"><table class="table table-compact sw-emp-table">
+        <thead><tr>
+          <th class="num" style="width:50px">#</th>
+          <th>รหัสสาขา</th>
+          <th>ชื่อเต็ม</th>
+          <th class="num">พนักงาน</th>
+          <th>สถานะ</th>
+          <th>หมายเหตุ</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${list.map((b, i) => {
+            const count = DB.getBranchEmployeeCount(b.id);
+            return `<tr style="${b.active ? '' : 'opacity:0.6'}">
+              <td class="num muted-2">${i + 1}</td>
+              <td><code style="font-size:12px;font-weight:700">${escapeHtml(b.id)}</code></td>
+              <td><strong>${escapeHtml(b.name || '—')}</strong></td>
+              <td class="num"><strong>${fmt.num(count)}</strong><span class="muted-2" style="font-size:11px"> คน</span></td>
+              <td>${b.active ? '<span class="badge badge-success">✓ ใช้งาน</span>' : '<span class="badge">ปิด</span>'}</td>
+              <td class="sw-reason-cell">${escapeHtml(b.note || '—')}</td>
+              <td class="actions">
+                ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openBranchForm('${escapeHtml(b.id)}')">แก้</button>
+                <button class="btn btn-ghost btn-sm" onclick="deleteBranch('${escapeHtml(b.id)}')">ลบ</button>` : ''}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state" style="padding:60px 20px">
+        <div style="font-size:42px;margin-bottom:12px;opacity:0.35">🏢</div>
+        <div class="title" style="font-size:16px;font-weight:600">ยังไม่มีสาขา</div>
+        <div class="hint" style="margin-top:6px">กด + เพิ่มสาขา เพื่อเริ่มต้น</div>
+      </div>`}
     </div>
   `;
 });
@@ -2531,30 +2568,42 @@ router.register('departments', () => {
   const depts = DB.getDepartments();
   const emps = DB.getEmployees({ status: 'active' });
   return `
-    <div class="page-header">
-      <h2>ฝ่าย</h2>
-      <div class="actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openDeptForm()">+ เพิ่มฝ่าย</button>' : ''}</div>
-    </div>
-    <div class="card">
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>รหัส</th><th>ชื่อฝ่าย</th><th>หัวหน้าฝ่าย</th><th class="num">จำนวนพนักงาน</th><th>หมายเหตุ</th><th></th></tr></thead>
-          <tbody>
-            ${depts.map(d => {
-              const mgr = d.manager ? DB.getEmployee(d.manager) : null;
-              const count = emps.filter(e => e.department === d.id).length;
-              return `<tr>
-                <td><strong>${escapeHtml(d.id)}</strong></td>
-                <td>${escapeHtml(d.name)}</td>
-                <td>${mgr ? escapeHtml(mgr.firstName + ' ' + mgr.lastName) : '-'}</td>
-                <td class="num">${count}</td>
-                <td>${escapeHtml(d.note || '-')}</td>
-                <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openDeptForm('${d.id}')">แก้ไข</button><button class="btn btn-ghost btn-sm" onclick="deleteDept('${d.id}')">ลบ</button>` : ''}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">ฝ่ายงาน</div>
+        <div class="sw-page-subtitle">โครงสร้างฝ่ายภายในบริษัท · ${fmt.num(depts.length)} ฝ่าย · พนักงานปัจจุบัน ${fmt.num(emps.length)} คน</div>
       </div>
+      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openDeptForm()">+ เพิ่มฝ่าย</button>' : ''}</div>
+    </div>
+    <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">รายการฝ่าย <span class="sw-chart-count">${fmt.num(depts.length)}</span></div>
+          <div class="sw-chart-sub">ฝ่ายที่มีพนักงานจริงและฝ่ายที่จัดตั้งไว้ · ระบุหัวหน้าฝ่ายเพื่อใช้อนุมัติเอกสารต่อไป</div>
+        </div>
+      </div>
+      ${depts.length ? `
+      <div class="table-wrap"><table class="table table-compact sw-emp-table">
+        <thead><tr><th>รหัส</th><th>ชื่อฝ่าย</th><th>หัวหน้าฝ่าย</th><th class="num">จำนวนพนักงาน</th><th>หมายเหตุ</th><th></th></tr></thead>
+        <tbody>
+          ${depts.map(d => {
+            const mgr = d.manager ? DB.getEmployee(d.manager) : null;
+            const count = emps.filter(e => e.department === d.id).length;
+            return `<tr>
+              <td><code style="font-size:11.5px;font-weight:600">${escapeHtml(d.id)}</code></td>
+              <td><strong>${escapeHtml(d.name)}</strong></td>
+              <td class="sw-cell-meta">${mgr ? escapeHtml(mgr.firstName + ' ' + mgr.lastName) : '<span class="muted-2">—</span>'}</td>
+              <td class="num"><strong>${fmt.num(count)}</strong><span class="muted-2" style="font-size:11px"> คน</span></td>
+              <td class="sw-reason-cell">${escapeHtml(d.note || '—')}</td>
+              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openDeptForm('${d.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteDept('${d.id}')">ลบ</button>` : ''}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state" style="padding:60px 20px">
+        <div style="font-size:42px;margin-bottom:12px;opacity:0.35">🗂️</div>
+        <div class="title" style="font-size:16px;font-weight:600">ยังไม่มีฝ่าย</div>
+        <div class="hint" style="margin-top:6px">กดปุ่ม + เพิ่มฝ่าย เพื่อเริ่ม</div>
+      </div>`}
     </div>`;
 });
 
@@ -2607,27 +2656,43 @@ router.register('positions', () => {
   const ps = DB.getPositions().slice().sort((a, b) => (b.level || 0) - (a.level || 0) || a.name.localeCompare(b.name));
   const emps = DB.getEmployees({ status: 'active' });
   return `
-    <div class="page-header">
-      <h2>ระดับตำแหน่ง</h2>
-      <div class="actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openPositionForm()">+ เพิ่มตำแหน่ง</button>' : ''}</div>
-    </div>
-    <div class="card">
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>รหัส</th><th>ตำแหน่ง</th><th class="num">ระดับ</th><th class="num">เงินเดือนต่ำสุด</th><th class="num">เงินเดือนสูงสุด</th><th class="num">จำนวนพนักงาน</th><th></th></tr></thead>
-          <tbody>
-            ${ps.map(p => `<tr>
-                <td><strong>${escapeHtml(p.id)}</strong></td>
-                <td>${escapeHtml(p.name)}</td>
-                <td class="num"><span class="badge badge-info">${p.level || '-'}</span></td>
-                <td class="num">${p.minSalary ? fmt.money(p.minSalary) : '-'}</td>
-                <td class="num">${p.maxSalary ? fmt.money(p.maxSalary) : '-'}</td>
-                <td class="num">${emps.filter(e => e.position === p.id).length}</td>
-                <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openPositionForm('${p.id}')">แก้ไข</button><button class="btn btn-ghost btn-sm" onclick="deletePosition('${p.id}')">ลบ</button>` : ''}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">ระดับตำแหน่ง</div>
+        <div class="sw-page-subtitle">โครงสร้างตำแหน่งและช่วงเงินเดือน · เรียงจากระดับสูงสุดลงต่ำสุด · ${fmt.num(ps.length)} ตำแหน่ง</div>
       </div>
+      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openPositionForm()">+ เพิ่มตำแหน่ง</button>' : ''}</div>
+    </div>
+    <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">รายการตำแหน่ง <span class="sw-chart-count">${fmt.num(ps.length)}</span></div>
+          <div class="sw-chart-sub">ใช้ระดับเพื่อคำนวณ "ผู้อนุมัติการลา" ของแต่ละสาขา — ระดับสูงสุดในสาขา = หัวหน้าสาขา</div>
+        </div>
+      </div>
+      ${ps.length ? `
+      <div class="table-wrap"><table class="table table-compact sw-emp-table">
+        <thead><tr><th>รหัส</th><th>ชื่อตำแหน่ง</th><th class="num">ระดับ</th><th class="num">เงินเดือนต่ำสุด</th><th class="num">เงินเดือนสูงสุด</th><th class="num">พนักงาน</th><th></th></tr></thead>
+        <tbody>
+          ${ps.map(p => {
+            const count = emps.filter(e => e.position === p.id).length;
+            const lvBadge = p.level >= 7 ? 'badge-success' : p.level >= 4 ? 'badge-info' : 'badge';
+            return `<tr>
+              <td><code style="font-size:11.5px;font-weight:600">${escapeHtml(p.id)}</code></td>
+              <td><strong>${escapeHtml(p.name)}</strong></td>
+              <td class="num"><span class="badge ${lvBadge}" style="min-width:32px;font-weight:700">${p.level || '—'}</span></td>
+              <td class="num">${p.minSalary ? fmt.money(p.minSalary) : '<span class="muted-2">—</span>'}</td>
+              <td class="num">${p.maxSalary ? fmt.money(p.maxSalary) : '<span class="muted-2">—</span>'}</td>
+              <td class="num"><strong>${fmt.num(count)}</strong><span class="muted-2" style="font-size:11px"> คน</span></td>
+              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openPositionForm('${p.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deletePosition('${p.id}')">ลบ</button>` : ''}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state" style="padding:60px 20px">
+        <div style="font-size:42px;margin-bottom:12px;opacity:0.35">🎖️</div>
+        <div class="title" style="font-size:16px;font-weight:600">ยังไม่มีระดับตำแหน่ง</div>
+        <div class="hint" style="margin-top:6px">กดปุ่ม + เพิ่มตำแหน่ง เพื่อเริ่ม</div>
+      </div>`}
     </div>`;
 });
 
@@ -2732,9 +2797,15 @@ router.register('recruit', () => {
     </div>
 
     <div class="sw-chart-card" style="margin-top:24px">
-      <div class="flex items-center gap-2" style="margin-bottom:16px;flex-wrap:wrap">
-        <input class="search-input" id="applSearch" placeholder="ค้นหา ชื่อ / เบอร์ / อีเมล / ตำแหน่ง..." value="${escapeHtml(recruitState.search)}" style="flex:1;min-width:240px"/>
-        <select id="applStatus" class="filter-select">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">รายชื่อผู้สมัคร</div>
+          <div class="sw-chart-sub">ค้นหา · กรองตามสถานะ · คลิก "ดู" เพื่อดูใบสมัครเต็ม</div>
+        </div>
+      </div>
+      <div class="sw-filter-bar">
+        <input id="applSearch" type="text" class="sw-filter-input" placeholder="🔍 ค้นชื่อ / เบอร์โทร / อีเมล / ตำแหน่ง" value="${escapeHtml(recruitState.search)}"/>
+        <select id="applStatus" class="sw-filter-select">
           <option value="">— ทุกสถานะ —</option>
           ${Object.entries(APPL_STATUS).map(([k, v]) => `<option value="${k}" ${recruitState.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}
         </select>
@@ -5480,35 +5551,70 @@ async function deleteEvalRec(id) {
 router.register('reports', () => {
   const s = DB.getStats();
   return `
-    <div class="page-header"><h2>รายงาน / Export</h2></div>
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-icon bg-primary">${ICON.users}</div><div class="stat-content"><div class="stat-label">พนักงานปฏิบัติงาน</div><div class="stat-value">${fmt.num(s.activeEmployees)}</div></div></div>
-      <div class="stat-card"><div class="stat-icon bg-green">${ICON.money}</div><div class="stat-content"><div class="stat-label">ค่าใช้จ่ายต่อเดือน</div><div class="stat-value">${fmt.money(s.totalMonthlySalary)}</div></div></div>
-      <div class="stat-card"><div class="stat-icon bg-blue">${ICON.trendUp}</div><div class="stat-content"><div class="stat-label">ค่าใช้จ่ายต่อปี</div><div class="stat-value">${fmt.money(s.totalMonthlySalary * 12)}</div></div></div>
-    </div>
-    <div class="card">
-      <div class="card-header"><div class="card-title">ส่งออกข้อมูล</div></div>
-      <div class="flex gap-2" style="flex-wrap:wrap">
-        <button class="btn btn-secondary" onclick="exportEmployeesXLSX()">${ICON.download}พนักงาน (Excel)</button>
-        <button class="btn btn-secondary" onclick="exportPayrollXLSX()">${ICON.download}บัญชีเงินเดือน (Excel)</button>
-        <button class="btn btn-secondary" onclick="exportLoansXLSX()">${ICON.download}รายการกู้ (Excel)</button>
-        <button class="btn btn-secondary" onclick="exportDataJSON()">${ICON.download}สำรองข้อมูลทั้งหมด (JSON)</button>
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">รายงาน · ส่งออกข้อมูล</div>
+        <div class="sw-page-subtitle">สรุปยอดและส่งออกข้อมูลเป็นไฟล์ Excel/JSON</div>
       </div>
     </div>
-    <div class="card">
-      <div class="card-header"><div class="card-title">สรุปพนักงานตามฝ่าย</div></div>
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>ฝ่าย</th><th class="num">จำนวน</th><th class="num">เงินเดือนรวม</th><th class="num">เฉลี่ย/คน</th></tr></thead>
-          <tbody>
-            ${DB.getDepartments().map(d => {
-              const list = DB.getEmployees({ status: 'active' }).filter(e => e.department === d.id);
-              const sum = list.reduce((s, e) => s + (e.salary || 0), 0);
-              return `<tr><td>${escapeHtml(d.name)}</td><td class="num">${list.length}</td><td class="num">${fmt.money(sum)}</td><td class="num">${fmt.money(list.length ? sum / list.length : 0)}</td></tr>`;
-            }).join('')}
-          </tbody>
-        </table>
+    <div class="sw-stats-grid" style="margin-bottom:28px">
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(30,58,138,0.12);color:var(--primary)">${ICON.users}</div>
+        <div class="sw-stat-label">พนักงานปฏิบัติงาน</div>
+        <div class="sw-stat-value">${fmt.num(s.activeEmployees)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">คน · ปัจจุบัน</div>
       </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(22,163,74,0.12);color:var(--success)">${ICON.money}</div>
+        <div class="sw-stat-label">ค่าใช้จ่ายต่อเดือน</div>
+        <div class="sw-stat-value" style="color:var(--success);font-size:24px">${fmt.money(s.totalMonthlySalary)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">บาท · เงินเดือนรวม</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(124,58,237,0.12);color:#7c3aed">${ICON.trendUp}</div>
+        <div class="sw-stat-label">ค่าใช้จ่ายต่อปี</div>
+        <div class="sw-stat-value" style="font-size:24px">${fmt.money(s.totalMonthlySalary * 12)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">บาท · คาดการณ์</div>
+      </div>
+    </div>
+
+    <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">ส่งออกข้อมูล (Export)</div>
+          <div class="sw-chart-sub">ดาวน์โหลดไฟล์เพื่อเก็บสำรอง · นำไปทำต่อใน Excel · หรือนำเข้าระบบอื่น</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+        <button class="btn btn-secondary" onclick="exportEmployeesXLSX()" style="justify-content:flex-start;padding:14px 16px">${ICON.download}<span style="margin-left:8px">พนักงาน (Excel)</span></button>
+        <button class="btn btn-secondary" onclick="exportPayrollXLSX()" style="justify-content:flex-start;padding:14px 16px">${ICON.download}<span style="margin-left:8px">บัญชีเงินเดือน (Excel)</span></button>
+        <button class="btn btn-secondary" onclick="exportLoansXLSX()" style="justify-content:flex-start;padding:14px 16px">${ICON.download}<span style="margin-left:8px">รายการกู้ (Excel)</span></button>
+        <button class="btn btn-secondary" onclick="exportDataJSON()" style="justify-content:flex-start;padding:14px 16px">${ICON.download}<span style="margin-left:8px">สำรองข้อมูลทั้งหมด (JSON)</span></button>
+      </div>
+    </div>
+
+    <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">สรุปพนักงานตามฝ่าย</div>
+          <div class="sw-chart-sub">เฉพาะที่ปฏิบัติงานอยู่ · คำนวณเงินเดือนเฉลี่ยและรวม</div>
+        </div>
+      </div>
+      <div class="table-wrap"><table class="table table-compact sw-emp-table">
+        <thead><tr><th>ฝ่าย</th><th class="num">จำนวน</th><th class="num">เงินเดือนรวม</th><th class="num">เฉลี่ย/คน</th></tr></thead>
+        <tbody>
+          ${DB.getDepartments().map(d => {
+            const list = DB.getEmployees({ status: 'active' }).filter(e => e.department === d.id);
+            const sum = list.reduce((s, e) => s + (e.salary || 0), 0);
+            return `<tr>
+              <td><strong>${escapeHtml(d.name)}</strong></td>
+              <td class="num"><strong>${fmt.num(list.length)}</strong><span class="muted-2" style="font-size:11px"> คน</span></td>
+              <td class="num"><strong>${fmt.money(sum)}</strong></td>
+              <td class="num">${fmt.money(list.length ? sum / list.length : 0)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
     </div>`;
 });
 
@@ -5620,38 +5726,57 @@ function exportDataJSON() {
 router.register('calendar', () => {
   const items = DB.getCalendar();
   const today = tz.today();
-  const upcoming = items.filter(c => c.date >= today).slice(0, 5);
+  const upcoming = items.filter(c => c.date >= today).slice(0, 6);
+  const past = items.filter(c => c.date < today);
+  const typeLabel = (t) => t === 'holiday' ? 'วันหยุด' : t === 'event' ? 'กิจกรรม' : 'อื่นๆ';
+  const typeBadge = (t) => t === 'holiday' ? 'badge-danger' : t === 'event' ? 'badge-info' : 'badge';
   return `
-    <div class="page-header">
-      <h2>ปฏิทิน HR</h2>
-      <div class="actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openCalForm()">+ เพิ่มกิจกรรม</button>' : ''}</div>
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">ปฏิทิน HR</div>
+        <div class="sw-page-subtitle">วันหยุด · กิจกรรมบริษัท · เหตุการณ์สำคัญต่างๆ</div>
+      </div>
+      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openCalForm()">+ เพิ่มกิจกรรม</button>' : ''}</div>
     </div>
     ${upcoming.length ? `
-    <div class="card">
-      <div class="card-header"><div class="card-title">กิจกรรม / วันหยุดที่จะมาถึง</div></div>
-      <div class="flex gap-3" style="flex-wrap:wrap">
-        ${upcoming.map(c => `<div style="background:var(--surface-2);padding:12px 16px;border-radius:var(--radius);min-width:200px">
-            <div class="muted-2" style="font-size:12px">${fmt.date(c.date)}</div>
-            <div style="font-weight:500;margin-top:4px">${escapeHtml(c.title)}</div>
-            <span class="badge badge-${c.type === 'holiday' ? 'danger' : c.type === 'event' ? 'info' : 'neutral'}" style="margin-top:6px;display:inline-block">${c.type === 'holiday' ? 'วันหยุด' : c.type === 'event' ? 'กิจกรรม' : 'อื่นๆ'}</span>
-          </div>`).join('')}
+    <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">กิจกรรม / วันหยุดที่จะมาถึง <span class="sw-chart-count">${fmt.num(upcoming.length)}</span></div>
+          <div class="sw-chart-sub">6 รายการแรกที่ใกล้สุด</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+        ${upcoming.map(c => `<div class="sw-clickable" style="background:var(--surface-2);padding:14px 16px;border-radius:12px;border:1px solid var(--border)">
+          <div class="muted-2" style="font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600">${fmt.date(c.date)}</div>
+          <div style="font-weight:600;margin-top:6px;color:var(--text);font-size:14px">${escapeHtml(c.title)}</div>
+          <span class="badge ${typeBadge(c.type)}" style="margin-top:8px;display:inline-block;font-size:10.5px">${typeLabel(c.type)}</span>
+        </div>`).join('')}
       </div>
     </div>` : ''}
-    <div class="card">
-      <div class="card-header"><div class="card-title">ทั้งหมด</div></div>
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>วันที่</th><th>หัวข้อ</th><th>ประเภท</th><th></th></tr></thead>
-          <tbody>
-            ${items.map(c => `<tr>
-              <td>${fmt.date(c.date)}</td>
-              <td>${escapeHtml(c.title)}</td>
-              <td><span class="badge badge-${c.type === 'holiday' ? 'danger' : c.type === 'event' ? 'info' : 'neutral'}">${c.type === 'holiday' ? 'วันหยุด' : c.type === 'event' ? 'กิจกรรม' : 'อื่นๆ'}</span></td>
-              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openCalForm('${c.id}')">แก้ไข</button><button class="btn btn-ghost btn-sm" onclick="deleteCalRec('${c.id}')">ลบ</button>` : ''}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
+    <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">ทุกกิจกรรม <span class="sw-chart-count">${fmt.num(items.length)}</span></div>
+          <div class="sw-chart-sub">เรียงจากใหม่สุด</div>
+        </div>
       </div>
+      ${items.length ? `
+      <div class="table-wrap"><table class="table table-compact sw-emp-table">
+        <thead><tr><th>วันที่</th><th>หัวข้อ</th><th>ประเภท</th><th></th></tr></thead>
+        <tbody>
+          ${items.map(c => `<tr style="${c.date < today ? 'opacity:0.6' : ''}">
+            <td class="sw-cell-meta">${fmt.date(c.date)}</td>
+            <td><strong>${escapeHtml(c.title)}</strong></td>
+            <td><span class="badge ${typeBadge(c.type)}">${typeLabel(c.type)}</span></td>
+            <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openCalForm('${c.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteCalRec('${c.id}')">ลบ</button>` : ''}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>` : `<div class="empty-state" style="padding:60px 20px">
+        <div style="font-size:42px;margin-bottom:12px;opacity:0.35">📅</div>
+        <div class="title" style="font-size:16px;font-weight:600">ยังไม่มีกิจกรรม</div>
+        <div class="hint" style="margin-top:6px">กด + เพิ่มกิจกรรม เพื่อเริ่ม</div>
+      </div>`}
     </div>`;
 });
 
