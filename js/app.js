@@ -490,43 +490,50 @@ function renderDashboardCharts(s, monthly, branchStats) {
   Chart.defaults.font.family = 'Prompt, sans-serif';
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
 
-  // ── Monthly hire/exit chart — outline-style bars (Jan-Dec ของปีปัจจุบัน) ──
+  // ── Monthly hire/exit chart — smooth line chart (Jan-Dec ของปีปัจจุบัน) ──
   if ($('#chartMonthly') && monthly) {
     const labels = monthly.map(m => {
       const d = new Date(m.year, m.month - 1, 1);
       return d.toLocaleDateString('th-TH', { month: 'short' });
     });
     makeChart('chartMonthly', {
-      type: 'bar',
+      type: 'line',
       data: {
         labels,
         datasets: [
           {
             label: 'เข้าใหม่',
             data: monthly.map(m => m.hires),
-            backgroundColor: 'rgba(22, 163, 74, 0.12)',
             borderColor: '#16a34a',
-            borderWidth: 2,
-            borderRadius: 8,
-            borderSkipped: false,
-            barPercentage: 0.55,
-            categoryPercentage: 0.7
+            backgroundColor: '#16a34a',
+            borderWidth: 2.5,
+            tension: 0.35,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+            pointHoverBackgroundColor: '#16a34a',
+            pointHoverBorderColor: '#fff',
+            pointHoverBorderWidth: 2,
+            fill: false
           },
           {
             label: 'พ้นสภาพ',
             data: monthly.map(m => m.exits),
-            backgroundColor: 'rgba(220, 38, 38, 0.12)',
             borderColor: '#dc2626',
-            borderWidth: 2,
-            borderRadius: 8,
-            borderSkipped: false,
-            barPercentage: 0.55,
-            categoryPercentage: 0.7
+            backgroundColor: '#dc2626',
+            borderWidth: 2.5,
+            tension: 0.35,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+            pointHoverBackgroundColor: '#dc2626',
+            pointHoverBorderColor: '#fff',
+            pointHoverBorderWidth: 2,
+            fill: false
           }
         ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: {
             position: 'top', align: 'center',
