@@ -618,10 +618,42 @@ const DB = {
     if (error) throw error;
   },
 
+  // ─── MONTHLY HIRE / EXIT (สำหรับ Dashboard chart) ───
+  getMonthlyHireExit(monthsBack = 12) {
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const [ty, tm] = todayStr.split('-').map(Number);
+    const months = [];
+    for (let i = monthsBack - 1; i >= 0; i--) {
+      const totalMonths = ty * 12 + (tm - 1) - i;
+      const y = Math.floor(totalMonths / 12);
+      const m = (totalMonths % 12) + 1;
+      months.push({
+        ym: `${y}-${String(m).padStart(2, '0')}`,
+        year: y, month: m,
+        hires: 0, exits: 0
+      });
+    }
+    const idx = new Map(months.map(m => [m.ym, m]));
+    for (const e of this.data.employees) {
+      if (e.hireDate) {
+        const ym = String(e.hireDate).slice(0, 7);
+        const m = idx.get(ym);
+        if (m) m.hires++;
+      }
+      if (e.terminationDate) {
+        const ym = String(e.terminationDate).slice(0, 7);
+        const m = idx.get(ym);
+        if (m) m.exits++;
+      }
+    }
+    return months;
+  },
+
   // ─── STATS ───
   getStats() {
     const emps = this.data.employees;
-    const active = emps.filter(e => e.status === 'active');
+    // ใช้ effective status (ตามวันพ้นสภาพ — ไม่ใช่ field 'status' ที่อาจ stale)
+    const active = emps.filter(e => this.empStatus(e) !== 'resigned');
     const totalSalary = active.reduce((s, e) => s + (e.salary || 0), 0);
     const activeLoans = this.data.loans.filter(l => l.status !== 'completed').length;
     const pendingAdvances = this.data.advances.filter(a => a.status !== 'paid').length;

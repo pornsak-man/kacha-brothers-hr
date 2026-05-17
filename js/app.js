@@ -277,21 +277,57 @@ window.onRealtimeChange = () => {
 // ═══════════════════════════════════════════════════════
 router.register('dashboard', () => {
   const s = DB.getStats();
-  window.afterRender = () => renderDashboardCharts(s);
+  const monthly = DB.getMonthlyHireExit(12);
+  window.afterRender = () => renderDashboardCharts(s, monthly);
+
+  const totalEmps = s.totalEmployees;
+  const activeEmps = s.activeEmployees;
+  const resignedEmps = totalEmps - activeEmps;
+  const branchCount = DB.getBranches().length;
+  const thisMonth = monthly[monthly.length - 1] || { hires: 0, exits: 0 };
+  const pendingTerm = DB.data.employees.filter(e => DB.empStatus(e) === 'pending').length;
+
   return `
-    <div class="page-header">
-      <h2>ภาพรวมระบบ</h2>
-      <div class="actions">
-        ${DB.isAdmin ? '<button class="btn btn-primary" onclick="openEmployeeForm()">+ เพิ่มพนักงาน</button>' : ''}
+    <div class="dashboard-hero">
+      <div class="hero-content">
+        <div class="hero-label">พนักงานทั้งหมดในระบบ</div>
+        <div class="hero-value">${fmt.num(totalEmps)}</div>
+        <div class="hero-stats">
+          <div class="hero-stat-item"><span class="dot dot-green"></span>ปฏิบัติงาน <strong>${fmt.num(activeEmps)}</strong></div>
+          ${pendingTerm ? `<div class="hero-stat-item"><span class="dot dot-yellow"></span>นัดพ้นสภาพ <strong>${fmt.num(pendingTerm)}</strong></div>` : ''}
+          <div class="hero-stat-item"><span class="dot dot-red"></span>พ้นสภาพ <strong>${fmt.num(resignedEmps)}</strong></div>
+          <div class="hero-stat-item">ฝ่าย <strong>${fmt.num(s.departments)}</strong></div>
+          <div class="hero-stat-item">สาขา <strong>${fmt.num(branchCount)}</strong></div>
+        </div>
       </div>
+      <div class="hero-mini">
+        <div class="hero-mini-label">เดือนนี้</div>
+        <div class="hero-mini-row">
+          <div class="hero-mini-stat green">
+            <div class="hero-mini-num">+${fmt.num(thisMonth.hires)}</div>
+            <div class="hero-mini-cap">เข้างาน</div>
+          </div>
+          <div class="hero-mini-stat red">
+            <div class="hero-mini-num">−${fmt.num(thisMonth.exits)}</div>
+            <div class="hero-mini-cap">พ้นสภาพ</div>
+          </div>
+        </div>
+      </div>
+      ${DB.isAdmin ? `<button class="btn btn-primary hero-cta" onclick="openEmployeeForm()">+ เพิ่มพนักงาน</button>` : ''}
     </div>
+
     <div class="stats-grid">
-      <div class="stat-card"><div class="stat-icon bg-primary">${ICON.users}</div><div class="stat-content"><div class="stat-label">พนักงานทั้งหมด</div><div class="stat-value">${fmt.num(s.totalEmployees)}</div><div class="stat-trend up">ปฏิบัติงาน ${s.activeEmployees} คน</div></div></div>
-      <div class="stat-card"><div class="stat-icon bg-blue">${ICON.building}</div><div class="stat-content"><div class="stat-label">จำนวนฝ่าย</div><div class="stat-value">${fmt.num(s.departments)}</div></div></div>
-      <div class="stat-card"><div class="stat-icon bg-green">${ICON.money}</div><div class="stat-content"><div class="stat-label">เงินเดือนรวมต่อเดือน</div><div class="stat-value">${fmt.money(s.totalMonthlySalary)}</div></div></div>
+      <div class="stat-card"><div class="stat-icon bg-green">${ICON.money}</div><div class="stat-content"><div class="stat-label">เงินเดือนรวม / เดือน</div><div class="stat-value">${fmt.money(s.totalMonthlySalary)}</div></div></div>
       <div class="stat-card"><div class="stat-icon bg-orange">${ICON.bank}</div><div class="stat-content"><div class="stat-label">การกู้ที่ยังไม่ปิด</div><div class="stat-value">${fmt.num(s.activeLoans)}</div></div></div>
       <div class="stat-card"><div class="stat-icon bg-purple">${ICON.cash}</div><div class="stat-content"><div class="stat-label">เบิกล่วงหน้ารอจ่าย</div><div class="stat-value">${fmt.num(s.pendingAdvances)}</div></div></div>
       <div class="stat-card"><div class="stat-icon bg-red">${ICON.calendar}</div><div class="stat-content"><div class="stat-label">วันหยุดในปฏิทิน</div><div class="stat-value">${fmt.num(DB.getCalendar().length)}</div></div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">พนักงานเข้า / ออก รายเดือน <span class="muted-2" style="font-weight:normal;font-size:12px">— 12 เดือนย้อนหลัง</span></div>
+      </div>
+      <canvas id="chartMonthly" style="max-height:280px"></canvas>
     </div>
 
     <div class="chart-row">
@@ -303,14 +339,14 @@ router.register('dashboard', () => {
       <div class="card-header"><div class="card-title">พนักงานเข้างานล่าสุด</div></div>
       <div class="table-wrap">
         <table class="table">
-          <thead><tr><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>ตำแหน่ง</th><th>ฝ่าย</th><th>เริ่มงาน</th></tr></thead>
+          <thead><tr><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>ตำแหน่ง</th><th>สาขา</th><th>วันเริ่มงาน</th></tr></thead>
           <tbody>
-            ${DB.getEmployees().sort((a, b) => (b.hireDate || '').localeCompare(a.hireDate || '')).slice(0, 5).map(e => `
+            ${DB.getEmployees().sort((a, b) => (b.hireDate || '').localeCompare(a.hireDate || '')).slice(0, 8).map(e => `
               <tr>
-                <td>${escapeHtml(e.id)}</td>
+                <td><strong>${escapeHtml(e.id)}</strong></td>
                 <td>${escapeHtml((e.title || '') + e.firstName + ' ' + e.lastName)}</td>
-                <td>${escapeHtml(e.positionTitle || '')}</td>
-                <td>${escapeHtml((DB.getDepartment(e.department) || {}).name || '-')}</td>
+                <td>${escapeHtml(e.positionTitle || '-')}</td>
+                <td>${escapeHtml(e.branch || '-')}</td>
                 <td>${fmt.date(e.hireDate)}</td>
               </tr>`).join('')}
           </tbody>
@@ -320,22 +356,53 @@ router.register('dashboard', () => {
   `;
 });
 
-function renderDashboardCharts(s) {
-  if (typeof Chart === 'undefined') { setTimeout(() => renderDashboardCharts(s), 200); return; }
+function renderDashboardCharts(s, monthly) {
+  if (typeof Chart === 'undefined') { setTimeout(() => renderDashboardCharts(s, monthly), 200); return; }
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  Chart.defaults.color = isDark ? '#c9cfd6' : '#4b5563';
+  Chart.defaults.color = isDark ? '#c9cfd6' : '#525249';
   Chart.defaults.font.family = 'Prompt, sans-serif';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+
+  // ── Monthly hire/exit chart (new) ──
+  const ctxM = $('#chartMonthly');
+  if (ctxM && monthly) {
+    const labels = monthly.map(m => {
+      const d = new Date(m.year, m.month - 1, 1);
+      return d.toLocaleDateString('th-TH', { month: 'short', year: '2-digit' });
+    });
+    new Chart(ctxM, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'เข้างาน', data: monthly.map(m => m.hires), backgroundColor: '#16a34a', borderRadius: 6, borderSkipped: false },
+          { label: 'พ้นสภาพ', data: monthly.map(m => m.exits), backgroundColor: '#dc2626', borderRadius: 6, borderSkipped: false }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top', align: 'end', labels: { usePointStyle: true, pointStyle: 'circle', padding: 14, boxWidth: 8 } },
+          tooltip: { mode: 'index', intersect: false }
+        },
+        scales: {
+          x: { grid: { display: false } },
+          y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 }, grid: { color: gridColor } }
+        }
+      }
+    });
+  }
 
   const ctx1 = $('#chartByDept');
   if (ctx1) new Chart(ctx1, {
     type: 'bar',
     data: { labels: s.byDepartment.map(d => d.name), datasets: [{ label: 'จำนวน', data: s.byDepartment.map(d => d.count), backgroundColor: '#1e3a8a', borderRadius: 8, borderSkipped: false }] },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: gridColor } } } }
   });
   const ctx2 = $('#chartByGender');
   if (ctx2) new Chart(ctx2, {
     type: 'doughnut',
-    data: { labels: ['ชาย', 'หญิง'], datasets: [{ data: [s.byGender.male, s.byGender.female], backgroundColor: ['#3b82f6', '#f472b6'], borderWidth: 0, hoverOffset: 6 }] },
+    data: { labels: ['ชาย', 'หญิง'], datasets: [{ data: [s.byGender.male, s.byGender.female], backgroundColor: ['#3b82f6', '#f472b6'], borderWidth: 0, hoverOffset: 8 }] },
     options: { responsive: true, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle' } } } }
   });
 }
