@@ -986,6 +986,7 @@ const EMP_OPTIONS = {
   empTypes: ['พนักงานประจำ', 'พนักงานรายวัน', 'พนักงานสัญญาจ้าง', 'พนักงานทดลองงาน', 'ฝึกงาน', 'พาร์ทไทม์'],
   educations: ['ประถมศึกษา', 'มัธยมศึกษาตอนต้น (ม.3)', 'มัธยมศึกษาตอนปลาย (ม.6)', 'ปวช.', 'ปวส. / อนุปริญญา', 'ปริญญาตรี', 'ปริญญาโท', 'ปริญญาเอก', 'อื่นๆ'],
   religions: ['พุทธ', 'คริสต์', 'อิสลาม', 'ฮินดู', 'ซิกข์', 'ไม่ระบุ', 'อื่นๆ'],
+  terminationReasons: ['ลาออก', 'ครบสัญญาจ้าง', 'ถูกเลิกจ้าง', 'ไล่ออก (ผิดวินัย)', 'เกษียณอายุ', 'เสียชีวิต', 'พ้นทดลองงาน (ไม่ผ่าน)', 'ย้ายไปบริษัทในเครือ', 'อื่นๆ'],
   nationalities: [
     'ไทย',
     // เอเชียตะวันออกเฉียงใต้
@@ -1057,7 +1058,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
     position: DB.getPositions()[0]?.id || '', positionTitle: '',
     employeeType: 'พนักงานประจำ',
     hireDate: tz.today(),
-    terminationDate: '',
+    terminationDate: '', terminationReason: '', terminationNote: '',
     salary: 0,
     allowancePosition: 0, allowanceTravel: 0, allowanceFood: 0,
     allowancePerDiem: 0, allowanceLanguage: 0, allowanceOther: 0,
@@ -1158,6 +1159,18 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
         </div>
       </div>
 
+      <div class="form-section" id="terminationSection" style="${emp.terminationDate ? '' : 'display:none'}">
+        <h3>การพ้นสภาพ <span class="muted-2" style="font-weight:normal;font-size:12px">(แสดงเฉพาะเมื่อมีวันพ้นสภาพ)</span></h3>
+        <div class="form-grid">
+          <div class="form-group"><label>เหตุผลการพ้นสภาพ</label>
+            <input name="terminationReason" list="dl-termination-reasons" value="${escapeHtml(emp.terminationReason)}" placeholder="เลือกหรือพิมพ์เอง"/>
+          </div>
+          <div class="form-group span-2"><label>รายละเอียดเพิ่มเติม</label>
+            <textarea name="terminationNote" rows="2" placeholder="เช่น สาเหตุเฉพาะ, last working day, สถานะการรับกลับ, ฯลฯ">${escapeHtml(emp.terminationNote)}</textarea>
+          </div>
+        </div>
+      </div>
+
       <div class="form-section">
         <h3>บัญชีธนาคาร</h3>
         <div class="form-grid">
@@ -1192,6 +1205,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
       <datalist id="dl-educations">${dataListOpt(EMP_OPTIONS.educations)}</datalist>
       <datalist id="dl-banks">${dataListOpt(EMP_OPTIONS.banks)}</datalist>
       <datalist id="dl-provinces">${dataListOpt(EMP_OPTIONS.provinces)}</datalist>
+      <datalist id="dl-termination-reasons">${dataListOpt(EMP_OPTIONS.terminationReasons)}</datalist>
 
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
@@ -1265,7 +1279,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
     if (p && titleInput) titleInput.value = p.name;
   });
 
-  // ─── UPDATE STATUS DISPLAY เมื่อเปลี่ยนวันพ้นสภาพ ───
+  // ─── UPDATE STATUS DISPLAY + แสดง/ซ่อน section "การพ้นสภาพ" ตามการกรอกวันพ้นสภาพ ───
   const updateStatusDisplay = () => {
     const td = $('#empForm [name="terminationDate"]')?.value;
     const today = tz.today();
@@ -1273,6 +1287,9 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
     if (td) label = td > today ? 'นัดพ้นสภาพ (ยังปฏิบัติงาน)' : 'พ้นสภาพแล้ว';
     const el = $('#empStatusDisplay');
     if (el) el.value = label;
+    // toggle termination section
+    const termSec = $('#terminationSection');
+    if (termSec) termSec.style.display = td ? '' : 'none';
   };
   $('#empForm [name="terminationDate"]')?.addEventListener('change', updateStatusDisplay);
   $('#empForm [name="terminationDate"]')?.addEventListener('input', updateStatusDisplay);
@@ -1447,6 +1464,10 @@ function viewEmployee(id) {
           if (st === 'pending') return fmt.date(e.terminationDate) + ' <span class="badge badge-warning" style="margin-left:6px">นัดพ้นสภาพ — ยังปฏิบัติงาน</span>';
           return fmt.date(e.terminationDate) + ' <span class="badge badge-danger" style="margin-left:6px">พ้นสภาพแล้ว</span>';
         })()}</div></div>
+        ${e.terminationDate ? `
+          <div class="emp-info-row"><div class="label">เหตุผลพ้นสภาพ</div><div class="value">${escapeHtml(e.terminationReason || '-')}</div></div>
+          ${e.terminationNote ? `<div class="emp-info-row span-2"><div class="label">รายละเอียดเพิ่มเติม</div><div class="value" style="white-space:pre-wrap">${escapeHtml(e.terminationNote)}</div></div>` : ''}
+        ` : ''}
       </div>
     </div>
 
@@ -1519,7 +1540,8 @@ const IMPORT_COLUMNS = [
   'วันเกิด', 'เลขประชาชน', 'Passport', 'Work Permit', 'สัญชาติ', 'ศาสนา', 'วุฒิการศึกษา',
   'เบอร์โทร', 'อีเมล',
   'ที่อยู่', 'แขวง/ตำบล', 'เขต/อำเภอ', 'จังหวัด', 'รหัสไปรษณีย์',
-  'รหัสฝ่าย', 'สาขา', 'รหัสระดับตำแหน่ง', 'ตำแหน่ง', 'ประเภทพนักงาน', 'วันเริ่มงาน', 'วันพ้นสภาพ',
+  'รหัสฝ่าย', 'สาขา', 'รหัสระดับตำแหน่ง', 'ตำแหน่ง', 'ประเภทพนักงาน', 'วันเริ่มงาน',
+  'วันพ้นสภาพ', 'เหตุผลพ้นสภาพ', 'รายละเอียดพ้นสภาพ',
   'ธนาคาร', 'เลขบัญชี',
   'เงินเดือน', 'ค่าตำแหน่ง', 'ค่าเดินทาง', 'ค่าอาหาร', 'ค่าเบี้ยเลี้ยง', 'ค่าภาษา', 'ค่าอื่นๆ',
   'สถานะ', 'หมายเหตุ'
@@ -1539,7 +1561,8 @@ function downloadEmployeeTemplate() {
       'จังหวัด': 'กรุงเทพมหานคร', 'รหัสไปรษณีย์': '10110',
       'รหัสฝ่าย': 'D001', 'สาขา': 'สำนักงานใหญ่',
       'รหัสระดับตำแหน่ง': 'P03', 'ตำแหน่ง': 'หัวหน้าทีม',
-      'ประเภทพนักงาน': 'พนักงานประจำ', 'วันเริ่มงาน': '01/01/2024', 'วันพ้นสภาพ': '',
+      'ประเภทพนักงาน': 'พนักงานประจำ', 'วันเริ่มงาน': '01/01/2024',
+      'วันพ้นสภาพ': '', 'เหตุผลพ้นสภาพ': '', 'รายละเอียดพ้นสภาพ': '',
       'ธนาคาร': 'ธนาคารกสิกรไทย (KBANK)', 'เลขบัญชี': '123-4-56789-0',
       'เงินเดือน': 30000, 'ค่าตำแหน่ง': 3000, 'ค่าเดินทาง': 2000, 'ค่าอาหาร': 1500,
       'ค่าเบี้ยเลี้ยง': 0, 'ค่าภาษา': 0, 'ค่าอื่นๆ': 0,
@@ -1571,6 +1594,11 @@ function downloadEmployeeTemplate() {
     ['• เลขบัญชี: ใส่ขีดได้ เช่น 123-4-56789-0 (เก็บเป็นข้อความ)'],
     ['• เงินเดือน/ค่าต่างๆ: ตัวเลขเท่านั้น (ไม่ใส่ , หรือ บาท)'],
     ['• สถานะ: active = ปฏิบัติงาน, resigned = ลาออก'],
+    [''],
+    ['เหตุผลพ้นสภาพ (กรอกเมื่อมีวันพ้นสภาพ):'],
+    ['• ลาออก / ครบสัญญาจ้าง / ถูกเลิกจ้าง / ไล่ออก (ผิดวินัย)'],
+    ['• เกษียณอายุ / เสียชีวิต / พ้นทดลองงาน (ไม่ผ่าน) / ย้ายไปบริษัทในเครือ / อื่นๆ'],
+    ['• รายละเอียดพ้นสภาพ: บันทึกเพิ่มเติม เช่น สาเหตุเฉพาะ, last working day, รับกลับได้/ไม่ได้'],
     [''],
     ['รหัสฝ่ายที่มีในระบบ:'],
     ...depts.split('\n').map(s => ['• ' + s]),
@@ -1652,6 +1680,8 @@ function parseImportRow(row) {
     employeeType: get('ประเภทพนักงาน') || 'พนักงานประจำ',
     hireDate: parseDate('วันเริ่มงาน') || tz.today(),
     terminationDate: parseDate('วันพ้นสภาพ') || '',
+    terminationReason: get('เหตุผลพ้นสภาพ'),
+    terminationNote: get('รายละเอียดพ้นสภาพ'),
     bank: get('ธนาคาร'),
     bankAccount: get('เลขบัญชี'),
     salary: num('เงินเดือน'),
@@ -2046,6 +2076,8 @@ function exportEmployeesXLSX() {
     'ประเภทพนักงาน': cs(e.employeeType),
     'วันเริ่มงาน': excelDate(e.hireDate),
     'วันพ้นสภาพ': excelDate(e.terminationDate),
+    'เหตุผลพ้นสภาพ': cs(e.terminationReason),
+    'รายละเอียดพ้นสภาพ': cs(e.terminationNote),
     'ธนาคาร': cs(e.bank), 'เลขบัญชี': cs(e.bankAccount),
     'เงินเดือน': Number(e.salary || 0),
     'ค่าตำแหน่ง': Number(e.allowancePosition || 0),

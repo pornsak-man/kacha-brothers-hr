@@ -208,6 +208,8 @@ const DB = {
     workPermitNumber: r.work_permit_number || '',
     photoUrl: r.photo_url || '',
     terminationDate: r.termination_date || '',
+    terminationReason: r.termination_reason || '',
+    terminationNote: r.termination_note || '',
     status: r.status || 'active', note: r.note || ''
   }),
   _empToDB: (e) => ({
@@ -234,6 +236,8 @@ const DB = {
     work_permit_number: e.workPermitNumber || null,
     photo_url: e.photoUrl || null,
     termination_date: e.terminationDate || null,
+    termination_reason: e.terminationReason || null,
+    termination_note: e.terminationNote || null,
     status: e.status, note: e.note
   }),
   _depFromDB: (r) => ({ id: r.id, name: r.name, manager: r.manager_id || '', note: r.note || '' }),
