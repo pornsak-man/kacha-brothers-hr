@@ -563,7 +563,7 @@ function renderDashboardCharts(s, monthly, branchStats) {
       type: 'bar',
       data: {
         labels: s.byPosition.map(p => p.name),
-        datasets: [{ label: 'จำนวน', data: s.byPosition.map(p => p.count), backgroundColor: '#1e3a8a', borderRadius: 6, borderSkipped: false, barPercentage: 0.7 }]
+        datasets: [{ label: 'จำนวน', data: s.byPosition.map(p => p.count), backgroundColor: '#1e3a8a', hoverBackgroundColor: '#1e40af', borderRadius: 3, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.8 }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
@@ -578,14 +578,34 @@ function renderDashboardCharts(s, monthly, branchStats) {
 
   if ($('#chartByGender')) makeChart('chartByGender', {
     type: 'doughnut',
-    data: { labels: ['ชาย', 'หญิง'], datasets: [{ data: [s.byGender.male, s.byGender.female], backgroundColor: ['#3b82f6', '#f472b6'], borderWidth: 0, hoverOffset: 8 }] },
-    options: { responsive: true, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle' } } } }
+    data: {
+      labels: ['ชาย', 'หญิง'],
+      datasets: [{
+        data: [s.byGender.male, s.byGender.female],
+        // Editorial palette: navy + warm gold (no pink/blue cliché)
+        backgroundColor: ['#1e3a8a', '#b45309'],
+        hoverBackgroundColor: ['#1e40af', '#c2410c'],
+        borderWidth: 0, hoverOffset: 6
+      }]
+    },
+    options: {
+      responsive: true, cutout: '68%',
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle', font: { size: 12.5 } } }
+      }
+    }
   });
 
-  // ── ช่วงอายุพนักงาน — bar chart ──
+  // ── ช่วงอายุพนักงาน — monochromatic slate (premium editorial) ──
   if ($('#chartByAge') && s.byAge?.length) {
-    // gradient: เด็ก → ม่วงอ่อน, แก่ → ส้มเข้ม (ดู age scale ได้แม้ไม่อ่าน label)
-    const palette = ['#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#fb923c', '#ef4444', '#94a3b8'];
+    // ช่วงอายุน้อย → อ่อน, อายุมาก → เข้ม (intuitive: older = darker)
+    const ageRamp = ['#cbd5e1', '#94a3b8', '#64748b', '#475569', '#334155', '#1e293b'];
+    const undefinedColor = '#e2e8f0';
+    const colors = s.byAge.map((b) => {
+      if (b.label === 'ไม่ระบุวันเกิด') return undefinedColor;
+      const idx = ['ต่ำกว่า 20 ปี','20-29 ปี','30-39 ปี','40-49 ปี','50-59 ปี','60 ปีขึ้นไป'].indexOf(b.label);
+      return idx >= 0 ? ageRamp[idx] : '#475569';
+    });
     makeChart('chartByAge', {
       type: 'bar',
       data: {
@@ -593,8 +613,9 @@ function renderDashboardCharts(s, monthly, branchStats) {
         datasets: [{
           label: 'จำนวน',
           data: s.byAge.map(b => b.count),
-          backgroundColor: s.byAge.map((_, i) => palette[i % palette.length]),
-          borderRadius: 6, borderSkipped: false, barPercentage: 0.65
+          backgroundColor: colors,
+          hoverBackgroundColor: colors.map(c => c),
+          borderRadius: 4, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.75
         }]
       },
       options: {
