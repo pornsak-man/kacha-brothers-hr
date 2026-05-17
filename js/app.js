@@ -508,10 +508,54 @@ const EMP_OPTIONS = {
   empTypes: ['พนักงานประจำ', 'พนักงานรายวัน', 'พนักงานสัญญาจ้าง', 'พนักงานทดลองงาน', 'ฝึกงาน', 'พาร์ทไทม์'],
   educations: ['ประถมศึกษา', 'มัธยมศึกษาตอนต้น (ม.3)', 'มัธยมศึกษาตอนปลาย (ม.6)', 'ปวช.', 'ปวส. / อนุปริญญา', 'ปริญญาตรี', 'ปริญญาโท', 'ปริญญาเอก', 'อื่นๆ'],
   religions: ['พุทธ', 'คริสต์', 'อิสลาม', 'ฮินดู', 'ซิกข์', 'ไม่ระบุ', 'อื่นๆ'],
-  nationalities: ['ไทย', 'พม่า', 'ลาว', 'กัมพูชา', 'เวียดนาม', 'จีน', 'ญี่ปุ่น', 'เกาหลีใต้', 'อินเดีย', 'อเมริกัน', 'อังกฤษ', 'อื่นๆ'],
+  nationalities: [
+    'ไทย',
+    // เอเชียตะวันออกเฉียงใต้
+    'พม่า (เมียนมา)', 'ลาว', 'กัมพูชา', 'เวียดนาม',
+    'มาเลเซีย', 'สิงคโปร์', 'อินโดนีเซีย', 'ฟิลิปปินส์', 'บรูไน',
+    // เอเชียตะวันออก
+    'จีน', 'ฮ่องกง', 'ไต้หวัน', 'ญี่ปุ่น', 'เกาหลีใต้',
+    // เอเชียใต้
+    'อินเดีย', 'ปากีสถาน', 'บังกลาเทศ', 'เนปาล', 'ศรีลังกา',
+    // ตะวันตก / ยุโรป
+    'อเมริกัน', 'แคนาดา',
+    'อังกฤษ', 'ฝรั่งเศส', 'เยอรมัน', 'อิตาลี', 'สเปน', 'เนเธอร์แลนด์', 'สวิตเซอร์แลนด์',
+    'รัสเซีย', 'ยูเครน',
+    // ตะวันออกกลาง / แอฟริกา
+    'อิสราเอล', 'ตุรกี',
+    // โอเชียเนีย
+    'ออสเตรเลีย', 'นิวซีแลนด์',
+    'อื่นๆ'
+  ],
   banks: ['ธนาคารกสิกรไทย (KBANK)', 'ธนาคารกรุงเทพ (BBL)', 'ธนาคารไทยพาณิชย์ (SCB)', 'ธนาคารกรุงไทย (KTB)', 'ธนาคารกรุงศรีอยุธยา (BAY)', 'ธนาคารทหารไทยธนชาต (TTB)', 'ธนาคารออมสิน (GSB)', 'ธนาคารอาคารสงเคราะห์ (GHB)', 'ธ.ก.ส. (BAAC)', 'ธนาคารซีไอเอ็มบีไทย (CIMB)', 'ธนาคารยูโอบี (UOB)', 'ธนาคารเกียรตินาคินภัทร (KKP)', 'ธนาคารทิสโก้ (TISCO)', 'อื่นๆ'],
   provinces: ['กรุงเทพมหานคร', 'กระบี่', 'กาญจนบุรี', 'กาฬสินธุ์', 'กำแพงเพชร', 'ขอนแก่น', 'จันทบุรี', 'ฉะเชิงเทรา', 'ชลบุรี', 'ชัยนาท', 'ชัยภูมิ', 'ชุมพร', 'เชียงราย', 'เชียงใหม่', 'ตรัง', 'ตราด', 'ตาก', 'นครนายก', 'นครปฐม', 'นครพนม', 'นครราชสีมา', 'นครศรีธรรมราช', 'นครสวรรค์', 'นนทบุรี', 'นราธิวาส', 'น่าน', 'บึงกาฬ', 'บุรีรัมย์', 'ปทุมธานี', 'ประจวบคีรีขันธ์', 'ปราจีนบุรี', 'ปัตตานี', 'พระนครศรีอยุธยา', 'พะเยา', 'พังงา', 'พัทลุง', 'พิจิตร', 'พิษณุโลก', 'เพชรบุรี', 'เพชรบูรณ์', 'แพร่', 'ภูเก็ต', 'มหาสารคาม', 'มุกดาหาร', 'แม่ฮ่องสอน', 'ยโสธร', 'ยะลา', 'ร้อยเอ็ด', 'ระนอง', 'ระยอง', 'ราชบุรี', 'ลพบุรี', 'ลำปาง', 'ลำพูน', 'เลย', 'ศรีสะเกษ', 'สกลนคร', 'สงขลา', 'สตูล', 'สมุทรปราการ', 'สมุทรสงคราม', 'สมุทรสาคร', 'สระแก้ว', 'สระบุรี', 'สิงห์บุรี', 'สุโขทัย', 'สุพรรณบุรี', 'สุราษฎร์ธานี', 'สุรินทร์', 'หนองคาย', 'หนองบัวลำภู', 'อ่างทอง', 'อำนาจเจริญ', 'อุดรธานี', 'อุตรดิตถ์', 'อุทัยธานี', 'อุบลราชธานี']
 };
+
+// ─── VALIDATION HELPERS ───
+// เบอร์โทรไทย — 9-10 หลัก ขึ้นต้น 0
+function validatePhone(s) {
+  if (!s) return { ok: true };
+  const d = String(s).replace(/\D/g, '');
+  if (d.length < 9 || d.length > 10) return { ok: false, msg: 'เบอร์โทรต้อง 9-10 หลัก' };
+  if (!d.startsWith('0')) return { ok: false, msg: 'เบอร์โทรต้องขึ้นต้นด้วย 0' };
+  return { ok: true };
+}
+// เลขประชาชนไทย 13 หลัก + checksum (สูตรราชการ)
+// ถ้าสัญชาติ ≠ ไทย ไม่ตรวจ (อาจเป็น passport, work permit)
+function validateNationalId(s, nationality) {
+  if (!s) return { ok: true };
+  const d = String(s).replace(/\D/g, '');
+  if (nationality && String(nationality).trim() !== 'ไทย') {
+    if (d.length < 5 || d.length > 20) return { ok: false, msg: 'เลขประจำตัวต่างชาติยาวผิดปกติ' };
+    return { ok: true };
+  }
+  if (d.length !== 13) return { ok: false, msg: 'เลขประชาชนไทยต้อง 13 หลัก' };
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += parseInt(d[i], 10) * (13 - i);
+  const cs = (11 - (sum % 11)) % 10;
+  if (cs !== parseInt(d[12], 10)) return { ok: false, msg: 'เลขประชาชนไม่ถูกต้อง (checksum ไม่ตรง)' };
+  return { ok: true };
+}
 
 // รายได้รวมต่อเดือน = เงินเดือน + ค่าตำแหน่ง + ค่าเดินทาง + ค่าอาหาร + ค่าเบี้ยเลี้ยง + ค่าภาษา + ค่าอื่นๆ
 const totalIncome = (e) => Number(e.salary || 0) + Number(e.allowancePosition || 0) +
@@ -574,7 +618,7 @@ function openEmployeeForm(id = null) {
           <div class="form-group"><label>ชื่อเล่น</label><input name="nickname" value="${escapeHtml(emp.nickname)}"/></div>
           <div class="form-group"><label>เพศ</label><select name="gender">${opt(EMP_OPTIONS.genders, emp.gender)}</select></div>
           <div class="form-group"><label>วันเกิด</label><input name="dob" type="date" value="${emp.dob || ''}"/></div>
-          <div class="form-group"><label>เลขประชาชน</label><input name="nationalId" value="${escapeHtml(emp.nationalId)}" maxlength="13"/></div>
+          <div class="form-group"><label>เลขประชาชน</label><input name="nationalId" value="${escapeHtml(emp.nationalId)}" maxlength="20" placeholder="13 หลัก (ไม่มีขีด)"/><small class="form-warn" id="nidWarn"></small></div>
           <div class="form-group"><label>สัญชาติ</label><input name="nationality" list="dl-nationalities" value="${escapeHtml(emp.nationality)}"/></div>
           <div class="form-group"><label>ศาสนา</label><input name="religion" list="dl-religions" value="${escapeHtml(emp.religion)}"/></div>
           <div class="form-group"><label>วุฒิการศึกษา</label><input name="education" list="dl-educations" value="${escapeHtml(emp.education)}"/></div>
@@ -584,7 +628,7 @@ function openEmployeeForm(id = null) {
       <div class="form-section">
         <h3>การติดต่อ</h3>
         <div class="form-grid">
-          <div class="form-group"><label>เบอร์โทร</label><input name="phone" value="${escapeHtml(emp.phone)}"/></div>
+          <div class="form-group"><label>เบอร์โทร</label><input name="phone" value="${escapeHtml(emp.phone)}" placeholder="0XX-XXX-XXXX"/><small class="form-warn" id="phoneWarn"></small></div>
           <div class="form-group"><label>อีเมล</label><input name="email" type="email" value="${escapeHtml(emp.email)}"/></div>
           <div class="form-group span-2"><label>ที่อยู่ (เลขที่ หมู่ ซอย ถนน)</label><textarea name="address" rows="2" placeholder="เช่น 123 หมู่ 4 ซอยสุขุมวิท 21 ถนนสุขุมวิท">${escapeHtml(emp.address)}</textarea></div>
           <div class="form-group"><label>แขวง / ตำบล</label><input name="subDistrict" value="${escapeHtml(emp.subDistrict)}" placeholder="เช่น คลองเตยเหนือ"/></div>
@@ -677,6 +721,33 @@ function openEmployeeForm(id = null) {
   };
   $$('.income-input').forEach(i => i.addEventListener('input', updateTotal));
   updateTotal();
+
+  // ─── VALIDATION: เบอร์โทร + เลขประชาชน ───
+  const setFieldWarn = (inputSel, warnId, msg) => {
+    const input = $(inputSel);
+    const warn = $('#' + warnId);
+    if (!input || !warn) return;
+    input.classList.toggle('invalid', !!msg);
+    warn.textContent = msg || '';
+    warn.classList.toggle('show', !!msg);
+  };
+  const checkPhone = () => {
+    const v = $('#empForm [name="phone"]')?.value || '';
+    const r = validatePhone(v);
+    setFieldWarn('#empForm [name="phone"]', 'phoneWarn', r.ok ? '' : r.msg);
+  };
+  const checkNid = () => {
+    const v = $('#empForm [name="nationalId"]')?.value || '';
+    const nat = $('#empForm [name="nationality"]')?.value || '';
+    const r = validateNationalId(v, nat);
+    setFieldWarn('#empForm [name="nationalId"]', 'nidWarn', r.ok ? '' : r.msg);
+  };
+  $('#empForm [name="phone"]')?.addEventListener('input', checkPhone);
+  $('#empForm [name="nationalId"]')?.addEventListener('input', checkNid);
+  $('#empForm [name="nationality"]')?.addEventListener('input', checkNid);
+  $('#empForm [name="nationality"]')?.addEventListener('change', checkNid);
+  // ตรวจครั้งแรกเมื่อโหลดฟอร์ม (ถ้ามีค่าเดิมที่ผิด — เตือนทันที)
+  checkPhone(); checkNid();
 
   // ─── AUTO: เพศ ← คำนำหน้าชื่อ ───
   $('#empForm [name="title"]')?.addEventListener('change', (ev) => {
