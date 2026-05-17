@@ -599,7 +599,24 @@ function openEmployeeForm(id = null) {
         <div class="form-grid">
           <div class="form-group"><label>ฝ่าย *</label><select name="department" required>${depts.map(d => `<option value="${d.id}" ${emp.department === d.id ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}</select></div>
           <div class="form-group"><label>สาขา</label><input name="branch" value="${escapeHtml(emp.branch)}" placeholder="เช่น สำนักงานใหญ่"/></div>
-          <div class="form-group"><label>ระดับตำแหน่งงาน *</label><select name="position" required>${positions.slice().sort((a, b) => (b.level || 0) - (a.level || 0) || a.name.localeCompare(b.name)).map(p => `<option value="${p.id}" ${emp.position === p.id ? 'selected' : ''}>${escapeHtml(p.name)}${p.level ? ` — ระดับ ${p.level}` : ''}</option>`).join('')}</select></div>
+          <div class="form-group"><label>ระดับตำแหน่งงาน *</label>${(() => {
+            // จัดกลุ่มตาม track: ฝ่ายปฏิบัติการ / ฝ่ายครัว / อื่นๆ
+            const kitchen = [], ops = [], common = [];
+            for (const p of positions) {
+              const n = (p.name || '').toLowerCase();
+              if (n.includes('chef') || n.includes('barista')) kitchen.push(p);
+              else if (n.includes('part')) common.push(p);
+              else ops.push(p);
+            }
+            const byLevel = (a, b) => (b.level || 0) - (a.level || 0) || (a.name || '').localeCompare(b.name || '');
+            ops.sort(byLevel); kitchen.sort(byLevel); common.sort(byLevel);
+            const opt = (arr) => arr.map(p => `<option value="${p.id}" ${emp.position === p.id ? 'selected' : ''}>${escapeHtml(p.name)}${p.level ? ' · ระดับ ' + p.level : ''}</option>`).join('');
+            return `<select name="position" required>
+              ${ops.length ? `<optgroup label="ฝ่ายปฏิบัติการ">${opt(ops)}</optgroup>` : ''}
+              ${kitchen.length ? `<optgroup label="ฝ่ายครัว">${opt(kitchen)}</optgroup>` : ''}
+              ${common.length ? `<optgroup label="อื่นๆ">${opt(common)}</optgroup>` : ''}
+            </select>`;
+          })()}</div>
           <div class="form-group"><label>ตำแหน่ง</label><input name="positionTitle" value="${escapeHtml(emp.positionTitle)}" placeholder="เช่น ผู้จัดการฝ่ายบุคคล"/></div>
           <div class="form-group"><label>ประเภทพนักงาน</label><select name="employeeType">${opt(EMP_OPTIONS.empTypes, emp.employeeType)}</select></div>
           <div class="form-group"><label>วันเริ่มงาน *</label><input name="hireDate" type="date" value="${emp.hireDate || ''}" required/></div>

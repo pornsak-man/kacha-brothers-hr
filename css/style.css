@@ -553,6 +553,22 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 }
 .form-group input[readonly] { background: var(--surface-2); color: var(--text-2); }
 .form-group textarea { resize: vertical; min-height: 80px; }
+
+/* select optgroup — กลุ่มตำแหน่ง */
+.form-group select optgroup {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--text-3);
+  background: var(--surface-2);
+  letter-spacing: 0.5px;
+  font-size: 11.5px;
+  text-transform: uppercase;
+}
+.form-group select option {
+  font-weight: 500;
+  padding: 4px 8px;
+  color: var(--text);
+}
 .form-group.span-2 { grid-column: span 2; }
 .form-group.span-full { grid-column: 1 / -1; }
 @media (max-width: 600px) { .form-group.span-2 { grid-column: span 1; } }
