@@ -352,7 +352,7 @@ const router = {
 // ─── REALTIME UPDATE — TARGETED REFRESH ───
 // ตาราง → หน้าที่ขึ้นกับตารางนั้น (ถ้า user ไม่ได้อยู่หน้านี้ จะไม่ refresh)
 const _RT_PAGE_DEPS = {
-  employees: ['dashboard', 'employees', 'departments', 'positions', 'salary-adjust', 'loans', 'advances', 'allowance', 'evaluations', 'reports', 'recruit', 'uniform'],
+  employees: ['dashboard', 'employees', 'departments', 'positions', 'salary-adjust', 'loans', 'advances', 'allowance', 'evaluations', 'reports', 'recruit', 'uniform', 'branches'],
   departments: ['dashboard', 'employees', 'departments', 'recruit'],
   position_levels: ['employees', 'positions', 'recruit'],
   salary_history: ['dashboard', 'salary-adjust'],
