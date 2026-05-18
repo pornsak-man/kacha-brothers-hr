@@ -6979,8 +6979,35 @@ window.addEventListener('popstate', () => {
 document.addEventListener('DOMContentLoaded', async () => {
   // UI wiring (works without auth)
   $$('.nav-item').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); router.go(a.dataset.page); }));
-  $('#hamburger').addEventListener('click', () => $('#sidebar').classList.add('open'));
-  $('#sidebarClose').addEventListener('click', () => $('#sidebar').classList.remove('open'));
+  // Sidebar toggle — hamburger ที่ topbar = toggle หลัก (แสดงตลอดทั้ง PC/mobile)
+  //   PC:     toggle class 'sidebar-hidden' บน .app + จำสถานะใน localStorage
+  //   Mobile: toggle class 'open' บน sidebar (off-canvas)
+  const isMobileView = () => window.matchMedia('(max-width: 900px)').matches;
+  const appEl = () => $('#app');
+  const sideEl = () => $('#sidebar');
+  $('#hamburger').addEventListener('click', () => {
+    if (isMobileView()) {
+      sideEl().classList.toggle('open');
+    } else {
+      const hidden = appEl().classList.toggle('sidebar-hidden');
+      try { localStorage.setItem('kb_sidebar_hidden', hidden ? '1' : '0'); } catch(e) {}
+    }
+  });
+  // ปุ่ม X ใน sidebar — ปิด sidebar (ทำงานเหมือนกันทั้ง PC/mobile)
+  $('#sidebarClose').addEventListener('click', () => {
+    if (isMobileView()) {
+      sideEl().classList.remove('open');
+    } else {
+      appEl().classList.add('sidebar-hidden');
+      try { localStorage.setItem('kb_sidebar_hidden', '1'); } catch(e) {}
+    }
+  });
+  // โหลดสถานะซ่อนเมนูที่ผู้ใช้เคยตั้งไว้ (เฉพาะบน PC; mobile ใช้ off-canvas เสมอ)
+  try {
+    if (localStorage.getItem('kb_sidebar_hidden') === '1' && !isMobileView()) {
+      appEl().classList.add('sidebar-hidden');
+    }
+  } catch(e) {}
   $('#themeToggle').addEventListener('click', () => {
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     if (isDark) document.documentElement.removeAttribute('data-theme');

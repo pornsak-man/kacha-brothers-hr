@@ -571,6 +571,7 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 .sidebar-close {
   display: none; position: absolute; top: 14px; right: 14px;
   color: #fff; font-size: 20px; padding: 4px 10px; opacity: 0.7;
+  background: transparent; border: 0; cursor: pointer;
 }
 .sidebar-close:hover { opacity: 1; }
 
@@ -657,7 +658,15 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   display: flex; align-items: center; gap: 16px;
 }
 [data-theme="dark"] .topbar { background: rgba(13, 13, 10, 0.85); }
-.hamburger { display: none; font-size: 22px; padding: 4px 10px; color: var(--text); }
+.hamburger {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 22px; padding: 6px 10px; color: var(--text);
+  background: transparent; border: 0; cursor: pointer; border-radius: var(--radius-sm);
+}
+.hamburger:hover { background: var(--surface-2); }
+/* บน PC: ซ่อน sidebar — main เต็มจอ */
+.app.sidebar-hidden { grid-template-columns: 1fr; }
+.app.sidebar-hidden .sidebar { display: none; }
 .topbar-title {
   font-size: 17px; font-weight: 600; flex: 1; color: var(--text);
   letter-spacing: -0.01em;
@@ -1804,8 +1813,9 @@ img.emp-avatar-lg { object-fit: cover; }
 
 /* ═════════════ RESPONSIVE ═════════════ */
 @media (max-width: 900px) {
-  .app { grid-template-columns: 1fr; }
-  .sidebar {
+  .app, .app.sidebar-hidden { grid-template-columns: 1fr; }
+  .sidebar, .app.sidebar-hidden .sidebar {
+    display: flex; /* override desktop hide */
     position: fixed; top: 0; left: 0; height: 100vh;
     width: var(--sidebar-w); transform: translateX(-100%);
     transition: transform 0.28s var(--ease-out);
@@ -1813,7 +1823,6 @@ img.emp-avatar-lg { object-fit: cover; }
   }
   .sidebar.open { transform: translateX(0); }
   .sidebar-close { display: block; }
-  .hamburger { display: block; }
   .content { padding: 20px; }
   .topbar { padding: 0 18px; }
   .page-header h2 { font-size: 20px; }
