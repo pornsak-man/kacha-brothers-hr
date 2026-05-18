@@ -425,7 +425,26 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   border: 1px solid var(--border);
 }
 
-.content { padding: 28px 32px 80px; max-width: 1440px; width: 100%; }
+/* Content area — comfortable max-width with auto-center on wide PCs/monitors */
+.content {
+  padding: 28px 32px 80px;
+  max-width: 1600px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* PC ultra-wide (4K, 1440p, ultrawide) — content stays centered, slightly bigger breathing room */
+@media (min-width: 1800px) {
+  .content { padding: 36px 48px 96px; max-width: 1680px; }
+  .sw-page-title { font-size: 32px; }
+  .sw-stat-value { font-size: 34px; }
+  .sw-chart-card { padding: 36px 40px; }
+}
+@media (min-width: 2400px) {
+  /* True 4K / ultrawide — slightly larger cards, but don't over-stretch */
+  .content { max-width: 1800px; padding: 40px 56px 100px; }
+}
 
 /* ═════════════ PAGE HEADER ═════════════ */
 .page-header {
