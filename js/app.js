@@ -1554,6 +1554,13 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
         </div>
       </div>
 
+      ${id && DB.isAdmin ? `
+      <div class="form-section" id="permSection">
+        <h3>สิทธิ์ใช้งานระบบ <span class="muted-2" style="font-weight:normal;font-size:12px">(เฉพาะ admin เท่านั้นที่กำหนดได้)</span></h3>
+        <div id="permLoading" class="muted-2" style="padding:8px 0">กำลังโหลดข้อมูลสิทธิ์...</div>
+        <div id="permBody" style="display:none"></div>
+      </div>` : ''}
+
       <div class="form-section">
         <h3>หมายเหตุ</h3>
         <div class="form-grid">
@@ -1679,11 +1686,93 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
     $('#photoFile').value = '';
   });
 
+  // ─── PERMISSION SECTION: lazy-load user_profile + render ───
+  // ใช้ closure ตัวแปร currentProfile ที่ส่งให้ submit handler ใช้ตอนตรวจการเปลี่ยน role
+  let currentProfile = null;
+  if (id && DB.isAdmin) {
+    (async () => {
+      try {
+        const profiles = await DB.getUserProfilesList();
+        currentProfile = profiles.find(p => p.employee_id === id) || null;
+        renderPermSection(currentProfile, emp);
+      } catch (ex) {
+        const loading = $('#permLoading');
+        if (loading) loading.textContent = 'โหลดข้อมูลสิทธิ์ไม่สำเร็จ: ' + (ex.message || ex);
+      }
+    })();
+  }
+
+  function renderPermSection(profile, employee) {
+    const loading = $('#permLoading');
+    const body = $('#permBody');
+    if (!loading || !body) return;
+    loading.style.display = 'none';
+    body.style.display = '';
+    const hasAcc = !!profile;
+    const roleKey = profile?.role || 'viewer';
+    const currentBranches = Array.isArray(profile?.managed_branches) ? profile.managed_branches.filter(Boolean) : [];
+    const autoRole = DB.autoDetectRole(employee);
+    const allBranches = DB.getBranchMaster({ activeOnly: true }) || [];
+    const email = `${employee.id.toLowerCase()}@kacha.local`;
+
+    if (!hasAcc) {
+      body.innerHTML = `
+        <div class="form-grid">
+          <div class="form-group span-2">
+            <div style="padding:10px 12px;background:var(--warning-bg, rgba(245,158,11,0.08));border:1px solid var(--warning, #f59e0b);border-radius:6px">
+              <strong>⚠️ พนักงานคนนี้ยังไม่มีบัญชีใช้งานระบบ</strong>
+              <div class="muted-2" style="margin-top:4px;font-size:12.5px">สร้างบัญชีให้พนักงานก่อนถึงจะกำหนด Role ได้ — ไปที่ "ตั้งค่าระบบ → บัญชีผู้ใช้" เพื่อสร้างบัญชี</div>
+            </div>
+          </div>
+        </div>`;
+      return;
+    }
+    body.innerHTML = `
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Email Login</label>
+          <input type="text" value="${escapeHtml(email)}" readonly style="background:var(--surface-2);font-family:monospace;font-size:12.5px"/>
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <select name="userRole" id="userRoleSel">
+            ${Object.entries(ROLE_LABELS).map(([k, v]) => `<option value="${k}" ${roleKey === k ? 'selected' : ''}>${v.th}</option>`).join('')}
+          </select>
+          ${autoRole ? `<small class="muted-2" style="display:block;margin-top:4px">💡 Auto-detect: <strong>${ROLE_LABELS[autoRole]?.th || autoRole}</strong> <button type="button" class="btn btn-ghost btn-sm" style="padding:1px 8px;margin-left:6px" onclick="document.getElementById('userRoleSel').value='${autoRole}';document.getElementById('userRoleSel').dispatchEvent(new Event('change'))">ใช้ค่านี้</button></small>` : ''}
+        </div>
+        <div class="form-group span-2" id="userBranchesGroup" style="display:${['area_manager','operation_manager'].includes(roleKey) ? '' : 'none'}">
+          <label>สาขาที่ดูแล <span class="muted-2" style="font-weight:normal;font-size:11px">(เฉพาะ Area / Operation Manager · ถ้าไม่เลือก = ใช้สาขาของตัวเอง)</span></label>
+          <div style="max-height:160px;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--surface-2)">
+            ${allBranches.length ? allBranches.map(b => `
+              <label style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;font-weight:normal;font-size:12.5px">
+                <input type="checkbox" name="userBranches" value="${escapeHtml(b.id)}" ${currentBranches.includes(b.id) ? 'checked' : ''}/>
+                <span>${escapeHtml(b.id)}${b.name && b.name !== b.id ? ' — ' + escapeHtml(b.name) : ''}</span>
+              </label>
+            `).join('') : '<div class="muted-2">ไม่มีข้อมูลสาขาในระบบ</div>'}
+          </div>
+        </div>
+      </div>`;
+    // Toggle "สาขาที่ดูแล" ตาม role
+    $('#userRoleSel').addEventListener('change', (ev) => {
+      const v = ev.target.value;
+      const g = $('#userBranchesGroup');
+      if (g) g.style.display = (v === 'area_manager' || v === 'operation_manager') ? '' : 'none';
+    });
+  }
+
   $('#empForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('#empSubmit'); btn.disabled = true; btn.textContent = 'กำลังบันทึก...';
     try {
       const data = Object.fromEntries(new FormData(e.target).entries());
+      // แยก permission fields ออกก่อนส่ง saveEmployee (ไม่ใช่ column ของ employees)
+      const newRole = data.userRole;
+      delete data.userRole;
+      // เก็บ userBranches แบบ array — FormData ดึงได้ค่าเดียวด้วย .get() — ต้องใช้ .getAll()
+      const newBranches = e.target.querySelectorAll('input[name="userBranches"]:checked');
+      const newBranchesArr = Array.from(newBranches).map(i => i.value);
+      delete data.userBranches;
+
       ['salary', 'allowancePosition', 'allowanceTravel', 'allowanceFood',
        'allowancePerDiem', 'allowanceLanguage', 'allowanceOther'].forEach(k => data[k] = Number(data[k]));
 
@@ -1699,12 +1788,73 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
 
       btn.textContent = 'กำลังบันทึก...';
       const saved = await DB.saveEmployee(data);
+
+      // ── อัปเดต role/branches ถ้า admin เปลี่ยน + พนักงานมีบัญชีอยู่ ──
+      if (id && DB.isAdmin && currentProfile && newRole) {
+        const oldBranches = Array.isArray(currentProfile.managed_branches) ? currentProfile.managed_branches.filter(Boolean).sort() : [];
+        const newBranchesSorted = [...newBranchesArr].sort();
+        const roleChanged = currentProfile.role !== newRole;
+        const branchesChanged = JSON.stringify(oldBranches) !== JSON.stringify(newBranchesSorted);
+        if (roleChanged || branchesChanged) {
+          btn.textContent = 'กำลังอัปเดตสิทธิ์...';
+          const branchesToSend = ['area_manager', 'operation_manager'].includes(newRole) ? newBranchesArr : [];
+          await DB.setEmployeeRole(id, newRole, branchesToSend);
+        }
+      }
+
+      // ── Auto-create user account สำหรับพนักงานใหม่ (admin เท่านั้น) ──
+      // email = {รหัส}@kacha.local · password = เลข ปชช (default) · role = auto-detect
+      let newAccountInfo = null;
+      if (!id && DB.isAdmin) {
+        try {
+          btn.textContent = 'กำลังสร้างบัญชี login...';
+          newAccountInfo = await DB.createEmployeeAccount(saved.id);
+          // Auto-detect + apply role (ไม่ใช่ viewer)
+          const autoRole = DB.autoDetectRole(saved);
+          if (autoRole && autoRole !== 'viewer') {
+            try { await DB.setEmployeeRole(saved.id, autoRole, []); } catch (rEx) { console.warn('Auto-set role failed:', rEx); }
+          }
+        } catch (accEx) {
+          console.warn('Auto-create account failed:', accEx);
+          // ไม่ rollback employee data — แค่ warn ใน toast หลังปิด form
+          newAccountInfo = { _error: accEx.message || String(accEx) };
+        }
+      }
+
       modal.close();
       // ถ้ามาจาก applicant (มี onSaved) → ให้ callback แสดง toast เอง ไม่แสดงซ้ำ
       if (onSaved) {
         await onSaved(saved);
       } else {
         toast(id ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มพนักงานใหม่แล้ว', 'success');
+      }
+
+      // ── แสดง credentials ของบัญชีที่เพิ่งสร้าง (ใหม่เท่านั้น) ──
+      if (newAccountInfo && !newAccountInfo._error) {
+        modal.open('🔑 สร้างบัญชี Login สำเร็จ',
+          `<div style="font-size:14px;line-height:1.7">
+             <p style="margin-bottom:14px">ระบบสร้างบัญชี login ให้พนักงานใหม่เรียบร้อย — กรุณาแจ้งข้อมูลด้านล่างให้พนักงาน <strong>และแนะนำให้เปลี่ยนรหัสครั้งแรกที่ login</strong></p>
+             <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px">
+               <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px">
+                 <div style="min-width:80px;color:var(--text-2);font-size:13px">รหัสพนักงาน</div>
+                 <code style="font-size:14px;font-weight:600">${escapeHtml(saved.id)}</code>
+               </div>
+               <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px">
+                 <div style="min-width:80px;color:var(--text-2);font-size:13px">Email Login</div>
+                 <code style="font-size:14px">${escapeHtml(newAccountInfo.email)}</code>
+               </div>
+               <div style="display:flex;gap:12px;align-items:center">
+                 <div style="min-width:80px;color:var(--text-2);font-size:13px">Password</div>
+                 <code style="font-size:14px;font-weight:600;color:var(--primary)">${escapeHtml(newAccountInfo.password)}</code>
+                 <span class="muted-2" style="font-size:12px">(${escapeHtml(newAccountInfo.source)})</span>
+               </div>
+             </div>
+             <p class="muted-2" style="font-size:12.5px">พนักงานสามารถ login ด้วย <strong>รหัสพนักงาน</strong> (ไม่ต้องพิมพ์ @kacha.local) + รหัสผ่านด้านบน</p>
+           </div>`,
+          { footer: '<button class="btn btn-primary" data-close>เข้าใจแล้ว</button>' }
+        );
+      } else if (newAccountInfo && newAccountInfo._error) {
+        toast('บันทึกพนักงานสำเร็จ แต่สร้างบัญชี login ไม่สำเร็จ: ' + newAccountInfo._error + ' — กรุณาสร้างที่ Settings > บัญชีผู้ใช้', 'warning');
       }
       renderEmployeeList();
     } catch (ex) {
@@ -7095,6 +7245,17 @@ router.register('settings', () => {
 });
 
 // ─── Employee Account Management (Settings page) ───
+// Role labels + badge classes (ใช้ร่วมกัน)
+const ROLE_LABELS = {
+  admin:             { th: 'Admin',             badge: 'badge-primary' },
+  hr:                { th: 'HR',                badge: 'badge-success' },
+  operation_manager: { th: 'Operation Manager', badge: 'badge-info' },
+  area_manager:      { th: 'Area Manager',      badge: 'badge-info' },
+  branch_manager:    { th: 'ผู้จัดการสาขา',     badge: 'badge-warning' },
+  branch_staff:      { th: 'พนักงานสาขา',       badge: '' },
+  viewer:            { th: 'ผู้ใช้ทั่วไป',       badge: '' }
+};
+
 async function renderEmpAccounts() {
   const box = document.getElementById('empAccountsBox');
   if (!box || !DB.isAdmin) return;
@@ -7126,12 +7287,16 @@ async function renderEmpAccounts() {
         ${withoutAcc.length > 0 ? `<button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="bulkCreateAccounts()">🚀 สร้างบัญชีให้ ${withoutAcc.length} คนที่เหลือ</button>` : ''}
       </div>
       <div class="table-wrap" style="max-height:520px;overflow:auto"><table class="table table-compact sw-emp-table">
-        <thead><tr><th>รหัส</th><th>ชื่อพนักงาน</th><th>สาขา</th><th>Email Login</th><th>Role</th><th>สถานะ</th><th></th></tr></thead>
+        <thead><tr><th>รหัส</th><th>ชื่อพนักงาน</th><th>สาขา</th><th>Email Login</th><th>Role</th><th>สาขาที่ดูแล</th><th>สถานะ</th><th></th></tr></thead>
         <tbody>
           ${active.map(e => {
             const p = byEmpId.get(e.id);
             const hasAcc = !!p;
             const email = `${e.id.toLowerCase()}@kacha.local`;
+            const roleKey = p?.role || 'viewer';
+            const roleInfo = ROLE_LABELS[roleKey] || ROLE_LABELS.viewer;
+            const mgdBranches = Array.isArray(p?.managed_branches) ? p.managed_branches.filter(Boolean) : [];
+            const showsBranches = (roleKey === 'area_manager' || roleKey === 'operation_manager');
             return `<tr>
               <td><code style="font-size:11.5px;font-weight:600">${escapeHtml(e.id)}</code></td>
               <td>
@@ -7141,14 +7306,13 @@ async function renderEmpAccounts() {
               </td>
               <td class="sw-cell-meta">${escapeHtml(e.branch || '—')}</td>
               <td><code style="font-size:11.5px">${escapeHtml(email)}</code></td>
-              <td>${hasAcc ? (p.role === 'admin'
-                ? '<span class="badge badge-success">Admin</span>'
-                : '<span class="badge">Viewer</span>') : '<span class="muted-2">—</span>'}</td>
+              <td>${hasAcc ? `<span class="badge ${roleInfo.badge}">${roleInfo.th}</span>` : '<span class="muted-2">—</span>'}</td>
+              <td class="sw-cell-meta">${showsBranches ? (mgdBranches.length ? mgdBranches.map(b => `<span class="badge" style="margin-right:3px">${escapeHtml(b)}</span>`).join('') : '<span class="muted-2">(auto)</span>') : '<span class="muted-2">—</span>'}</td>
               <td>${hasAcc ? '<span class="badge badge-success">✓ มีบัญชี</span>' : '<span class="badge badge-warning">⚠️ ยังไม่มี</span>'}</td>
               <td class="actions">
                 ${!hasAcc ? `<button class="btn btn-primary btn-sm" onclick="createOneAccount('${escapeHtml(e.id)}')">สร้าง</button>` : ''}
                 ${hasAcc ? `<button class="btn btn-ghost btn-sm" onclick="resetEmpPassword('${escapeHtml(e.id)}')">รีเซ็ตรหัส</button>
-                  <button class="btn btn-ghost btn-sm" onclick="toggleEmpRole('${escapeHtml(e.id)}', '${p.role}')">→ ${p.role === 'admin' ? 'viewer' : 'admin'}</button>` : ''}
+                  <button class="btn btn-ghost btn-sm" onclick="openRoleEditor('${escapeHtml(e.id)}')">เปลี่ยน Role</button>` : ''}
               </td>
             </tr>`;
           }).join('')}
@@ -7162,6 +7326,69 @@ async function renderEmpAccounts() {
       <div class="hint" style="margin-top:6px">${escapeHtml(ex.message || String(ex))}</div>
     </div>`;
   }
+}
+
+// Modal เปลี่ยน role + เลือกสาขาที่ดูแล (สำหรับ Area Manager / Operation Manager)
+async function openRoleEditor(empId) {
+  if (!requireAdmin()) return;
+  const emp = DB.getEmployee(empId);
+  if (!emp) return;
+  const profiles = await DB.getUserProfilesList();
+  const profile = profiles.find(p => p.employee_id === empId);
+  const currentRole = profile?.role || 'viewer';
+  const currentBranches = Array.isArray(profile?.managed_branches) ? profile.managed_branches.filter(Boolean) : [];
+  const autoRole = DB.autoDetectRole(emp);
+  const allBranches = DB.getBranchMaster({ activeOnly: true }) || [];
+
+  modal.open('เปลี่ยน Role + สิทธิ์การใช้งาน',
+    `<form id="roleForm">
+      <div style="margin-bottom:14px;font-size:14px">
+        <strong>${escapeHtml((emp.title || '') + emp.firstName + ' ' + (emp.lastName || ''))}</strong>
+        <span class="muted-2" style="margin-left:8px">รหัส ${escapeHtml(emp.id)} · ${escapeHtml(emp.positionTitle || '-')}${emp.branch ? ' · ' + escapeHtml(emp.branch) : ''}</span>
+      </div>
+      <div class="form-group">
+        <label>Role</label>
+        <select name="role" id="roleSelect" required>
+          ${Object.entries(ROLE_LABELS).map(([k, v]) => `<option value="${k}" ${currentRole === k ? 'selected' : ''}>${v.th}</option>`).join('')}
+        </select>
+        ${autoRole ? `<small class="muted-2" style="display:block;margin-top:4px">💡 Auto-detect จากตำแหน่งงาน: <strong>${ROLE_LABELS[autoRole]?.th || autoRole}</strong> <button type="button" class="btn btn-ghost btn-sm" style="padding:2px 8px;margin-left:6px" onclick="document.getElementById('roleSelect').value='${autoRole}';document.getElementById('roleSelect').dispatchEvent(new Event('change'))">ใช้ค่านี้</button></small>` : ''}
+      </div>
+      <div class="form-group" id="branchesGroup" style="display:${['area_manager','operation_manager'].includes(currentRole) ? '' : 'none'}">
+        <label>สาขาที่ดูแล <span class="muted-2" style="font-weight:normal;font-size:11px">(เฉพาะ Area / Operation Manager · ถ้าไม่เลือก = ใช้สาขาของตัวเอง)</span></label>
+        <div style="max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px">
+          ${allBranches.length ? allBranches.map(b => `
+            <label style="display:flex;align-items:center;gap:8px;padding:4px;font-weight:normal">
+              <input type="checkbox" name="branches" value="${escapeHtml(b.id)}" ${currentBranches.includes(b.id) ? 'checked' : ''}/>
+              <span>${escapeHtml(b.id)}${b.name && b.name !== b.id ? ' — ' + escapeHtml(b.name) : ''}</span>
+            </label>
+          `).join('') : '<div class="muted-2">ไม่มีข้อมูลสาขาในระบบ</div>'}
+        </div>
+      </div>
+    </form>`,
+    {
+      footer: `<button class="btn btn-secondary" data-close>ยกเลิก</button><button class="btn btn-primary" id="roleSave">บันทึก</button>`
+    }
+  );
+  // Toggle "สาขาที่ดูแล" ตาม role
+  $('#roleSelect').addEventListener('change', (e) => {
+    const v = e.target.value;
+    $('#branchesGroup').style.display = (v === 'area_manager' || v === 'operation_manager') ? '' : 'none';
+  });
+  $('#roleSave').addEventListener('click', async () => {
+    const role = $('#roleSelect').value;
+    const branchInputs = $$('#roleForm input[name="branches"]:checked');
+    const branches = branchInputs.map(i => i.value);
+    const btn = $('#roleSave'); btn.disabled = true; btn.textContent = 'กำลังบันทึก...';
+    try {
+      await DB.setEmployeeRole(empId, role, ['area_manager', 'operation_manager'].includes(role) ? branches : []);
+      modal.close();
+      toast(`✓ เปลี่ยน role เป็น ${ROLE_LABELS[role]?.th || role}`, 'success');
+      renderEmpAccounts();
+    } catch (ex) {
+      toast('ไม่สำเร็จ: ' + (ex.message || ex), 'error');
+      btn.disabled = false; btn.textContent = 'บันทึก';
+    }
+  });
 }
 
 async function createOneAccount(empId) {
@@ -7202,16 +7429,7 @@ async function resetEmpPassword(empId) {
   } catch (ex) { toast('รีเซ็ตไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
 }
 
-async function toggleEmpRole(empId, currentRole) {
-  if (!requireAdmin()) return;
-  const newRole = currentRole === 'admin' ? 'viewer' : 'admin';
-  if (!await modal.confirm('เปลี่ยน role', `เปลี่ยน "${empId}" จาก ${currentRole} → ${newRole} ?`)) return;
-  try {
-    await DB.setEmployeeRole(empId, newRole);
-    toast(`✓ เปลี่ยน role เป็น ${newRole}`, 'success');
-    renderEmpAccounts();
-  } catch (ex) { toast('ไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
-}
+// toggleEmpRole() เก่า — ถูกแทนที่ด้วย openRoleEditor() (รองรับ 7 roles + managed_branches)
 
 document.addEventListener('submit', async (e) => {
   if (e.target.id === 'companyForm') {

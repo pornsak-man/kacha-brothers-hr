@@ -93,7 +93,79 @@ const DB = {
     if (!this.user) return;
     const { data } = await this.client.from('user_profiles').select('*').eq('user_id', this.user.id).maybeSingle();
     this.profile = data;
-    this.isAdmin = data?.role === 'admin';
+    this.role = data?.role || 'viewer';
+    this.isAdmin = this.role === 'admin';
+    this.isHR = this.role === 'admin' || this.role === 'hr';
+    // managed_branches: TEXT[] จาก DB; null/empty = scope ตาม role default
+    this._managedBranches = Array.isArray(data?.managed_branches) ? data.managed_branches.filter(Boolean) : [];
+  },
+
+  // ─── PERMISSION HELPERS ───
+  // role hierarchy: admin > hr > operation_manager > area_manager > branch_manager > branch_staff > viewer
+  // ฟังก์ชันเหล่านี้ใช้แทน this.isAdmin ในที่ที่ต้องการ permission ที่ละเอียดกว่า
+  canEdit()         { return this.role === 'admin' || this.role === 'hr'; },
+  canDelete()       { return this.role === 'admin' || this.role === 'hr'; },
+  canSeeSalary()    { return this.role === 'admin' || this.role === 'hr'; },
+  canEditMaster()   { return this.role === 'admin' || this.role === 'hr'; }, // สาขา/ตำแหน่ง/Master Data
+  canManageUsers()  { return this.role === 'admin'; },                        // เฉพาะ admin
+  canSeeAudit()     { return this.role === 'admin' || this.role === 'hr'; },
+  canApproveLeave() {
+    return ['admin', 'hr', 'operation_manager', 'area_manager', 'branch_manager'].includes(this.role);
+  },
+
+  // ─── SCOPE FILTER (สาขาที่ดูแลได้) ───
+  // คืน array ของ branch IDs ที่ user ดูแล หรือ null = ทุกสาขา (no filter)
+  scopedBranches() {
+    if (this.role === 'admin' || this.role === 'hr' || this.role === 'operation_manager') return null;
+    if (this.role === 'area_manager') {
+      // override: ถ้า admin กำหนด managed_branches → ใช้ตามนั้น
+      if (this._managedBranches.length) return this._managedBranches;
+      // auto: ใช้สาขาของตัวเอง (Area Manager ที่ยังไม่ override จะดูได้สาขาเดียวก่อน)
+      const myBranch = this._myBranch();
+      return myBranch ? [myBranch] : [];
+    }
+    if (this.role === 'branch_manager') {
+      const myBranch = this._myBranch();
+      return myBranch ? [myBranch] : [];
+    }
+    // branch_staff / viewer → ดูได้เฉพาะตัวเอง — return empty array → caller จัดการเอง
+    return [];
+  },
+  _myBranch() {
+    if (!this.profile?.employee_id) return null;
+    const e = this.getEmployee?.(this.profile.employee_id);
+    return e?.branch || null;
+  },
+
+  // ตรวจว่า employee อยู่ใน scope ของ user ปัจจุบันไหม
+  isInScope(employee) {
+    if (!employee) return false;
+    const scoped = this.scopedBranches();
+    if (scoped === null) return true; // admin/hr/op_manager เห็นทุกคน
+    if (this.role === 'branch_staff' || this.role === 'viewer') {
+      // ดูได้เฉพาะตัวเอง
+      return employee.id === this.profile?.employee_id;
+    }
+    return scoped.includes(employee.branch);
+  },
+
+  // ─── AUTO-DETECT ROLE จาก positionTitle ของพนักงาน ───
+  // ใช้เมื่อ admin กดปุ่ม "auto-detect" ในหน้า User Management
+  // คืน role ที่ derived; null ถ้าไม่ match (เรียกใช้แล้ว default เป็น branch_staff)
+  autoDetectRole(employee) {
+    if (!employee) return null;
+    const title = (employee.positionTitle || '').toLowerCase();
+    const dept  = (employee.department || '').toUpperCase();
+    // HR: department = ฝ่ายบุคคล หรือ title มี HR/บุคคล/human resource
+    if (dept === 'D002' || /hr|บุคคล|human\s*resource/i.test(title)) return 'hr';
+    // Operation Manager
+    if (/operation\s*(manager|มง|mng)?|ผู้จัดการ.*ปฏิบัติการ|om\b/i.test(title)) return 'operation_manager';
+    // Area Manager
+    if (/area\s*(manager|มง|mng)?|ผู้จัดการ.*เขต|am\b/i.test(title)) return 'area_manager';
+    // Branch Manager
+    if (/branch\s*(manager|มง|mng)?|store\s*manager|ผู้จัดการ(สาขา|ร้าน)|bm\b/i.test(title)) return 'branch_manager';
+    // default = พนักงานสาขาทั่วไป
+    return 'branch_staff';
   },
 
   // ─── DATA LOAD ───
@@ -1379,11 +1451,12 @@ const DB = {
     return data;
   },
 
-  async setEmployeeRole(employeeId, role) {
+  async setEmployeeRole(employeeId, role, branches = null) {
     if (!this.isAdmin) throw new Error('ต้องเป็น admin');
     const { data, error } = await this.client.rpc('set_employee_role', {
       p_employee_id: employeeId,
-      p_role: role
+      p_role: role,
+      p_branches: branches // null = คงค่าเดิม; [] = เคลียร์; [...] = ตั้งใหม่
     });
     if (error) throw error;
     await this.refetchUserProfiles();
