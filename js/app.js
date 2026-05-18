@@ -7081,7 +7081,8 @@ router.register('leave', () => {
 });
 
 function renderLeaveFilterBar(scope = 'requests') {
-  const branches = [...new Set(DB.data.employees.filter(e => DB.empStatus(e) !== 'resigned').map(e => e.branch).filter(Boolean))].sort();
+  // Branches dropdown — auto-scope ตาม RBAC (branch_staff เห็นเฉพาะสาขาตัวเอง)
+  const branches = [...new Set(DB.getEmployees({ status: 'active' }).map(e => e.branch).filter(Boolean))].sort();
   const types = DB.getLeaveTypesList();
   const showStatus = scope === 'requests' && _leaveState.tab === 'all';
   const showDates = scope === 'requests';
