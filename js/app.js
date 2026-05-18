@@ -7224,7 +7224,11 @@ function renderLeaveTab() {
 
 function renderLeaveBalanceTable() {
   const year = _leaveState.filterYear;
-  const allEmps = DB.data.employees.filter(e => DB.empStatus(e) !== 'resigned');
+  // ใช้ getEmployees() เพื่อ auto-scope ตาม RBAC:
+  // - branch_staff/viewer → เห็นเฉพาะตัวเอง
+  // - branch_manager/area_manager → เฉพาะสาขาที่ดูแล
+  // - admin/hr/op_manager → ทุกคน
+  const allEmps = DB.getEmployees({ status: 'active' });
   if (!allEmps.length) {
     return `<div class="sw-chart-card"><div class="empty-state"><div class="title">ไม่มีพนักงาน</div></div></div>`;
   }
@@ -7416,8 +7420,8 @@ function openLeaveRequestForm(id = null) {
   if (!defaultEmpId && !DB.isAdmin) defaultEmpId = DB.profile?.employee_id || '';
   const today = tz.today();
 
-  const empOptions = DB.data.employees
-    .filter(e => DB.empStatus(e) !== 'resigned')
+  // ใช้ getEmployees() เพื่อ auto-scope: branch_staff เห็นเฉพาะตัวเอง, branch_mgr เห็นสาขา ฯลฯ
+  const empOptions = DB.getEmployees({ status: 'active' })
     .sort((a, b) => (a.firstName || '').localeCompare(b.firstName || ''))
     .map(e => `<option value="${e.id}" ${defaultEmpId === e.id ? 'selected' : ''}>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))} (${escapeHtml(e.id)})</option>`).join('');
 
