@@ -288,6 +288,12 @@ const auth = {
           await DB.signOut();
           return;
         }
+        // ตรวจสถานะพ้นสภาพ — ถ้า resigned → block
+        const blocked = await this.checkTerminationAndBlock();
+        if (blocked) {
+          err.textContent = blocked;
+          return;
+        }
         this.showApp();
       } catch (ex) {
         err.textContent = ex.message === 'Invalid login credentials'
@@ -302,6 +308,25 @@ const auth = {
   async logout() {
     await DB.signOut();
     this.showLogin();
+  },
+
+  // ─── TERMINATION ENFORCEMENT ───
+  // ตรวจว่า user คนที่ login อยู่ พ้นสภาพแล้วหรือไม่ (termination_date <= today)
+  // ถ้าพ้นสภาพ → signOut + return error message
+  // คืน null = ผ่าน, string = error message (พ้นสภาพ)
+  async checkTerminationAndBlock() {
+    const empId = DB.profile?.employee_id;
+    if (!empId) return null; // admin/HR ที่ไม่ผูก employee_id → ปล่อยผ่าน
+    const emp = DB.getEmployee(empId);
+    if (!emp) return null; // ไม่มี record → ปล่อยผ่าน
+    const status = DB.empStatus(emp);
+    if (status === 'resigned') {
+      const dateStr = emp.terminationDate ? fmt.date(emp.terminationDate) : '';
+      await DB.signOut();
+      this.showLogin();
+      return `บัญชีนี้พ้นสภาพแล้ว${dateStr ? ' (วันที่ ' + dateStr + ')' : ''} — ไม่สามารถเข้าใช้งานระบบได้ · ติดต่อ HR หากเป็นข้อผิดพลาด`;
+    }
+    return null;
   },
   showLogin() {
     $('#loginScreen').style.display = 'flex';
@@ -448,6 +473,18 @@ window.onRealtimeChange = (payload) => {
 
   // อัปเดต badge ประกันสังคม เมื่อ employees เปลี่ยน — เสมอ (ไม่ขึ้นกับหน้าปัจจุบัน)
   if (table === 'employees' && typeof updateSSOBadge === 'function') updateSSOBadge();
+
+  // ─── TERMINATION ENFORCEMENT (Realtime) ───
+  // ถ้า employees update + เกี่ยวกับ "ตัวเอง" → ตรวจว่าพ้นสภาพแล้วหรือไม่
+  // ถ้าใช่ → force logout ทันที (ไม่ต้องรอ user login ใหม่)
+  if (table === 'employees' && payload?.new?.id && payload.new.id === DB.profile?.employee_id) {
+    setTimeout(async () => {
+      const blocked = await auth.checkTerminationAndBlock();
+      if (blocked) {
+        toast(blocked, 'error');
+      }
+    }, 100); // delay เล็กน้อยให้ data sync เสร็จก่อน
+  }
 
   // อัปเดต badge เมื่อ uniform_requests เปลี่ยน — เสมอ (ไม่ขึ้นกับหน้าปัจจุบัน)
   if (table === 'uniform_requests') {
@@ -8204,7 +8241,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     await DB.init();
     if (DB.user && DB.profile) {
-      auth.showApp();
+      // ตรวจสถานะพ้นสภาพก่อนแสดง app (เผื่อ user ถูกพ้นสภาพระหว่าง session ก่อนหน้า)
+      const blocked = await auth.checkTerminationAndBlock();
+      if (!blocked) auth.showApp();
+      // ถ้า blocked → checkTerminationAndBlock() จะ showLogin() ให้แล้ว
     } else {
       auth.showLogin();
     }
