@@ -21,11 +21,17 @@
   --primary-soft:  var(--navy-50);
   --primary-text:  var(--navy-700);
 
-  /* ─── Premium accent — Champagne gold (subtle luxury hint) ─── */
-  --gold:        #c9a961;
-  --gold-soft:   #f9f4e6;
-  --gold-text:   #8a6f2c;
-  --gold-dark:   #a68a3d;
+  /* ─── Premium accent — Sage Green (refined, calming, pairs with navy) ─── */
+  --sage:        #87a96b;
+  --sage-soft:   #eef3e6;
+  --sage-text:   #3d5230;
+  --sage-dark:   #6b8c54;
+  --sage-light:  #c4d6b1;
+  /* Backward-compat aliases (.badge-gold etc. still work) */
+  --gold:        var(--sage);
+  --gold-soft:   var(--sage-soft);
+  --gold-text:   var(--sage-text);
+  --gold-dark:   var(--sage-dark);
 
   /* ─── Neutrals — Refined editorial cream (cooler, less yellow tint) ─── */
   --neutral-0:   #ffffff;
@@ -116,7 +122,8 @@
   --sidebar-text: #d0d0c4;
   --sidebar-text-2: #8e8e83;
   --primary-soft: rgba(78, 112, 176, 0.12);
-  --gold-soft:    rgba(201, 169, 97, 0.08);
+  --sage-soft:    rgba(135, 169, 107, 0.10);
+  --gold-soft:    var(--sage-soft);
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.30);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.40), 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -532,7 +539,7 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   background: var(--sidebar-bg);
   background-image:
     radial-gradient(ellipse at 50% 0%, rgba(78, 112, 176, 0.10), transparent 55%),
-    radial-gradient(ellipse at 0% 100%, rgba(201, 169, 97, 0.04), transparent 50%),
+    radial-gradient(ellipse at 0% 100%, rgba(135, 169, 107, 0.05), transparent 50%),
     linear-gradient(180deg, var(--sidebar-bg-2) 0%, var(--sidebar-bg) 100%);
   color: var(--sidebar-text);
   display: flex; flex-direction: column;
@@ -1341,12 +1348,14 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 .badge-danger  { background: var(--danger-soft);  color: var(--danger-text);  border-color: rgba(215, 38, 38, 0.22); }
 .badge-info    { background: var(--info-soft);    color: var(--info-text);    border-color: rgba(30, 127, 196, 0.22); }
 .badge-neutral { background: var(--surface-2);    color: var(--text-2);       border-color: var(--border); }
-.badge-gold    { background: var(--gold-soft);    color: var(--gold-text);    border-color: rgba(201, 169, 97, 0.30); }
+.badge-sage    { background: var(--sage-soft);    color: var(--sage-text);    border-color: rgba(135, 169, 107, 0.32); }
+.badge-gold    { background: var(--sage-soft);    color: var(--sage-text);    border-color: rgba(135, 169, 107, 0.32); }
 [data-theme="dark"] .badge-success { background: rgba(21, 146, 63, 0.16); color: #86efac; border-color: rgba(21, 146, 63, 0.30); }
 [data-theme="dark"] .badge-warning { background: rgba(201, 119, 6, 0.16); color: #fcd34d; border-color: rgba(201, 119, 6, 0.30); }
 [data-theme="dark"] .badge-danger  { background: rgba(215, 38, 38, 0.16); color: #fca5a5; border-color: rgba(215, 38, 38, 0.30); }
 [data-theme="dark"] .badge-info    { background: rgba(30, 127, 196, 0.16); color: #93c5fd; border-color: rgba(30, 127, 196, 0.30); }
-[data-theme="dark"] .badge-gold    { background: rgba(201, 169, 97, 0.14); color: #fcd34d; border-color: rgba(201, 169, 97, 0.30); }
+[data-theme="dark"] .badge-sage    { background: rgba(135, 169, 107, 0.16); color: #b8d599; border-color: rgba(135, 169, 107, 0.32); }
+[data-theme="dark"] .badge-gold    { background: rgba(135, 169, 107, 0.16); color: #b8d599; border-color: rgba(135, 169, 107, 0.32); }
 
 /* ═════════════ FORMS ═════════════ */
 .form-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
@@ -1968,13 +1977,13 @@ html { scroll-behavior: smooth; }
 body {
   background-image:
     radial-gradient(ellipse 70% 50% at 50% -8%, rgba(29, 63, 143, 0.030), transparent 65%),
-    radial-gradient(ellipse 90% 70% at 50% 110%, rgba(201, 169, 97, 0.022), transparent 55%);
+    radial-gradient(ellipse 90% 70% at 50% 110%, rgba(135, 169, 107, 0.030), transparent 55%);
   background-attachment: fixed;
 }
 [data-theme="dark"] body {
   background-image:
     radial-gradient(ellipse 75% 55% at 50% -10%, rgba(78, 112, 176, 0.14), transparent 60%),
-    radial-gradient(ellipse 90% 70% at 50% 110%, rgba(201, 169, 97, 0.04), transparent 55%);
+    radial-gradient(ellipse 90% 70% at 50% 110%, rgba(135, 169, 107, 0.05), transparent 55%);
 }
 
 /* Refined card surfaces — subtle warmth via faint inner-top highlight */

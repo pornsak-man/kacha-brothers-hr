@@ -697,13 +697,15 @@ function destroyAllCharts() {
 }
 
 // ─── Premium Chart Palette ─────────────────────────────────
-// Cohesive editorial palette — navy + gold + refined semantics
+// Cohesive editorial palette — navy + sage green accent + refined semantics
 const CHART_PALETTE = {
   primary:   '#1d3f8f',  primaryHover:   '#163073',  primaryLight:   'rgba(29, 63, 143, 0.10)',
   emerald:   '#15923f',  emeraldHover:   '#0e6b2c',  emeraldLight:   'rgba(21, 146, 63, 0.10)',
   crimson:   '#d72626',  crimsonHover:   '#b91c1c',  crimsonLight:   'rgba(215, 38, 38, 0.10)',
   amber:     '#c97706',  amberHover:     '#a66305',  amberLight:     'rgba(201, 119, 6, 0.10)',
-  gold:      '#c9a961',  goldHover:      '#a68a3d',  goldLight:      'rgba(201, 169, 97, 0.12)',
+  sage:      '#87a96b',  sageHover:      '#6b8c54',  sageLight:      'rgba(135, 169, 107, 0.14)',
+  // Backward-compat aliases (some callers may still use .gold)
+  gold:      '#87a96b',  goldHover:      '#6b8c54',  goldLight:      'rgba(135, 169, 107, 0.14)',
   // Slate ramp — older = darker (intuitive for age)
   slateRamp: ['#cbd5e1', '#94a3b8', '#64748b', '#475569', '#334155', '#1e293b'],
   slateRampDark: ['#475569', '#64748b', '#94a3b8', '#cbd5e1', '#e2e8f0', '#f1f5f9'],
@@ -856,8 +858,8 @@ function renderDashboardCharts(s, monthly, trailing12) {
       labels: ['ชาย', 'หญิง'],
       datasets: [{
         data: [s.byGender.male, s.byGender.female],
-        backgroundColor: [P.primary, P.gold],
-        hoverBackgroundColor: [P.primaryHover, P.goldHover],
+        backgroundColor: [P.primary, P.sage],
+        hoverBackgroundColor: [P.primaryHover, P.sageHover],
         borderWidth: 0,
         hoverOffset: 8,
         spacing: 2
@@ -960,13 +962,13 @@ function renderDashboardCharts(s, monthly, trailing12) {
           data: data.map(d => d.avg),
           backgroundColor: (ctx) => {
             const c = ctx.chart.ctx;
-            if (!c) return P.gold;
-            return makeChartGradient(c, P.goldHover, 'rgba(201, 169, 97, 0.50)');
+            if (!c) return P.sage;
+            return makeChartGradient(c, P.sage, 'rgba(135, 169, 107, 0.50)');
           },
           hoverBackgroundColor: (ctx) => {
             const c = ctx.chart.ctx;
-            if (!c) return P.goldHover;
-            return makeChartGradient(c, '#8a6f2c', 'rgba(166, 138, 61, 0.55)');
+            if (!c) return P.sageHover;
+            return makeChartGradient(c, P.sageHover, 'rgba(107, 140, 84, 0.55)');
           },
           borderRadius: 5, borderSkipped: false, barPercentage: 0.62, categoryPercentage: 0.82
         }]
