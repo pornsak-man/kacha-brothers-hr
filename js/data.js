@@ -1897,7 +1897,7 @@ const DB = {
   },
 
   async deleteLeaveRequest(id) {
-    if (!this.isAdmin) throw new Error('ต้องเป็น admin');
+    if (!this.isHR) throw new Error('ต้องเป็น admin หรือ HR');
     const { error } = await this.client.from('leave_requests').delete().eq('id', id);
     if (error) throw error;
     this.data.leaveRequests = this.data.leaveRequests.filter(r => r.id !== id);

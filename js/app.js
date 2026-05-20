@@ -338,7 +338,15 @@ const auth = {
     const displayName = DB.profile?.name || DB.user?.email?.split('@')[0] || 'User';
     $('#userName').textContent = displayName;
     $('#userAvatar').textContent = displayName.charAt(0).toUpperCase();
-    $('.user-role').textContent = DB.isAdmin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งานทั่วไป';
+    // แสดง role ตามจริงเพื่อให้ user รู้สิทธิ์ของตนเอง
+    const roleLabel = DB.isAdmin ? 'ผู้ดูแลระบบ'
+      : DB.role === 'hr' ? 'เจ้าหน้าที่บุคคล'
+      : DB.role === 'area_manager' ? 'ผู้จัดการเขต'
+      : DB.role === 'branch_manager' ? 'ผู้จัดการสาขา'
+      : DB.role === 'operation_manager' ? 'ผู้จัดการฝ่ายปฏิบัติการ'
+      : DB.role === 'branch_staff' ? 'พนักงานสาขา'
+      : 'ผู้ใช้งานทั่วไป';
+    $('.user-role').textContent = roleLabel;
     if (typeof updateUniformBadge === 'function') updateUniformBadge();
     if (typeof updateLeaveBadge === 'function') updateLeaveBadge();
     if (typeof updateSSOBadge === 'function') updateSSOBadge();
@@ -728,7 +736,7 @@ router.register('dashboard', () => {
         <div class="sw-page-subtitle">บริษัท คชา บราเธอร์ส จำกัด — ข้อมูล ณ ${todayStr}</div>
       </div>
       <div class="sw-page-actions">
-        ${DB.isAdmin ? `<button class="btn btn-primary" onclick="openEmployeeForm()">+ เพิ่มพนักงาน</button>` : ''}
+        ${DB.isHR ? `<button class="btn btn-primary" onclick="openEmployeeForm()">+ เพิ่มพนักงาน</button>` : ''}
       </div>
     </div>
 
@@ -1243,8 +1251,17 @@ const empState = { search: '', branch: '', position: '', status: 'active', sortB
 let _empSearchTimer = null;
 
 router.register('employees', () => {
+  // 🔒 RBAC: viewer/branch_staff ดูทะเบียนพนักงานไม่ได้ — มี "หน้าหลักของฉัน" แยกต่างหาก
+  if (DB.role === 'viewer' || DB.role === 'branch_staff') {
+    return `<div class="sw-chart-card"><div class="empty-state" style="padding:80px 20px">
+      <div style="font-size:48px;margin-bottom:14px;opacity:0.4">🔒</div>
+      <div class="title" style="font-size:17px;font-weight:600">ไม่มีสิทธิ์ดูทะเบียนพนักงาน</div>
+      <div class="hint" style="margin-top:6px">ใช้เมนู "หน้าหลักของฉัน" — admin / HR / Manager เท่านั้นที่ดูทะเบียนได้</div>
+    </div></div>`;
+  }
   const kpi = DB.getDashboardKPI();
-  const allEmps = DB.data.employees;
+  // ใช้ getEmployees() เพื่อ auto-scope ตาม RBAC — KPI cards/subtitle จะตรงกับสิ่งที่ user เห็นจริง
+  const allEmps = DB.getEmployees();
   const active = allEmps.filter(e => DB.empStatus(e) === 'active');
   const pending = allEmps.filter(e => DB.empStatus(e) === 'pending');
   const resigned = allEmps.filter(e => DB.empStatus(e) === 'resigned');
@@ -1267,7 +1284,7 @@ router.register('employees', () => {
       </div>
       <div class="sw-page-actions">
         <button class="btn btn-secondary" onclick="exportEmployeesXLSX()">${ICON.download}Export Excel</button>
-        ${DB.isAdmin ? `<button class="btn btn-secondary" onclick="openImportEmployees()">${ICON.upload}นำเข้า Excel</button>
+        ${DB.isHR ? `<button class="btn btn-secondary" onclick="openImportEmployees()">${ICON.upload}นำเข้า Excel</button>
         <button class="btn btn-secondary" onclick="openBulkPhotoUpload()">${ICON.upload}อัปโหลดรูป</button>
         <button class="btn btn-primary" onclick="openEmployeeForm()">+ เพิ่มพนักงาน</button>` : ''}
       </div>
@@ -2033,10 +2050,10 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
         }
       }
 
-      // ── Auto-create user account สำหรับพนักงานใหม่ (admin เท่านั้น) ──
+      // ── Auto-create user account สำหรับพนักงานใหม่ (admin + HR) ──
       // email = {รหัส}@kacha.local · password = เลข ปชช (default) · role = auto-detect
       let newAccountInfo = null;
-      if (!id && DB.isAdmin) {
+      if (!id && DB.isHR) {
         try {
           btn.textContent = 'กำลังสร้างบัญชี login...';
           newAccountInfo = await DB.createEmployeeAccount(saved.id);
@@ -2110,6 +2127,14 @@ async function deleteEmployee(id) {
 function viewEmployee(id) {
   const e = DB.getEmployee(id);
   if (!e) return;
+  // 🔒 RBAC: out-of-scope ดูข้อมูลพนักงานคนนี้ไม่ได้
+  if (!DB.isInScope(e)) {
+    toast('คุณไม่มีสิทธิ์ดูข้อมูลพนักงานคนนี้', 'error');
+    return;
+  }
+  // canSeePersonal = HR/Admin หรือดูข้อมูลตัวเอง — gate PII ที่อ่อนไหวที่สุด (nationalId, passport, bank, sso)
+  const isOwn = e.id === DB.profile?.employee_id;
+  const canSeePersonal = DB.isHR || isOwn;
   const dept = DB.getDepartment(e.department) || {};
   const pos = DB.getPosition(e.position) || {};
   const initials = (e.firstName || '?').charAt(0);
@@ -2168,10 +2193,10 @@ function viewEmployee(id) {
       <div class="emp-info-grid">
         <div class="emp-info-row"><div class="label">เพศ</div><div class="value">${escapeHtml(e.gender || '-')}</div></div>
         <div class="emp-info-row"><div class="label">วันเกิด</div><div class="value">${fmt.date(e.dob)}${e.dob ? ' <span class="muted-2" style="font-size:12px">(' + fmt.age(e.dob) + ')</span>' : ''}</div></div>
-        <div class="emp-info-row"><div class="label">เลขประชาชน</div><div class="value mono">${escapeHtml(e.nationalId || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">เลขประชาชน</div><div class="value mono">${canSeePersonal ? escapeHtml(e.nationalId || '-') : '<span class="muted-2">•••</span>'}</div></div>
         <div class="emp-info-row"><div class="label">สัญชาติ</div><div class="value">${escapeHtml(e.nationality || '-')}</div></div>
-        ${e.passportNumber ? `<div class="emp-info-row"><div class="label">Passport</div><div class="value mono">${escapeHtml(e.passportNumber)}</div></div>` : ''}
-        ${e.workPermitNumber ? `<div class="emp-info-row"><div class="label">Work Permit</div><div class="value mono">${escapeHtml(e.workPermitNumber)}</div></div>` : ''}
+        ${e.passportNumber ? `<div class="emp-info-row"><div class="label">Passport</div><div class="value mono">${canSeePersonal ? escapeHtml(e.passportNumber) : '<span class="muted-2">•••</span>'}</div></div>` : ''}
+        ${e.workPermitNumber ? `<div class="emp-info-row"><div class="label">Work Permit</div><div class="value mono">${canSeePersonal ? escapeHtml(e.workPermitNumber) : '<span class="muted-2">•••</span>'}</div></div>` : ''}
         <div class="emp-info-row"><div class="label">ศาสนา</div><div class="value">${escapeHtml(e.religion || '-')}</div></div>
         <div class="emp-info-row"><div class="label">วุฒิการศึกษา</div><div class="value">${escapeHtml(e.education || '-')}</div></div>
       </div>
@@ -2213,6 +2238,7 @@ function viewEmployee(id) {
       </div>
     </div>
 
+    ${canSeePersonal ? `
     <div class="form-section">
       <h3>บัญชีธนาคาร</h3>
       <div class="emp-info-grid">
@@ -2230,6 +2256,7 @@ function viewEmployee(id) {
         <div class="emp-info-row"><div class="label">วันที่แจ้งออก สปส.</div><div class="value">${e.ssoTerminatedDate ? fmt.date(e.ssoTerminatedDate) + ' <span class="badge badge-success" style="margin-left:6px">แจ้งแล้ว</span>' : (e.terminationDate && DB.empStatus(e) === 'resigned' ? '<span class="badge badge-warning">ยังไม่แจ้ง</span>' : '-')}</div></div>
       </div>
     </div>
+    ` : ''}
 
     ${(() => {
       const uniIssues = DB.getUniformIssues({ employeeId: id });
@@ -2285,13 +2312,15 @@ function viewEmployee(id) {
     ${(() => {
       // pre-fetch leaves สำหรับพนักงานคนนี้ (auto-scope ผ่าน RBAC — แต่ HR/Admin/Manager เห็นได้ตามสิทธิ์ของตัวเอง)
       const leaves = DB.getLeaveRequests({ employeeId: e.id });
+      // 🔒 Tab ที่ sensitive — ประวัติเงินเดือน/กู้/เบิก/ประเมิน → HR หรือ self เท่านั้น
+      const firstTab = canSeePersonal ? 'history' : 'leaves';
       return `
         <div class="tabs mt-4">
-          <button class="tab active" data-tab="history">ประวัติเงินเดือน (${history.length})</button>
+          ${canSeePersonal ? `<button class="tab ${firstTab === 'history' ? 'active' : ''}" data-tab="history">ประวัติเงินเดือน (${history.length})</button>
           <button class="tab" data-tab="loans">การกู้ (${loans.length})</button>
           <button class="tab" data-tab="advances">เบิกล่วงหน้า (${advances.length})</button>
-          <button class="tab" data-tab="evals">ประเมิน (${evals.length})</button>
-          <button class="tab" data-tab="leaves">การลา (${leaves.length})</button>
+          <button class="tab" data-tab="evals">ประเมิน (${evals.length})</button>` : ''}
+          <button class="tab ${firstTab === 'leaves' ? 'active' : ''}" data-tab="leaves">การลา (${leaves.length})</button>
         </div>
         <div id="tabContent"></div>
       `;
@@ -2353,7 +2382,8 @@ function viewEmployee(id) {
       ` : '<div class="empty-state"><div class="hint">ยังไม่มีประวัติการลา</div></div>';
     }
   };
-  renderTab('history');
+  // 🔒 เปิดแท็บแรกตามสิทธิ์ — non-HR/non-self จะเริ่มที่ "การลา" เพราะ sensitive tabs ถูกซ่อน
+  renderTab(canSeePersonal ? 'history' : 'leaves');
   $$('#modalRoot .tab').forEach(t => t.addEventListener('click', () => {
     $$('#modalRoot .tab').forEach(x => x.classList.remove('active'));
     t.classList.add('active');
@@ -2676,7 +2706,7 @@ function openImportEmployees() {
     // เกณฑ์: row ที่มี _role specified (หรือ auto-detect ถ้าไม่ระบุ) → create account
     let accSuccess = 0, accSkip = 0, accFail = 0;
     const accErrors = [];
-    if (DB.isAdmin) {
+    if (DB.isHR) {
       // โหลด profile list มาดูว่ามี user_account อยู่แล้วของใครบ้าง
       let existingProfiles = [];
       try { existingProfiles = await DB.getUserProfilesList(); } catch {}
@@ -2721,7 +2751,7 @@ function openImportEmployees() {
         <div style="font-size:14px;line-height:1.8">
           • นำเข้าพนักงาน: <strong>${result.inserted.toLocaleString()}</strong> คน<br>
           ${result.failed ? `• ผิดพลาด (พนักงาน): <strong style="color:var(--danger)">${result.failed.toLocaleString()}</strong> คน<br>` : ''}
-          ${DB.isAdmin ? `
+          ${DB.isHR ? `
             • สร้างบัญชี login ใหม่: <strong style="color:var(--success)">${accSuccess.toLocaleString()}</strong> คน<br>
             ${accSkip ? `• ข้าม (มีบัญชีอยู่แล้ว): <strong>${accSkip.toLocaleString()}</strong> คน<br>` : ''}
             ${accFail ? `• สร้างบัญชีไม่สำเร็จ: <strong style="color:var(--danger)">${accFail.toLocaleString()}</strong> คน<br>` : ''}
@@ -2971,6 +3001,7 @@ function renderBulkPhotoPreview(total, matches, unmatched) {
 }
 
 function exportEmployeesXLSX() {
+  if (!requireHR()) return; // 🔒 เฉพาะ admin/HR — มีข้อมูลส่วนตัว + เงินเดือน
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportEmployeesXLSX, 800); return; }
   // text fields ผ่าน csvSafe() เพื่อกัน CSV-injection (ชื่อขึ้นต้น = + - @ จะถูก prefix ด้วย ')
   const cs = csvSafe;
@@ -3128,7 +3159,7 @@ router.register('branches', () => {
           <input type="checkbox" ${_branchPageState.showClosed ? 'checked' : ''} onchange="toggleShowClosedBranches()"/>
           แสดงสาขาที่ปิด (${closedCount})
         </label>` : ''}
-        ${DB.isAdmin ? `<button class="btn btn-primary" onclick="openBranchForm()">+ เพิ่มสาขา</button>` : ''}
+        ${DB.isHR ? `<button class="btn btn-primary" onclick="openBranchForm()">+ เพิ่มสาขา</button>` : ''}
       </div>
     </div>
     <div class="sw-stats-grid" style="margin-bottom:28px">
@@ -3186,7 +3217,7 @@ router.register('branches', () => {
               <td>${b.active ? '<span class="badge badge-success">✓ ใช้งาน</span>' : '<span class="badge">ปิด</span>'}</td>
               <td class="sw-reason-cell">${escapeHtml(b.note || '—')}</td>
               <td class="actions">
-                ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openBranchForm('${escapeHtml(b.id)}')">แก้</button>
+                ${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openBranchForm('${escapeHtml(b.id)}')">แก้</button>
                 <button class="btn btn-ghost btn-sm" onclick="deleteBranch('${escapeHtml(b.id)}')">ลบ</button>` : ''}
               </td>
             </tr>`;
@@ -3315,7 +3346,7 @@ router.register('departments', () => {
         <div class="sw-page-title">ฝ่ายงาน</div>
         <div class="sw-page-subtitle">โครงสร้างฝ่ายภายในบริษัท · ${fmt.num(depts.length)} ฝ่าย · พนักงานปัจจุบัน ${fmt.num(emps.length)} คน</div>
       </div>
-      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openDeptForm()">+ เพิ่มฝ่าย</button>' : ''}</div>
+      <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openDeptForm()">+ เพิ่มฝ่าย</button>' : ''}</div>
     </div>
     <div class="sw-chart-card">
       <div class="sw-chart-header">
@@ -3337,7 +3368,7 @@ router.register('departments', () => {
               <td class="sw-cell-meta">${mgr ? escapeHtml(mgr.firstName + ' ' + mgr.lastName) : '<span class="muted-2">—</span>'}</td>
               <td class="num"><strong>${fmt.num(count)}</strong><span class="muted-2" style="font-size:11px"> คน</span></td>
               <td class="sw-reason-cell">${escapeHtml(d.note || '—')}</td>
-              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openDeptForm('${d.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteDept('${d.id}')">ลบ</button>` : ''}</td>
+              <td class="actions">${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openDeptForm('${d.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteDept('${d.id}')">ลบ</button>` : ''}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -3403,7 +3434,7 @@ router.register('positions', () => {
         <div class="sw-page-title">ระดับตำแหน่ง</div>
         <div class="sw-page-subtitle">โครงสร้างตำแหน่งและช่วงเงินเดือน · เรียงจากระดับสูงสุดลงต่ำสุด · ${fmt.num(ps.length)} ตำแหน่ง</div>
       </div>
-      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openPositionForm()">+ เพิ่มตำแหน่ง</button>' : ''}</div>
+      <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openPositionForm()">+ เพิ่มตำแหน่ง</button>' : ''}</div>
     </div>
     <div class="sw-chart-card">
       <div class="sw-chart-header">
@@ -3426,7 +3457,7 @@ router.register('positions', () => {
               <td class="num">${p.minSalary ? fmt.money(p.minSalary) : '<span class="muted-2">—</span>'}</td>
               <td class="num">${p.maxSalary ? fmt.money(p.maxSalary) : '<span class="muted-2">—</span>'}</td>
               <td class="num"><strong>${fmt.num(count)}</strong><span class="muted-2" style="font-size:11px"> คน</span></td>
-              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openPositionForm('${p.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deletePosition('${p.id}')">ลบ</button>` : ''}</td>
+              <td class="actions">${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openPositionForm('${p.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deletePosition('${p.id}')">ลบ</button>` : ''}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -3503,7 +3534,7 @@ router.register('recruit', () => {
         <div class="sw-page-subtitle">จัดการผู้สมัคร · ติดตามสถานะ · รับเข้าทำงาน</div>
       </div>
       <div class="sw-page-actions">
-        ${DB.isAdmin ? `
+        ${DB.isHR ? `
           <button class="btn btn-secondary" onclick="openImportApplicants()">${ICON.upload}นำเข้า Excel</button>
           <button class="btn btn-secondary" onclick="exportApplicantsXLSX()">${ICON.download}ส่งออก Excel</button>
           <button class="btn btn-primary" onclick="openApplicantForm()">+ เพิ่มผู้สมัคร</button>
@@ -3627,8 +3658,8 @@ function renderApplicantList() {
                 <td><span class="badge ${s.badge}">${s.label}</span></td>
                 <td>${uniCell}</td>
                 <td class="actions">
-                  ${DB.isAdmin && a.status !== 'hired' ? `<button class="btn btn-primary btn-sm" onclick="hireApplicant('${a.id}')" title="สร้างเป็นพนักงาน">รับเข้า</button>` : ''}
-                  ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openApplicantForm('${a.id}')">แก้ไข</button>
+                  ${DB.isHR && a.status !== 'hired' ? `<button class="btn btn-primary btn-sm" onclick="hireApplicant('${a.id}')" title="สร้างเป็นพนักงาน">รับเข้า</button>` : ''}
+                  ${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openApplicantForm('${a.id}')">แก้ไข</button>
                   <button class="btn btn-ghost btn-sm" onclick="deleteApplicant('${a.id}')">ลบ</button>` : ''}
                   ${a.hiredEmployeeId ? `<button class="btn btn-ghost btn-sm" onclick="viewEmployee('${a.hiredEmployeeId}')" title="ดูประวัติพนักงาน">ดูพนักงาน</button>` : ''}
                 </td>
@@ -4260,6 +4291,7 @@ function downloadApplicantTemplate() {
 }
 
 function exportApplicantsXLSX() {
+  if (!requireHR()) return; // 🔒 ข้อมูลผู้สมัคร — ส่วนตัว + เงินเดือนที่ขอ
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportApplicantsXLSX, 800); return; }
   const list = DB.getApplicants();
   if (!list.length) { toast('ยังไม่มีข้อมูลผู้สมัคร', 'warning'); return; }
@@ -4618,7 +4650,7 @@ router.register('sso', () => {
         <div class="sw-page-subtitle">แจ้งเข้า สปส.1-03 (ภายใน 30 วันจากวันเริ่มงาน) · แจ้งออก สปส.6-09 (ภายในวันที่ 15 ของเดือนถัดไป)</div>
         <div class="sw-page-subtitle" style="margin-top:6px">
           <span class="badge badge-info">เริ่มใช้ตั้งแต่ ${fmt.date(cutoff)}</span>
-          ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="setSSOCutoff()" style="margin-left:8px">เปลี่ยน</button>` : ''}
+          ${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="setSSOCutoff()" style="margin-left:8px">เปลี่ยน</button>` : ''}
         </div>
       </div>
     </div>
@@ -4676,7 +4708,7 @@ router.register('sso', () => {
                     <td>${fmt.date(dl)}</td>
                     <td>${overdue ? '<span class="badge badge-danger">เกินกำหนด</span>' : '<span class="badge badge-warning">รอแจ้ง</span>'}</td>
                     <td class="actions">
-                      ${DB.isAdmin ? `<button class="btn btn-primary btn-sm" onclick="markSSO('${e.id}', '${tab}')">บันทึก${tab === 'enroll' ? 'แจ้งเข้า' : 'แจ้งออก'}แล้ว</button>` : ''}
+                      ${DB.isHR ? `<button class="btn btn-primary btn-sm" onclick="markSSO('${e.id}', '${tab}')">บันทึก${tab === 'enroll' ? 'แจ้งเข้า' : 'แจ้งออก'}แล้ว</button>` : ''}
                       <button class="btn btn-ghost btn-sm" onclick="viewEmployee('${e.id}')">ดู</button>
                     </td>
                   </tr>`;
@@ -4776,7 +4808,7 @@ router.register('uniform', () => {
         <div class="sw-page-subtitle">คำขอจัดชุด · บันทึกการจัดส่ง · stock & ราคา · ค่าชุดที่ต้องเก็บจากพนักงาน</div>
       </div>
       <div class="sw-page-actions">
-        ${DB.isAdmin ? `
+        ${DB.isHR ? `
           <button class="btn btn-secondary" onclick="openUniformItemForm()">${ICON.plus}เพิ่มรายการชุด</button>
           <button class="btn btn-secondary" onclick="exportUniformIssuesXLSX()">${ICON.download}ส่งออกประวัติ</button>
           <button class="btn btn-primary" onclick="openUniformRequestForm()">+ คำขอใหม่</button>
@@ -4846,7 +4878,7 @@ function renderUniformScheduleTable() {
   }
   const branches = [...byBranch.keys()].sort();
 
-  const addBtn = DB.isAdmin ? `<button class="btn btn-secondary btn-sm" onclick="openUniformScheduleForm()" style="margin-bottom:14px">${ICON.plus}เพิ่มรอบการจัดส่ง</button>` : '';
+  const addBtn = DB.isHR ? `<button class="btn btn-secondary btn-sm" onclick="openUniformScheduleForm()" style="margin-bottom:14px">${ICON.plus}เพิ่มรอบการจัดส่ง</button>` : '';
 
   if (!branches.length) {
     return `${addBtn}<div class="empty-state"><div class="title">ยังไม่มีรอบการจัดส่ง</div><div class="hint">กดปุ่ม "+ เพิ่มรอบการจัดส่ง" เพื่อกำหนดสาขา + วันส่ง</div></div>`;
@@ -4870,7 +4902,7 @@ function renderUniformScheduleTable() {
               <td>${s.active ? '<span class="badge badge-success">ใช้งาน</span>' : '<span class="badge">ปิด</span>'}</td>
               <td>${escapeHtml(s.note || '-')}</td>
               <td class="actions">
-                ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openUniformScheduleForm('${s.id}')">แก้</button>
+                ${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openUniformScheduleForm('${s.id}')">แก้</button>
                 <button class="btn btn-ghost btn-sm" onclick="deleteUniformSchedule('${s.id}')">ลบ</button>` : ''}
               </td>
             </tr>
@@ -4975,7 +5007,7 @@ function renderUniformRequestsTable() {
                 : (r.note ? `<div class="note-clamp" title="${escapeHtml(r.note)}">${escapeHtml(r.note)}</div>` : '<div class="note-empty">⚠️ ยังไม่ระบุ</div>')
             }</td>
             <td class="actions">
-              ${DB.isAdmin ? `<button class="btn btn-primary btn-sm" onclick="openIssueItemsForm('${r.id}')">จัดชุด</button>
+              ${DB.isHR ? `<button class="btn btn-primary btn-sm" onclick="openIssueItemsForm('${r.id}')">จัดชุด</button>
               <button class="btn btn-ghost btn-sm" onclick="openUniformRequestForm('${r.id}')">แก้</button>
               <button class="btn btn-ghost btn-sm" onclick="deleteUniformRequest('${r.id}')">ลบ</button>` : ''}
             </td>
@@ -5050,7 +5082,7 @@ function renderUniformItemsTable() {
             <td>${i.active ? '<span class="badge badge-success">ใช้งาน</span>' : '<span class="badge">ปิด</span>'}</td>
             <td>${escapeHtml(i.note || '-')}</td>
             <td class="actions">
-              ${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openUniformItemForm('${i.id}')">แก้ไข</button>
+              ${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openUniformItemForm('${i.id}')">แก้ไข</button>
               <button class="btn btn-ghost btn-sm" onclick="deleteUniformItem('${i.id}')">ลบ</button>` : ''}
             </td>
           </tr>`;
@@ -5100,7 +5132,7 @@ function renderUniformIssuesTable() {
             <td class="num"><strong>${fmt.money(i.totalCost)}</strong></td>
             <td>${escapeHtml(i.issuedBy || '-')}</td>
             <td>${escapeHtml(i.note || '-')}</td>
-            <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="deleteUniformIssue('${i.id}')">ลบ</button>` : ''}</td>
+            <td class="actions">${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="deleteUniformIssue('${i.id}')">ลบ</button>` : ''}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -5542,6 +5574,7 @@ async function deleteUniformIssue(id) {
 
 // ─── EXCEL: export ประวัติการจัดชุด ───
 function exportUniformIssuesXLSX() {
+  if (!requireHR()) return; // 🔒 ประวัติการจัดชุด — รายชื่อพนักงานทั้งบริษัท
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportUniformIssuesXLSX, 800); return; }
   const list = DB.getUniformIssues();
   if (!list.length) { toast('ยังไม่มีข้อมูล', 'warning'); return; }
@@ -5646,7 +5679,7 @@ router.register('salary-adjust', () => {
         <div class="sw-page-subtitle">บันทึกการเปลี่ยนแปลงพนักงาน · ระบบจะอัปเดตทะเบียนพนักงานอัตโนมัติ</div>
       </div>
       <div class="sw-page-actions">
-        ${DB.isAdmin ? `
+        ${DB.isHR ? `
           <button class="btn btn-secondary" onclick="openImportEmployeeChanges()">${ICON.upload}นำเข้า Excel</button>
           <button class="btn btn-secondary" onclick="exportEmployeeChangesXLSX()">${ICON.download}ส่งออก Excel</button>
           <button class="btn btn-primary" onclick="openSalaryAdjustForm()">+ บันทึกการปรับ</button>
@@ -5962,6 +5995,7 @@ function downloadEmployeeChangesTemplate() {
 }
 
 function exportEmployeeChangesXLSX() {
+  if (!requireHR()) return; // 🔒 ประวัติการปรับเงินเดือน — sensitive สูง
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportEmployeeChangesXLSX, 800); return; }
   const list = DB.getSalaryHistory();
   if (!list.length) { toast('ยังไม่มีประวัติการปรับ', 'warning'); return; }
@@ -6250,7 +6284,7 @@ router.register('loans', () => {
         <div class="sw-page-title">การกู้เงินบริษัท</div>
         <div class="sw-page-subtitle">บันทึกการให้กู้และติดตามยอดผ่อนต่อพนักงาน</div>
       </div>
-      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openLoanForm()">+ บันทึกการกู้</button>' : ''}</div>
+      <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openLoanForm()">+ บันทึกการกู้</button>' : ''}</div>
     </div>
     <div class="sw-stats-grid" style="margin-bottom:28px">
       <div class="sw-stat-card">
@@ -6302,7 +6336,7 @@ router.register('loans', () => {
               <td class="num" style="color:${Number(l.remaining) > 0 ? 'var(--danger)' : 'var(--text-2)'}">${fmt.money(l.remaining)}</td>
               <td>${l.status === 'completed' ? '<span class="badge badge-success">✓ ปิดยอด</span>' : '<span class="badge badge-warning">⏳ ผ่อนอยู่</span>'}</td>
               <td class="sw-reason-cell">${escapeHtml(l.reason || '—')}</td>
-              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openLoanForm('${l.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteLoanRec('${l.id}')">ลบ</button>` : ''}</td>
+              <td class="actions">${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openLoanForm('${l.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteLoanRec('${l.id}')">ลบ</button>` : ''}</td>
             </tr>`; }).join('')}
         </tbody>
       </table></div>` : `<div class="empty-state" style="padding:60px 20px">
@@ -6369,7 +6403,7 @@ router.register('advances', () => {
         <div class="sw-page-title">เบิกเงินเดือนล่วงหน้า</div>
         <div class="sw-page-subtitle">รายการเบิกจ่ายเงินล่วงหน้าจากเงินเดือนของพนักงาน</div>
       </div>
-      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openAdvanceForm()">+ บันทึกการเบิก</button>' : ''}</div>
+      <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openAdvanceForm()">+ บันทึกการเบิก</button>' : ''}</div>
     </div>
     <div class="sw-stats-grid" style="margin-bottom:28px">
       <div class="sw-stat-card">
@@ -6419,7 +6453,7 @@ router.register('advances', () => {
               <td class="num"><strong>${fmt.money(a.amount)}</strong></td>
               <td class="sw-reason-cell">${escapeHtml(a.reason || '—')}</td>
               <td>${a.status === 'paid' ? '<span class="badge badge-success">✓ จ่ายแล้ว</span>' : '<span class="badge badge-warning">⏳ รอจ่าย</span>'}</td>
-              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openAdvanceForm('${a.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteAdvRec('${a.id}')">ลบ</button>` : ''}</td>
+              <td class="actions">${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openAdvanceForm('${a.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteAdvRec('${a.id}')">ลบ</button>` : ''}</td>
             </tr>`; }).join('')}
         </tbody>
       </table></div>` : `<div class="empty-state" style="padding:60px 20px">
@@ -6486,7 +6520,7 @@ router.register('allowance', () => {
         <div class="sw-page-title">เบี้ยเลี้ยงรายเดือน</div>
         <div class="sw-page-subtitle">บันทึกเบี้ยเลี้ยงพิเศษ — ค่าเดินทาง · ค่าโทรศัพท์ · ค่าตำแหน่ง · ค่าครองชีพ ฯลฯ</div>
       </div>
-      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openAllowanceForm()">+ บันทึก</button>' : ''}</div>
+      <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openAllowanceForm()">+ บันทึก</button>' : ''}</div>
     </div>
     <div class="sw-stats-grid" style="margin-bottom:28px">
       <div class="sw-stat-card">
@@ -6536,7 +6570,7 @@ router.register('allowance', () => {
               <td><span class="badge badge-info" style="font-size:11px">${escapeHtml(a.type || '—')}</span></td>
               <td class="num"><strong>${fmt.money(a.amount)}</strong></td>
               <td class="sw-reason-cell">${escapeHtml(a.note || '—')}</td>
-              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openAllowanceForm('${a.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteAllowRec('${a.id}')">ลบ</button>` : ''}</td>
+              <td class="actions">${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openAllowanceForm('${a.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteAllowRec('${a.id}')">ลบ</button>` : ''}</td>
             </tr>`; }).join('')}
         </tbody>
       </table></div>` : `<div class="empty-state" style="padding:60px 20px">
@@ -6599,7 +6633,7 @@ router.register('evaluations', () => {
         <div class="sw-page-title">ประเมินผลงาน</div>
         <div class="sw-page-subtitle">บันทึกคะแนนและเกรดของพนักงานต่อรอบประเมิน</div>
       </div>
-      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openEvalForm()">+ บันทึกการประเมิน</button>' : ''}</div>
+      <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openEvalForm()">+ บันทึกการประเมิน</button>' : ''}</div>
     </div>
     <div class="sw-stats-grid" style="margin-bottom:28px">
       <div class="sw-stat-card">
@@ -6650,7 +6684,7 @@ router.register('evaluations', () => {
               <td class="num"><strong style="color:${gradeColor(sc)};font-size:14px">${v.score}</strong><span class="muted-2" style="font-size:11px">/100</span></td>
               <td><span class="badge ${sc >= 80 ? 'badge-success' : sc >= 50 ? 'badge-info' : 'badge-danger'}">${escapeHtml(v.grade || '—')}</span></td>
               <td class="sw-reason-cell">${escapeHtml(v.note || '—')}</td>
-              <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openEvalForm('${v.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteEvalRec('${v.id}')">ลบ</button>` : ''}</td>
+              <td class="actions">${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openEvalForm('${v.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteEvalRec('${v.id}')">ลบ</button>` : ''}</td>
             </tr>`; }).join('')}
         </tbody>
       </table></div>` : `<div class="empty-state" style="padding:60px 20px">
@@ -6714,6 +6748,14 @@ async function deleteEvalRec(id) {
 //  PAGE: REPORTS
 // ═══════════════════════════════════════════════════════
 router.register('reports', () => {
+  // 🔒 RBAC Guard — admin + HR เท่านั้น (มีข้อมูล payroll/loan ที่อ่อนไหวระดับ company-wide)
+  if (!DB.isHR) {
+    return `<div class="sw-chart-card"><div class="empty-state" style="padding:80px 20px">
+      <div style="font-size:48px;margin-bottom:14px;opacity:0.4">🔒</div>
+      <div class="title" style="font-size:17px;font-weight:600">เฉพาะ Admin / HR เท่านั้น</div>
+      <div class="hint" style="margin-top:6px">รายงานเงินเดือนและข้อมูลส่งออกเป็นข้อมูลภายในของ HR/การเงิน</div>
+    </div></div>`;
+  }
   const s = DB.getStats();
   return `
     <div class="sw-page-header">
@@ -6784,6 +6826,7 @@ router.register('reports', () => {
 });
 
 function exportPayrollXLSX() {
+  if (!requireHR()) return; // 🔒 เฉพาะ admin/HR — บัญชีเงินเดือนทั้งบริษัท
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportPayrollXLSX, 800); return; }
   const cs = csvSafe;
   const month = tz.thisMonth();
@@ -6837,6 +6880,7 @@ function exportPayrollXLSX() {
 }
 
 function exportLoansXLSX() {
+  if (!requireHR()) return; // 🔒 เฉพาะ admin/HR — รายการกู้ทั้งบริษัท
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportLoansXLSX, 800); return; }
   const cs = csvSafe;
   const rows = DB.getLoans().map(l => {
@@ -6874,6 +6918,8 @@ function exportLoansXLSX() {
 }
 
 function exportDataJSON() {
+  // 🔒 Admin เท่านั้น — backup ทุกตารางในระบบ (สิทธิ์สูงสุด)
+  if (!requireAdmin()) return;
   const snapshot = { exportedAt: new Date().toISOString(), ...DB.data };
   const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -6901,7 +6947,7 @@ router.register('calendar', () => {
         <div class="sw-page-title">ปฏิทิน HR</div>
         <div class="sw-page-subtitle">วันหยุด · กิจกรรมบริษัท · เหตุการณ์สำคัญต่างๆ</div>
       </div>
-      <div class="sw-page-actions">${DB.isAdmin ? '<button class="btn btn-primary" onclick="openCalForm()">+ เพิ่มกิจกรรม</button>' : ''}</div>
+      <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openCalForm()">+ เพิ่มกิจกรรม</button>' : ''}</div>
     </div>
     ${upcoming.length ? `
     <div class="sw-chart-card">
@@ -6934,7 +6980,7 @@ router.register('calendar', () => {
             <td class="sw-cell-meta">${fmt.date(c.date)}</td>
             <td><strong>${escapeHtml(c.title)}</strong></td>
             <td><span class="badge ${typeBadge(c.type)}">${typeLabel(c.type)}</span></td>
-            <td class="actions">${DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="openCalForm('${c.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteCalRec('${c.id}')">ลบ</button>` : ''}</td>
+            <td class="actions">${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openCalForm('${c.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteCalRec('${c.id}')">ลบ</button>` : ''}</td>
           </tr>`).join('')}
         </tbody>
       </table></div>` : `<div class="empty-state" style="padding:60px 20px">
@@ -7246,7 +7292,7 @@ router.register('leave', () => {
     { id: 'pending', label: 'รออนุมัติ',     count: pending.length || null },
     { id: 'all',     label: 'ประวัติทั้งหมด',  count: null },
     { id: 'balance', label: 'ยอดวันลาคงเหลือ', count: null },
-    ...(DB.isAdmin ? [{ id: 'types', label: 'ตั้งค่าประเภท', count: null }] : [])
+    ...(DB.isHR ? [{ id: 'types', label: 'ตั้งค่าประเภท', count: null }] : [])
   ];
 
   const todayStr = new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' });
@@ -7433,7 +7479,7 @@ function renderLeaveTab() {
               ${r.status === 'pending' && !canApprove ? `<span class="muted-2 sw-wait-note">รอหัวสาขา</span>` : ''}
               ${r.status === 'pending' ? `<button class="btn btn-ghost btn-sm" onclick="openLeaveRequestForm('${r.id}')">แก้</button>
                 <button class="btn btn-ghost btn-sm" onclick="cancelLeave('${r.id}')">ยกเลิก</button>` : ''}
-              ${r.status !== 'pending' && DB.isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="deleteLeave('${r.id}')">ลบ</button>` : ''}
+              ${r.status !== 'pending' && DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="deleteLeave('${r.id}')">ลบ</button>` : ''}
             </td>
           </tr>`;
         }).join('')}
@@ -7513,9 +7559,9 @@ function renderLeaveBalanceTable() {
   </div>`;
 }
 
-// ─── Leave types config tab (admin only) ───
+// ─── Leave types config tab (admin + HR) ───
 function renderLeaveTypesTable() {
-  if (!DB.isAdmin) return '<div class="sw-chart-card"><div class="empty-state"><div class="title">เฉพาะ admin</div></div></div>';
+  if (!DB.isHR) return '<div class="sw-chart-card"><div class="empty-state"><div class="title">เฉพาะ Admin / HR</div></div></div>';
   const list = DB.getLeaveTypesList(true);  // include inactive
   return `<div class="sw-chart-card">
     <div class="sw-chart-header">
@@ -7635,9 +7681,9 @@ async function deleteLeaveType(id) {
 // ─── Leave request form ───
 function openLeaveRequestForm(id = null) {
   const editing = id ? DB.getLeaveRequest(id) : null;
-  // viewer: pre-select ตัวเอง (จาก user_profiles.employee_id), admin: ให้เลือกได้
+  // staff/manager: pre-select ตัวเอง (จาก user_profiles.employee_id), admin/HR: ให้เลือกได้ (ยื่นคำขอแทน)
   let defaultEmpId = editing?.employeeId || '';
-  if (!defaultEmpId && !DB.isAdmin) defaultEmpId = DB.profile?.employee_id || '';
+  if (!defaultEmpId && !DB.isHR) defaultEmpId = DB.profile?.employee_id || '';
   const today = tz.today();
 
   // ใช้ getEmployees() เพื่อ auto-scope: branch_staff เห็นเฉพาะตัวเอง, branch_mgr เห็นสาขา ฯลฯ
@@ -7649,7 +7695,7 @@ function openLeaveRequestForm(id = null) {
     <form id="leaveForm">
       <div class="form-grid">
         <div class="form-group span-2"><label>พนักงาน *</label>
-          <select name="employeeId" id="leaveEmp" required ${DB.isAdmin ? '' : 'disabled'}>
+          <select name="employeeId" id="leaveEmp" required ${DB.isHR ? '' : 'disabled'}>
             <option value="">— เลือกพนักงาน —</option>
             ${empOptions}
           </select>
@@ -7734,12 +7780,13 @@ function openLeaveRequestForm(id = null) {
   $('#leaveForm').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const data = Object.fromEntries(new FormData(ev.target).entries());
-    // viewer: select ถูก disable → FormData ไม่ส่งค่า employeeId มา → fallback เป็น employee_id ของตัวเอง
-    if (!DB.isAdmin) {
+    // viewer/staff/manager: select ถูก disable → FormData ไม่ส่งค่า employeeId มา → fallback เป็น employee_id ของตัวเอง
+    // HR + admin: เลือก employee คนไหนก็ได้ (ทำคำขอแทนพนักงาน)
+    if (!DB.isHR) {
       data.employeeId = DB.profile?.employee_id || '';
       if (!data.employeeId) return toast('โปรไฟล์ของคุณยังไม่ผูกกับรหัสพนักงาน — ติดต่อ admin', 'error');
     }
-    if (!DB.isAdmin && data.employeeId !== (DB.profile?.employee_id || '')) {
+    if (!DB.isHR && data.employeeId !== (DB.profile?.employee_id || '')) {
       return toast('สามารถส่งคำขอของตัวเองเท่านั้น', 'error');
     }
     if (new Date(data.endDate) < new Date(data.startDate)) return toast('วันสิ้นสุดต้องไม่ก่อนวันเริ่ม', 'error');
@@ -7751,15 +7798,43 @@ function openLeaveRequestForm(id = null) {
       const payload = { ...data, days: Number(data.days) };
       if (id) payload.id = id;
       await DB.saveLeaveRequest(payload);
-      toast(id ? 'แก้ไขคำขอแล้ว' : 'ส่งคำขอแล้ว · รอ admin อนุมัติ', 'success');
+      // บอกผู้ใช้ว่าคำขอจะส่งไปให้ใครอนุมัติจริง (ไม่ใช่ "admin" ลอยๆ)
+      let msg;
+      if (id) {
+        msg = 'แก้ไขคำขอแล้ว';
+      } else {
+        const approver = DB.getLeaveApprover(payload.employeeId);
+        if (approver) {
+          const approverName = (approver.firstName + ' ' + (approver.lastName || '')).trim();
+          const isSelf = approver.id === payload.employeeId;
+          msg = isSelf
+            ? 'ส่งคำขอแล้ว · คุณเป็นหัวสาขาเอง — รอ Area Manager/HR อนุมัติ'
+            : `ส่งคำขอแล้ว · รอ ${approverName} อนุมัติ`;
+        } else {
+          msg = 'ส่งคำขอแล้ว · ไม่พบผู้อนุมัติของสาขา — admin จะเป็นผู้อนุมัติ';
+        }
+      }
+      toast(msg, 'success');
       modal.close();
       if (router.current === 'leave') router.go('leave');
     } catch (ex) { toast('บันทึกไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
   });
 }
 
+// ตรวจสิทธิ์อนุมัติ: admin/HR → ทุกคำขอ, Manager → เฉพาะคำขอที่ตัวเองเป็น approver
+// (ไม่ใช้ requireHR() เพราะจะบล็อก branch_manager/area_manager ที่เป็นผู้อนุมัติจริง)
+function requireApprover(requestId) {
+  const req = DB.getLeaveRequest(requestId);
+  if (!req) { toast('ไม่พบคำขอลา', 'error'); return false; }
+  if (!DB.canApproveLeaveFor(req.employeeId)) {
+    toast('คุณไม่ใช่ผู้อนุมัติของคำขอนี้', 'error');
+    return false;
+  }
+  return true;
+}
+
 async function approveLeave(id) {
-  if (!requireHR()) return;
+  if (!requireApprover(id)) return;
   const note = await modal.prompt('อนุมัติคำขอลา', 'หมายเหตุ (ถ้ามี):', '');
   if (note === null) return;
   try {
@@ -7770,7 +7845,7 @@ async function approveLeave(id) {
 }
 
 async function rejectLeave(id) {
-  if (!requireHR()) return;
+  if (!requireApprover(id)) return;
   const note = await modal.prompt('ปฏิเสธคำขอลา', 'เหตุผลที่ปฏิเสธ:', '');
   if (note === null) return;
   try {
@@ -7801,7 +7876,13 @@ async function deleteLeave(id) {
 }
 
 function updateLeaveBadge() {
-  const pending = DB.data.leaveRequests.filter(r => r.status === 'pending').length;
+  // ใช้ getLeaveRequests() เพื่อ auto-scope ตาม RBAC (branch_staff/viewer เห็นเฉพาะของตัวเอง,
+  // branch/area manager เห็นเฉพาะสาขาที่ดูแล) — admin/HR เห็นทุกคำขอ ตรงกับ stat บนหน้าเลย
+  const pendingScoped = (DB.getLeaveRequests({ status: 'pending' }) || []);
+  // กรองให้เหลือเฉพาะคำขอที่ "ฉันอนุมัติได้จริง" → badge = งานที่ต้องลงมือทำ
+  // (admin/HR = ทุกคำขอ, manager = เฉพาะที่ตัวเองเป็น approver, staff/viewer = 0)
+  const actionable = pendingScoped.filter(r => DB.canApproveLeaveFor(r.employeeId));
+  const pending = actionable.length;
   const badge = document.getElementById('navBadgeLeave');
   if (!badge) return;
   if (pending > 0) { badge.textContent = String(pending); badge.style.display = 'inline-block'; badge.title = `${pending} คำขอลารออนุมัติ`; }
@@ -8129,7 +8210,7 @@ router.register('settings', () => {
         </div>
         <div style="padding:14px 16px;background:var(--surface-2);border-radius:10px;border:1px solid var(--border)">
           <div class="muted-2" style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600">บทบาท</div>
-          <div style="margin-top:6px">${DB.isAdmin ? '<span class="badge badge-success">Admin</span>' : '<span class="badge">Viewer</span>'}</div>
+          <div style="margin-top:6px">${DB.isAdmin ? '<span class="badge badge-success">Admin</span>' : (DB.role === 'hr' ? '<span class="badge badge-info">HR</span>' : `<span class="badge">${escapeHtml(DB.role || 'Viewer')}</span>`)}</div>
         </div>
         <div style="padding:14px 16px;background:var(--surface-2);border-radius:10px;border:1px solid var(--border)">
           <div class="muted-2" style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600">Backend</div>
