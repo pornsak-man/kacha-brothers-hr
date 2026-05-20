@@ -531,6 +531,14 @@ window.onRealtimeChange = (payload) => {
     return;
   }
 
+  // CALENDAR: เมื่อแก้ calendar_items ให้ refetch ประวัติการเปลี่ยนวันหยุดด้วย
+  if (router.current === 'calendar' && table === 'calendar_items' && typeof loadHolidaySwapHistory === 'function' && DB.isAdmin) {
+    _holidaySwapState.hasLoaded = false;
+    clearTimeout(window._rtTimer);
+    window._rtTimer = setTimeout(() => loadHolidaySwapHistory(), 600);
+    return;
+  }
+
   // dashboard มี chart + KPI ซับซ้อน — throttle นาน + animation chart รบกวนน้อยลง
   const delay = router.current === 'dashboard' ? 1500 : 400;
   clearTimeout(window._rtTimer);
@@ -1633,6 +1641,184 @@ const maskMoney = (v, ownerEmpId = null) => {
   return '•••';
 };
 
+// ─── 👀 Preview HTML Builder — แสดงข้อมูลก่อนบันทึก ───
+// คืน HTML string สำหรับใส่ใน #empPreviewPane
+function buildEmployeePreview(data, isNew, currentEmp, pendingPhotoBlob, removePhoto) {
+  const dept = DB.getDepartment(data.department) || {};
+  const pos = DB.getPosition(data.position) || {};
+  const fullName = `${data.title || ''}${data.firstName || ''} ${data.lastName || ''}`.trim();
+  const nickname = data.nickname ? ` (${data.nickname})` : '';
+  const age = data.dob ? fmt.age(data.dob) : '';
+
+  // คำนวณรายได้รวม
+  const num = (k) => Number(data[k] || 0);
+  const totalIncome = num('salary') + num('allowancePosition') + num('allowanceTravel')
+    + num('allowanceFood') + num('allowancePerDiem') + num('allowanceLanguage') + num('allowanceOther');
+
+  // photo preview
+  let photoHtml = '';
+  if (pendingPhotoBlob) {
+    photoHtml = '<div class="muted-2" style="font-size:12px;color:var(--success)">📸 มีรูปใหม่รอ upload</div>';
+  } else if (removePhoto) {
+    photoHtml = '<div class="muted-2" style="font-size:12px;color:var(--danger)">🗑️ จะลบรูปออก</div>';
+  } else if (currentEmp.photoUrl) {
+    photoHtml = '<div class="muted-2" style="font-size:12px">📷 ใช้รูปเดิม</div>';
+  } else {
+    photoHtml = '<div class="muted-2" style="font-size:12px">— ไม่มีรูป —</div>';
+  }
+
+  // diff สำหรับ edit mode — เก็บ field ที่เปลี่ยน
+  let diffHtml = '';
+  if (!isNew && currentEmp) {
+    const watchFields = {
+      firstName: 'ชื่อ', lastName: 'นามสกุล', nickname: 'ชื่อเล่น',
+      phone: 'เบอร์โทร', email: 'อีเมล',
+      department: 'ฝ่าย', branch: 'สาขา', position: 'ระดับตำแหน่ง', positionTitle: 'ตำแหน่ง',
+      employeeType: 'ประเภทพนักงาน', hireDate: 'วันเริ่มงาน',
+      salary: 'เงินเดือน',
+      allowancePosition: 'ค่าตำแหน่ง', allowanceTravel: 'ค่าเดินทาง', allowanceFood: 'ค่าอาหาร',
+      allowancePerDiem: 'ค่าเบี้ยเลี้ยง', allowanceLanguage: 'ค่าภาษา', allowanceOther: 'ค่าอื่นๆ',
+      bank: 'ธนาคาร', bankAccount: 'เลขบัญชี',
+      terminationDate: 'วันพ้นสภาพ', terminationReason: 'เหตุผลพ้นสภาพ'
+    };
+    const changes = [];
+    for (const [key, label] of Object.entries(watchFields)) {
+      const oldV = String(currentEmp[key] ?? '').trim();
+      const newV = String(data[key] ?? '').trim();
+      if (oldV !== newV) {
+        const isMoney = ['salary','allowancePosition','allowanceTravel','allowanceFood','allowancePerDiem','allowanceLanguage','allowanceOther'].includes(key);
+        const fmtV = (v) => isMoney ? fmt.money(Number(v || 0)) : (v || '—');
+        changes.push(`<tr>
+          <td style="padding:6px 12px;font-weight:600">${escapeHtml(label)}</td>
+          <td style="padding:6px 12px;color:var(--text-3);text-decoration:line-through">${escapeHtml(fmtV(oldV))}</td>
+          <td style="padding:6px 12px;color:var(--success);font-weight:600">→ ${escapeHtml(fmtV(newV))}</td>
+        </tr>`);
+      }
+    }
+    if (changes.length) {
+      diffHtml = `
+        <div class="form-section">
+          <h3 style="color:var(--warning)">✏️ การเปลี่ยนแปลง (${changes.length} รายการ)</h3>
+          <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">
+            <table style="width:100%;border-collapse:collapse;font-size:13.5px">
+              <thead><tr style="background:var(--surface-2);font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-3)">
+                <th style="padding:8px 12px;text-align:left">ฟิลด์</th>
+                <th style="padding:8px 12px;text-align:left">เดิม</th>
+                <th style="padding:8px 12px;text-align:left">ใหม่</th>
+              </tr></thead>
+              <tbody>${changes.join('')}</tbody>
+            </table>
+          </div>
+        </div>`;
+    } else {
+      diffHtml = `<div class="form-section"><div class="muted-2" style="padding:16px;background:var(--surface-2);border-radius:8px;text-align:center">ℹ️ ไม่มีการเปลี่ยนแปลงข้อมูล</div></div>`;
+    }
+  }
+
+  // "ผลที่จะเกิดขึ้น"
+  let consequencesHtml = '';
+  if (isNew) {
+    const autoRole = DB.autoDetectRole({ position: data.position });
+    const autoRoleLabel = ({
+      admin: 'Admin', hr: 'HR', operation_manager: 'ผู้จัดการฝ่ายปฏิบัติการ',
+      area_manager: 'ผู้จัดการเขต', branch_manager: 'ผู้จัดการสาขา',
+      branch_staff: 'พนักงานสาขา', viewer: 'ผู้ใช้งานทั่วไป'
+    })[autoRole] || autoRole;
+    consequencesHtml = `
+      <div class="form-section">
+        <h3 style="color:var(--primary)">⚡ ผลที่จะเกิดขึ้นเมื่อบันทึก</h3>
+        <ul style="margin:0;padding:0;list-style:none">
+          <li style="padding:8px 12px;border-bottom:1px solid var(--border)">
+            ✅ <strong>สร้างพนักงานใหม่</strong> รหัส <code style="background:var(--surface-2);padding:2px 8px;border-radius:4px;font-family:monospace">${escapeHtml(data.id || '?')}</code>
+          </li>
+          <li style="padding:8px 12px;border-bottom:1px solid var(--border)">
+            🔑 <strong>สร้างบัญชี login อัตโนมัติ</strong>
+            <div class="muted-2" style="font-size:12px;margin-top:4px;margin-left:24px">
+              email: <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px">${escapeHtml(data.id || '?')}@kacha.local</code>
+              · password เริ่มต้น: เลขประชาชน
+            </div>
+          </li>
+          <li style="padding:8px 12px">
+            🎫 <strong>Auto-detect Role:</strong> <span class="badge badge-info">${escapeHtml(autoRoleLabel)}</span>
+            <div class="muted-2" style="font-size:12px;margin-top:4px;margin-left:24px">จากตำแหน่งงาน "${escapeHtml(pos.name || '-')}" (Level ${pos.level || 0})</div>
+          </li>
+        </ul>
+      </div>`;
+  } else {
+    consequencesHtml = `
+      <div class="form-section">
+        <h3 style="color:var(--primary)">⚡ ผลที่จะเกิดขึ้นเมื่อบันทึก</h3>
+        <ul style="margin:0;padding:0;list-style:none">
+          <li style="padding:8px 12px">
+            💾 <strong>อัปเดตข้อมูลพนักงาน</strong> รหัส <code style="background:var(--surface-2);padding:2px 8px;border-radius:4px;font-family:monospace">${escapeHtml(data.id || '?')}</code>
+            ${data.salary !== String(currentEmp.salary) ? '<div class="muted-2" style="font-size:12px;margin-top:4px;margin-left:24px;color:var(--warning)">⚠️ เงินเดือนเปลี่ยน — จะถูกบันทึกใน salary_history อัตโนมัติ</div>' : ''}
+          </li>
+        </ul>
+      </div>`;
+  }
+
+  return `
+    <div class="form-section">
+      <h3>👀 ตรวจสอบข้อมูลก่อนบันทึก</h3>
+      <div class="muted-2" style="font-size:13px;margin-top:-4px">กรุณาตรวจสอบข้อมูลด้านล่างให้ถูกต้องก่อนกด "ยืนยัน"</div>
+    </div>
+
+    <div class="form-section">
+      <h3>ข้อมูลพื้นฐาน</h3>
+      <div class="emp-info-grid">
+        <div class="emp-info-row"><div class="label">ชื่อ-สกุล</div><div class="value"><strong>${escapeHtml(fullName)}</strong>${escapeHtml(nickname)}</div></div>
+        <div class="emp-info-row"><div class="label">รหัสพนักงาน</div><div class="value mono">${escapeHtml(data.id || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">เพศ · อายุ</div><div class="value">${escapeHtml(data.gender || '-')}${age ? ' · ' + escapeHtml(age) : ''}</div></div>
+        <div class="emp-info-row"><div class="label">เลขประชาชน</div><div class="value mono">${escapeHtml(data.nationalId || '-')}</div></div>
+        ${data.passportNumber ? `<div class="emp-info-row"><div class="label">Passport</div><div class="value mono">${escapeHtml(data.passportNumber)}</div></div>` : ''}
+        <div class="emp-info-row"><div class="label">เบอร์โทร</div><div class="value">${escapeHtml(data.phone || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">รูปพนักงาน</div><div class="value">${photoHtml}</div></div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h3>การทำงาน</h3>
+      <div class="emp-info-grid">
+        <div class="emp-info-row"><div class="label">ฝ่าย</div><div class="value">${escapeHtml(dept.name || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">สาขา</div><div class="value">${escapeHtml(data.branch || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">ระดับตำแหน่ง</div><div class="value">${escapeHtml(pos.name || '-')}${pos.level ? ' <span class="badge badge-info" style="margin-left:6px">ระดับ ' + pos.level + '</span>' : ''}</div></div>
+        <div class="emp-info-row"><div class="label">ตำแหน่ง</div><div class="value">${escapeHtml(data.positionTitle || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">ประเภท</div><div class="value">${escapeHtml(data.employeeType || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">วันเริ่มงาน</div><div class="value">${fmt.date(data.hireDate)}</div></div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h3>เงินเดือนและสวัสดิการ</h3>
+      <div class="emp-info-grid">
+        <div class="emp-info-row"><div class="label">เงินเดือน</div><div class="value"><strong>${fmt.money(num('salary'))}</strong></div></div>
+        ${num('allowancePosition') > 0 ? `<div class="emp-info-row"><div class="label">ค่าตำแหน่ง</div><div class="value">${fmt.money(num('allowancePosition'))}</div></div>` : ''}
+        ${num('allowanceTravel') > 0 ? `<div class="emp-info-row"><div class="label">ค่าเดินทาง</div><div class="value">${fmt.money(num('allowanceTravel'))}</div></div>` : ''}
+        ${num('allowanceFood') > 0 ? `<div class="emp-info-row"><div class="label">ค่าอาหาร</div><div class="value">${fmt.money(num('allowanceFood'))}</div></div>` : ''}
+        ${num('allowancePerDiem') > 0 ? `<div class="emp-info-row"><div class="label">ค่าเบี้ยเลี้ยง</div><div class="value">${fmt.money(num('allowancePerDiem'))}</div></div>` : ''}
+        ${num('allowanceLanguage') > 0 ? `<div class="emp-info-row"><div class="label">ค่าภาษา</div><div class="value">${fmt.money(num('allowanceLanguage'))}</div></div>` : ''}
+        ${num('allowanceOther') > 0 ? `<div class="emp-info-row"><div class="label">ค่าอื่นๆ</div><div class="value">${fmt.money(num('allowanceOther'))}</div></div>` : ''}
+      </div>
+      <div style="margin-top:14px;padding:14px 18px;background:var(--primary-soft);border-radius:8px;display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border)">
+        <div style="font-size:13px;color:var(--text-2);font-weight:500">รวมรายได้ต่อเดือน</div>
+        <div style="font-size:18px;font-weight:700;color:var(--primary)">${fmt.money(totalIncome)} บาท</div>
+      </div>
+    </div>
+
+    ${data.bank || data.bankAccount ? `
+    <div class="form-section">
+      <h3>บัญชีธนาคาร</h3>
+      <div class="emp-info-grid">
+        <div class="emp-info-row"><div class="label">ธนาคาร</div><div class="value">${escapeHtml(data.bank || '-')}</div></div>
+        <div class="emp-info-row"><div class="label">เลขบัญชี</div><div class="value mono">${escapeHtml(data.bankAccount || '-')}</div></div>
+      </div>
+    </div>` : ''}
+
+    ${diffHtml}
+    ${consequencesHtml}
+  `;
+}
+
 function openEmployeeForm(id = null, init = null, onSaved = null) {
   if (!requireHR()) return;
   // init: pre-fill values (เช่นจาก applicant). ถ้า init.skipAutoId = true → ID ว่าง (user กรอกเอง)
@@ -1823,9 +2009,20 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
       <datalist id="dl-provinces">${dataListOpt(EMP_OPTIONS.provinces)}</datalist>
       <datalist id="dl-termination-reasons">${dataListOpt(EMP_OPTIONS.terminationReasons)}</datalist>
 
-      <div class="form-actions">
+      <!-- 👀 Preview Pane (hidden by default) -->
+      <div id="empPreviewPane" style="display:none"></div>
+
+      <div class="form-actions" id="empFormActions">
         <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
-        <button type="submit" class="btn btn-primary" id="empSubmit">${id ? 'บันทึกการแก้ไข' : 'เพิ่มพนักงาน'}</button>
+        <button type="button" class="btn btn-primary" id="empPreviewBtn">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          ตรวจสอบก่อนบันทึก
+        </button>
+      </div>
+
+      <div class="form-actions" id="empPreviewActions" style="display:none">
+        <button type="button" class="btn btn-secondary" id="empEditBtn">↩ กลับไปแก้ไข</button>
+        <button type="submit" class="btn btn-primary" id="empSubmit">✓ ${id ? 'ยืนยันบันทึกการแก้ไข' : 'ยืนยันเพิ่มพนักงาน'}</button>
       </div>
     </form>`, { size: 'lg' });
 
@@ -2007,6 +2204,32 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
       if (g) g.style.display = (v === 'area_manager' || v === 'operation_manager') ? '' : 'none';
     });
   }
+
+  // ─── 👀 Preview System — ตรวจสอบก่อนบันทึก ───
+  const showPreview = () => {
+    const form = $('#empForm');
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    const data = Object.fromEntries(new FormData(form).entries());
+    const previewHtml = buildEmployeePreview(data, !id, emp, pendingPhotoBlob, removePhoto);
+    $('#empPreviewPane').innerHTML = previewHtml;
+    $('#empPreviewPane').style.display = '';
+    $('#empFormActions').style.display = 'none';
+    $('#empPreviewActions').style.display = '';
+    // ซ่อน form sections เพื่อให้ preview เด่นชัด
+    form.querySelectorAll(':scope > .form-section').forEach(el => el.style.display = 'none');
+    // scroll ขึ้นบนสุด
+    $('.modal-body')?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const hidePreview = () => {
+    $('#empPreviewPane').style.display = 'none';
+    $('#empFormActions').style.display = '';
+    $('#empPreviewActions').style.display = 'none';
+    $('#empForm').querySelectorAll(':scope > .form-section').forEach(el => el.style.display = '');
+  };
+
+  $('#empPreviewBtn').addEventListener('click', showPreview);
+  $('#empEditBtn').addEventListener('click', hidePreview);
 
   $('#empForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -6934,13 +7157,114 @@ function exportDataJSON() {
 // ═══════════════════════════════════════════════════════
 //  PAGE: CALENDAR
 // ═══════════════════════════════════════════════════════
+const _holidaySwapState = { rows: [], loading: false, hasLoaded: false };
+
+async function loadHolidaySwapHistory() {
+  if (!DB.isAdmin) return;
+  if (_holidaySwapState.loading) return;
+  _holidaySwapState.loading = true;
+  try {
+    _holidaySwapState.rows = await DB.fetchHolidaySwapHistory({ limit: 100 });
+  } catch (ex) {
+    _holidaySwapState.rows = [];
+    console.warn('โหลดประวัติการเปลี่ยนวันหยุดไม่สำเร็จ:', ex.message || ex);
+  }
+  _holidaySwapState.hasLoaded = true;
+  _holidaySwapState.loading = false;
+  if (router.current === 'calendar') router.go('calendar');
+}
+
+function renderHolidaySwapHistory() {
+  if (!DB.isAdmin) return '';
+  if (_holidaySwapState.loading && !_holidaySwapState.hasLoaded) {
+    return `<div class="sw-chart-card"><div class="muted-2" style="padding:20px;text-align:center">กำลังโหลดประวัติ…</div></div>`;
+  }
+  const rows = _holidaySwapState.rows;
+  if (!rows.length) {
+    return `<div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">ประวัติการเปลี่ยนวันหยุด</div>
+          <div class="sw-chart-sub">บันทึกการตั้ง/แก้ไข/ยกเลิก การเลื่อนวันหยุดประเพณี</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadHolidaySwapHistory()">รีเฟรช</button>
+      </div>
+      <div class="empty-state" style="padding:40px 20px">
+        <div class="hint">ยังไม่มีประวัติการเปลี่ยนวันหยุด</div>
+      </div>
+    </div>`;
+  }
+  const actionLabel = (a, oldS, newS) => {
+    if (a === 'INSERT') return { txt: 'ตั้งวันหยุด (พร้อมเลื่อน)', cls: 'badge-info' };
+    if (a === 'DELETE') return { txt: 'ลบวันหยุด', cls: 'badge-danger' };
+    if (!oldS && newS) return { txt: 'เลื่อนวันหยุด', cls: 'badge-warning' };
+    if (oldS && !newS) return { txt: 'ยกเลิกการเลื่อน', cls: 'badge-success' };
+    return { txt: 'แก้ไขการเลื่อน', cls: 'badge-info' };
+  };
+  return `<div class="sw-chart-card">
+    <div class="sw-chart-header">
+      <div>
+        <div class="sw-chart-title">ประวัติการเปลี่ยนวันหยุด <span class="sw-chart-count">${fmt.num(rows.length)}</span></div>
+        <div class="sw-chart-sub">เรียงจากใหม่สุด · เฉพาะที่เกี่ยวกับการเลื่อนวันหยุด</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadHolidaySwapHistory()">รีเฟรช</button>
+    </div>
+    <div class="table-wrap"><table class="table table-compact">
+      <thead><tr>
+        <th>เวลา</th>
+        <th>ผู้แก้ไข</th>
+        <th>การกระทำ</th>
+        <th>วันหยุดเดิม</th>
+        <th>วันหยุดชดเชย</th>
+        <th>หมายเหตุ</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => {
+          const lab = actionLabel(r.action, r.oldSwap, r.newSwap);
+          const oldSwapTxt = r.oldSwap ? fmt.date(r.oldSwap) : '∅';
+          const newSwapTxt = r.newSwap ? fmt.date(r.newSwap) : '∅';
+          const swapDisplay = r.action === 'UPDATE' && (r.oldSwap || r.newSwap)
+            ? `<code style="font-size:11.5px">${oldSwapTxt} → <strong>${newSwapTxt}</strong></code>`
+            : r.newSwap ? fmt.date(r.newSwap) : (r.oldSwap ? fmt.date(r.oldSwap) : '-');
+          const note = r.newNote || r.oldNote || '';
+          return `<tr>
+            <td class="sw-cell-meta" style="white-space:nowrap">${new Date(r.ts).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+            <td style="font-size:12px">${escapeHtml(r.userEmail || '—')}<div class="muted-2" style="font-size:10.5px">${escapeHtml(r.userRole || '')}</div></td>
+            <td><span class="badge ${lab.cls}" style="font-size:10.5px">${lab.txt}</span></td>
+            <td class="sw-cell-meta"><strong>${escapeHtml(r.holidayTitle)}</strong><div class="muted-2" style="font-size:11.5px">${fmt.date(r.holidayDate)}</div></td>
+            <td>${swapDisplay}</td>
+            <td style="font-size:12px">${escapeHtml(note)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
 router.register('calendar', () => {
   const items = DB.getCalendar();
   const today = tz.today();
-  const upcoming = items.filter(c => c.date >= today).slice(0, 6);
-  const past = items.filter(c => c.date < today);
   const typeLabel = (t) => t === 'holiday' ? 'วันหยุด' : t === 'event' ? 'กิจกรรม' : 'อื่นๆ';
   const typeBadge = (t) => t === 'holiday' ? 'badge-danger' : t === 'event' ? 'badge-info' : 'badge';
+
+  if (DB.isAdmin && !_holidaySwapState.hasLoaded && !_holidaySwapState.loading) {
+    loadHolidaySwapHistory();
+  }
+
+  // สร้าง virtual entries สำหรับวันหยุดชดเชย เพื่อให้แสดงในรายการที่จะมาถึง
+  const swapEntries = items
+    .filter(c => c.type === 'holiday' && c.swapToDate)
+    .map(c => ({
+      id: c.id + '__swap',
+      date: c.swapToDate,
+      title: `หยุดชดเชย — แทน ${c.title} (${fmt.date(c.date)})`,
+      type: 'holiday',
+      _isSwapTarget: true,
+      _originalId: c.id
+    }));
+  const allForUpcoming = [...items, ...swapEntries].sort((a, b) => a.date.localeCompare(b.date));
+  const upcoming = allForUpcoming.filter(c => c.date >= today).slice(0, 6);
+
   return `
     <div class="sw-page-header">
       <div>
@@ -6958,56 +7282,103 @@ router.register('calendar', () => {
         </div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
-        ${upcoming.map(c => `<div class="sw-clickable" style="background:var(--surface-2);padding:14px 16px;border-radius:12px;border:1px solid var(--border)">
-          <div class="muted-2" style="font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600">${fmt.date(c.date)}</div>
-          <div style="font-weight:600;margin-top:6px;color:var(--text);font-size:14px">${escapeHtml(c.title)}</div>
-          <span class="badge ${typeBadge(c.type)}" style="margin-top:8px;display:inline-block;font-size:10.5px">${typeLabel(c.type)}</span>
-        </div>`).join('')}
+        ${upcoming.map(c => {
+          const swapped = c.type === 'holiday' && c.swapToDate;
+          const isTarget = c._isSwapTarget;
+          const cardStyle = swapped
+            ? 'background:var(--surface-2);padding:14px 16px;border-radius:12px;border:1px dashed var(--border);opacity:0.7'
+            : isTarget
+              ? 'background:var(--surface-2);padding:14px 16px;border-radius:12px;border:1px solid var(--success,#10b981)'
+              : 'background:var(--surface-2);padding:14px 16px;border-radius:12px;border:1px solid var(--border)';
+          return `<div class="sw-clickable" style="${cardStyle}">
+            <div class="muted-2" style="font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600">${fmt.date(c.date)}</div>
+            <div style="font-weight:600;margin-top:6px;color:var(--text);font-size:14px;${swapped ? 'text-decoration:line-through' : ''}">${escapeHtml(c.title)}</div>
+            ${swapped ? `<div style="font-size:11.5px;margin-top:4px;color:var(--warning,#f59e0b);font-weight:600">⚠ มาทำงาน · ชดเชย ${fmt.date(c.swapToDate)}</div>` : ''}
+            ${isTarget ? `<span class="badge badge-success" style="margin-top:8px;display:inline-block;font-size:10.5px">หยุดชดเชย</span>` : `<span class="badge ${typeBadge(c.type)}" style="margin-top:8px;display:inline-block;font-size:10.5px">${typeLabel(c.type)}</span>`}
+          </div>`;
+        }).join('')}
       </div>
     </div>` : ''}
     <div class="sw-chart-card">
       <div class="sw-chart-header">
         <div>
           <div class="sw-chart-title">ทุกกิจกรรม <span class="sw-chart-count">${fmt.num(items.length)}</span></div>
-          <div class="sw-chart-sub">เรียงจากใหม่สุด</div>
+          <div class="sw-chart-sub">เรียงตามวันที่</div>
         </div>
       </div>
       ${items.length ? `
       <div class="table-wrap"><table class="table table-compact sw-emp-table">
-        <thead><tr><th>วันที่</th><th>หัวข้อ</th><th>ประเภท</th><th></th></tr></thead>
+        <thead><tr><th>วันที่</th><th>หัวข้อ</th><th>ประเภท</th><th>สถานะ</th><th></th></tr></thead>
         <tbody>
-          ${items.map(c => `<tr style="${c.date < today ? 'opacity:0.6' : ''}">
-            <td class="sw-cell-meta">${fmt.date(c.date)}</td>
-            <td><strong>${escapeHtml(c.title)}</strong></td>
-            <td><span class="badge ${typeBadge(c.type)}">${typeLabel(c.type)}</span></td>
-            <td class="actions">${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openCalForm('${c.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteCalRec('${c.id}')">ลบ</button>` : ''}</td>
-          </tr>`).join('')}
+          ${items.map(c => {
+            const swapped = c.type === 'holiday' && c.swapToDate;
+            return `<tr style="${c.date < today ? 'opacity:0.6' : ''}">
+              <td class="sw-cell-meta">${fmt.date(c.date)}</td>
+              <td><strong style="${swapped ? 'text-decoration:line-through' : ''}">${escapeHtml(c.title)}</strong>${swapped && c.swapNote ? `<div class="muted-2" style="font-size:11.5px;margin-top:2px">${escapeHtml(c.swapNote)}</div>` : ''}</td>
+              <td><span class="badge ${typeBadge(c.type)}">${typeLabel(c.type)}</span></td>
+              <td>${swapped ? `<span class="badge badge-warning" style="font-size:10.5px">มาทำงาน → ชดเชย ${fmt.date(c.swapToDate)}</span>` : ''}</td>
+              <td class="actions">${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openCalForm('${c.id}')">แก้</button><button class="btn btn-ghost btn-sm" onclick="deleteCalRec('${c.id}')">ลบ</button>` : ''}</td>
+            </tr>`;
+          }).join('')}
         </tbody>
       </table></div>` : `<div class="empty-state" style="padding:60px 20px">
         <div style="font-size:42px;margin-bottom:12px;opacity:0.35">📅</div>
         <div class="title" style="font-size:16px;font-weight:600">ยังไม่มีกิจกรรม</div>
         <div class="hint" style="margin-top:6px">กด + เพิ่มกิจกรรม เพื่อเริ่ม</div>
       </div>`}
-    </div>`;
+    </div>
+    ${renderHolidaySwapHistory()}`;
 });
 
 function openCalForm(id = null) {
   if (!requireHR()) return;
-  const c = id ? DB.getCalendar().find(x => x.id === id) : { date: tz.today(), title: '', type: 'holiday' };
+  const c = id ? DB.getCalendar().find(x => x.id === id) : { date: tz.today(), title: '', type: 'holiday', swapToDate: null, swapNote: '' };
+  const hasSwap = !!c.swapToDate;
   modal.open(id ? 'แก้ไข' : 'เพิ่มกิจกรรม / วันหยุด', `
     <form id="calForm">
       <div class="form-grid">
         <div class="form-group"><label>วันที่ *</label><input name="date" type="date" value="${c.date}" required/></div>
-        <div class="form-group"><label>ประเภท</label><select name="type"><option value="holiday" ${c.type === 'holiday' ? 'selected' : ''}>วันหยุด</option><option value="event" ${c.type === 'event' ? 'selected' : ''}>กิจกรรม</option><option value="other" ${c.type === 'other' ? 'selected' : ''}>อื่นๆ</option></select></div>
+        <div class="form-group"><label>ประเภท</label><select name="type" id="calType"><option value="holiday" ${c.type === 'holiday' ? 'selected' : ''}>วันหยุด</option><option value="event" ${c.type === 'event' ? 'selected' : ''}>กิจกรรม</option><option value="other" ${c.type === 'other' ? 'selected' : ''}>อื่นๆ</option></select></div>
         <div class="form-group span-2"><label>หัวข้อ *</label><input name="title" value="${escapeHtml(c.title)}" required/></div>
+      </div>
+      <div id="swapSection" style="margin-top:8px;padding:14px 16px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;${c.type === 'holiday' ? '' : 'display:none'}">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;margin-bottom:10px">
+          <input type="checkbox" id="swapToggle" ${hasSwap ? 'checked' : ''}/>
+          <span>เปลี่ยนวันหยุด (พนักงานมาทำงาน เลื่อนหยุดวันอื่นแทน)</span>
+        </label>
+        <div class="muted-2" style="font-size:12px;margin-bottom:10px">ใช้เมื่อบริษัทได้รับยกเว้นทางกฎหมายให้พนักงานมาทำงานในวันหยุดประเพณี</div>
+        <div id="swapFields" style="${hasSwap ? '' : 'display:none'}">
+          <div class="form-grid">
+            <div class="form-group"><label>วันหยุดชดเชย *</label><input name="swapToDate" type="date" value="${c.swapToDate || ''}"/></div>
+            <div class="form-group"><label>หมายเหตุ</label><input name="swapNote" value="${escapeHtml(c.swapNote || '')}" placeholder="เช่น ยกเว้นทางกฎหมาย"/></div>
+          </div>
+        </div>
       </div>
       <div class="form-actions"><button type="button" class="btn btn-secondary" data-close>ยกเลิก</button><button type="submit" class="btn btn-primary">บันทึก</button></div>
     </form>`);
+  const typeEl = $('#calType');
+  const swapSection = $('#swapSection');
+  const swapToggle = $('#swapToggle');
+  const swapFields = $('#swapFields');
+  typeEl.addEventListener('change', () => {
+    swapSection.style.display = typeEl.value === 'holiday' ? '' : 'none';
+    if (typeEl.value !== 'holiday') { swapToggle.checked = false; swapFields.style.display = 'none'; }
+  });
+  swapToggle.addEventListener('change', () => {
+    swapFields.style.display = swapToggle.checked ? '' : 'none';
+  });
   $('#calForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
       const data = Object.fromEntries(new FormData(e.target).entries());
       if (id) data.id = id;
+      if (data.type !== 'holiday' || !swapToggle.checked) {
+        data.swapToDate = null;
+        data.swapNote = null;
+      } else {
+        if (!data.swapToDate) { toast('กรุณาเลือกวันหยุดชดเชย', 'warning'); return; }
+        if (data.swapToDate === data.date) { toast('วันหยุดชดเชยต้องไม่ใช่วันเดียวกัน', 'warning'); return; }
+      }
       await DB.saveCalendarItem(data);
       modal.close();
       toast('บันทึกแล้ว', 'success');
@@ -7050,7 +7421,8 @@ const AUDIT_TABLE_LABELS = {
   position_levels: 'ระดับตำแหน่ง',
   user_profiles: 'โปรไฟล์ผู้ใช้',
   leave_requests: 'คำขอลา',
-  leave_types: 'ตั้งค่าประเภทการลา'
+  leave_types: 'ตั้งค่าประเภทการลา',
+  calendar_items: 'ปฏิทินวันหยุด'
 };
 const AUDIT_ACTION_LABELS = { INSERT: 'เพิ่ม', UPDATE: 'แก้ไข', DELETE: 'ลบ' };
 const AUDIT_ACTION_COLORS = { INSERT: 'badge-success', UPDATE: 'badge-info', DELETE: 'badge-danger' };

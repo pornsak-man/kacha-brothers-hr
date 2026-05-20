@@ -158,13 +158,16 @@ CREATE INDEX IF NOT EXISTS idx_evaluations_employee ON public.evaluations(employ
 
 -- ── ปฏิทิน HR ──
 CREATE TABLE IF NOT EXISTS public.calendar_items (
-  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  date        DATE NOT NULL,
-  title       TEXT NOT NULL,
-  type        TEXT DEFAULT 'holiday',
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  date          DATE NOT NULL,
+  title         TEXT NOT NULL,
+  type          TEXT DEFAULT 'holiday',
+  swap_to_date  DATE,                                  -- วันหยุดชดเชย (พนักงานมาทำงานในวันหยุดประเพณี)
+  swap_note     TEXT,                                  -- เหตุผล/หมายเหตุการเปลี่ยนวันหยุด
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON public.calendar_items(date);
+CREATE INDEX IF NOT EXISTS idx_calendar_swap_to_date ON public.calendar_items(swap_to_date) WHERE swap_to_date IS NOT NULL;
 
 -- ── ข้อมูลบริษัท (เก็บแค่ row เดียว) ──
 CREATE TABLE IF NOT EXISTS public.company_settings (

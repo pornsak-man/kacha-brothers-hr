@@ -423,8 +423,21 @@ const DB = {
     change_type: s.changeType || null,
     reason: s.reason || null
   }),
-  _calFromDB: (r) => ({ id: r.id, date: r.date, title: r.title, type: r.type || 'holiday' }),
-  _calToDB: (c) => ({ date: c.date, title: c.title, type: c.type }),
+  _calFromDB: (r) => ({
+    id: r.id,
+    date: r.date,
+    title: r.title,
+    type: r.type || 'holiday',
+    swapToDate: r.swap_to_date || null,
+    swapNote: r.swap_note || ''
+  }),
+  _calToDB: (c) => ({
+    date: c.date,
+    title: c.title,
+    type: c.type,
+    swap_to_date: c.swapToDate || null,
+    swap_note: c.swapNote || null
+  }),
   _applFromDB: (r) => ({
     id: r.id,
     firstName: r.first_name || '',
@@ -1601,6 +1614,36 @@ const DB = {
     const { data, count, error } = await q;
     if (error) throw error;
     return { rows: data || [], total: count || 0 };
+  },
+
+  // ─── HOLIDAY SWAP HISTORY (admin only) ───
+  // ดึง audit_log เฉพาะ calendar_items แล้วกรองเฉพาะที่มีการเปลี่ยน swap_to_date
+  // คืนรายการ { ts, userEmail, userRole, action, holidayDate, holidayTitle, oldSwap, newSwap, oldNote, newNote }
+  async fetchHolidaySwapHistory({ limit = 100 } = {}) {
+    if (!this.isAdmin) throw new Error('ดูได้เฉพาะ admin');
+    const { rows } = await this.fetchAuditLog({ table: 'calendar_items', limit });
+    const result = [];
+    for (const r of rows) {
+      const oldSwap = r.old_data?.swap_to_date || null;
+      const newSwap = r.new_data?.swap_to_date || null;
+      const oldNote = r.old_data?.swap_note || null;
+      const newNote = r.new_data?.swap_note || null;
+      // เก็บเฉพาะแถวที่เกี่ยวกับการเปลี่ยน swap
+      const swapChanged = oldSwap !== newSwap || oldNote !== newNote;
+      const insertWithSwap = r.action === 'INSERT' && newSwap;
+      const deleteWithSwap = r.action === 'DELETE' && oldSwap;
+      if (!swapChanged && !insertWithSwap && !deleteWithSwap) continue;
+      result.push({
+        ts: r.ts,
+        userEmail: r.user_email || '',
+        userRole: r.user_role || '',
+        action: r.action,
+        holidayDate: r.new_data?.date || r.old_data?.date || '',
+        holidayTitle: r.new_data?.title || r.old_data?.title || '',
+        oldSwap, newSwap, oldNote, newNote
+      });
+    }
+    return result;
   },
 
   // ─── LEAVE MANAGEMENT (การลางาน) ───

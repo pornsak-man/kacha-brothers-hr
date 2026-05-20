@@ -36,6 +36,7 @@ CREATE POLICY "read_admin_only" ON public.audit_log FOR SELECT TO authenticated
 
 -- ─── RLS HARDENING: salary_history → admin-only read (sensitive — เงินเดือนเก่า/ใหม่) ───
 DROP POLICY IF EXISTS "read_authenticated" ON public.salary_history;
+DROP POLICY IF EXISTS "read_admin_only"    ON public.salary_history;
 CREATE POLICY "read_admin_only" ON public.salary_history FOR SELECT TO authenticated
   USING (public.is_admin());
 
