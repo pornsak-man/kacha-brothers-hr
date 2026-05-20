@@ -30,7 +30,8 @@ const DB = {
     uniformSchedule: [],
     branches: [],
     leaveRequests: [],
-    leaveTypes: []
+    leaveTypes: [],
+    holidaySwapRequests: []
   },
 
   // ─── INDEX CACHES (O(1) lookup; rebuild lazily after data change) ───
@@ -197,7 +198,7 @@ const DB = {
       this.client.from('company_settings').select('*').eq('id', 1).maybeSingle()
     ]);
     // ตารางที่อาจมีเกิน 1000 records — ดึงด้วย pagination
-    const [emps, loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues, uniSched, branchRows, leaves, lvTypes] = await Promise.all([
+    const [emps, loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues, uniSched, branchRows, leaves, lvTypes, swapReqs] = await Promise.all([
       this._fetchAllPages('employees', 'id', true),
       this._fetchAllPages('loans', 'date', false),
       this._fetchAllPages('advances', 'date', false),
@@ -211,7 +212,8 @@ const DB = {
       this._fetchAllPages('uniform_delivery_schedule', 'branch_code', true).catch(() => []),
       this._fetchAllPages('branches', 'id', true).catch(() => []),
       this._fetchAllPages('leave_requests', 'start_date', false).catch(() => []),
-      this._fetchAllPages('leave_types', 'sort_order', true).catch(() => [])
+      this._fetchAllPages('leave_types', 'sort_order', true).catch(() => []),
+      this._fetchAllPages('holiday_swap_requests', 'requested_at', false).catch(() => [])
     ]);
     this.data.departments = (deps.data || []).map(this._depFromDB);
     this.data.positionLevels = (pos.data || []).map(this._posFromDB);
@@ -230,6 +232,7 @@ const DB = {
     this.data.branches = (branchRows || []).map(this._branchFromDB);
     this.data.leaveRequests = (leaves || []).map(this._leaveFromDB);
     this.data.leaveTypes = (lvTypes || []).map(this._leaveTypeFromDB);
+    this.data.holidaySwapRequests = (swapReqs || []).map(this._swapReqFromDB);
     if (comp.data) this.data.company = this._compFromDB(comp.data);
 
     // Pre-fetch user_profiles cache — RLS อนุญาต admin เห็นทั้งหมด, ผู้ใช้ทั่วไปเห็นแค่ของตัวเอง
@@ -279,7 +282,8 @@ const DB = {
       uniform_delivery_schedule: { list: 'uniformSchedule', from: this._uniSchedFromDB },
       branches: { list: 'branches', from: this._branchFromDB },
       leave_requests: { list: 'leaveRequests', from: this._leaveFromDB },
-      leave_types: { list: 'leaveTypes', from: this._leaveTypeFromDB }
+      leave_types: { list: 'leaveTypes', from: this._leaveTypeFromDB },
+      holiday_swap_requests: { list: 'holidaySwapRequests', from: this._swapReqFromDB }
     };
     const m = map[table];
     if (!m) return;
@@ -438,6 +442,33 @@ const DB = {
     swap_to_date: c.swapToDate || null,
     swap_note: c.swapNote || null
   }),
+  _swapReqFromDB: (r) => ({
+    id: r.id,
+    calendarItemId: r.calendar_item_id,
+    employeeId: r.employee_id,
+    swapToDate: r.swap_to_date,
+    reason: r.reason || '',
+    status: r.status,
+    requestedBy: r.requested_by,
+    requestedAt: r.requested_at,
+    approvedBy: r.approved_by,
+    approvedAt: r.approved_at,
+    approverNote: r.approver_note || '',
+    cancelledAt: r.cancelled_at,
+    cancelledBy: r.cancelled_by,
+    cancelReason: r.cancel_reason || '',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  }),
+  _swapReqToDB(s) {
+    return {
+      calendar_item_id: s.calendarItemId,
+      employee_id: s.employeeId,
+      swap_to_date: s.swapToDate,
+      reason: s.reason || null,
+      status: s.status || 'pending'
+    };
+  },
   _applFromDB: (r) => ({
     id: r.id,
     firstName: r.first_name || '',
@@ -1947,6 +1978,88 @@ const DB = {
     const { error } = await this.client.from('leave_requests').delete().eq('id', id);
     if (error) throw error;
     this.data.leaveRequests = this.data.leaveRequests.filter(r => r.id !== id);
+  },
+
+  // ─── HOLIDAY SWAP REQUESTS — ใช้ chain อนุมัติเดียวกับการลา ───
+  // canApproveHolidaySwapFor reuses canApproveLeaveFor — same business rules
+  canApproveHolidaySwapFor(empId) { return this.canApproveLeaveFor(empId); },
+  getHolidaySwapApprover(empId)   { return this.getLeaveApprover(empId); },
+
+  getHolidaySwapRequests({ status = null, calendarItemId = null, _noScope = false } = {}) {
+    let list = (this.data.holidaySwapRequests || []).slice();
+    if (status)         list = list.filter(r => r.status === status);
+    if (calendarItemId) list = list.filter(r => r.calendarItemId === calendarItemId);
+    // Auto-scope ตาม RBAC (เลียน leave): branch_staff/viewer เห็นของตัวเอง, manager เห็นใน scope สาขา
+    if (!_noScope && this.role) {
+      if (this.role === 'branch_staff' || this.role === 'viewer') {
+        const myId = this.profile?.employee_id;
+        list = list.filter(r => r.employeeId === myId);
+      } else if (this.role === 'branch_manager' || this.role === 'area_manager') {
+        const scoped = this.scopedBranches() || [];
+        const scopedEmpIds = new Set(this.data.employees.filter(e => scoped.includes(e.branch)).map(e => e.id));
+        list = list.filter(r => scopedEmpIds.has(r.employeeId));
+      }
+    }
+    return list.sort((a, b) => (b.requestedAt || '').localeCompare(a.requestedAt || ''));
+  },
+
+  getHolidaySwapRequest(id) {
+    return (this.data.holidaySwapRequests || []).find(r => r.id === id);
+  },
+
+  async saveHolidaySwapRequest(req) {
+    const row = this._swapReqToDB(req);
+    if (req.id) row.id = req.id;
+    if (!req.id && this.user?.id) row.requested_by = this.user.id;
+    const { data, error } = await this.client.from('holiday_swap_requests').upsert(row).select().single();
+    if (error) throw error;
+    const mapped = this._swapReqFromDB(data);
+    const idx = this.data.holidaySwapRequests.findIndex(x => x.id === mapped.id);
+    if (idx >= 0) this.data.holidaySwapRequests[idx] = mapped;
+    else this.data.holidaySwapRequests.unshift(mapped);
+    return mapped;
+  },
+
+  _ensureCanApproveSwap(requestId) {
+    if (this.isHR) return;
+    const req = this.getHolidaySwapRequest(requestId);
+    if (!req) throw new Error('ไม่พบคำขอเปลี่ยนวันหยุด');
+    if (!this.canApproveHolidaySwapFor(req.employeeId)) {
+      throw new Error('คุณไม่ใช่ผู้อนุมัติของคำขอนี้');
+    }
+  },
+
+  async approveHolidaySwapRequest(id, note = '') {
+    this._ensureCanApproveSwap(id);
+    const { data, error } = await this.client.from('holiday_swap_requests')
+      .update({ status: 'approved', approved_by: this.user?.id || null, approved_at: new Date().toISOString(), approver_note: note || null })
+      .eq('id', id).select().single();
+    if (error) throw error;
+    return this._swapReqFromDB(data);
+  },
+
+  async rejectHolidaySwapRequest(id, note = '') {
+    this._ensureCanApproveSwap(id);
+    const { data, error } = await this.client.from('holiday_swap_requests')
+      .update({ status: 'rejected', approved_by: this.user?.id || null, approved_at: new Date().toISOString(), approver_note: note || null })
+      .eq('id', id).select().single();
+    if (error) throw error;
+    return this._swapReqFromDB(data);
+  },
+
+  async cancelHolidaySwapRequest(id, reason = '') {
+    const { data, error } = await this.client.from('holiday_swap_requests')
+      .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancelled_by: this.user?.id || null, cancel_reason: reason || null })
+      .eq('id', id).select().single();
+    if (error) throw error;
+    return this._swapReqFromDB(data);
+  },
+
+  async deleteHolidaySwapRequest(id) {
+    if (!this.isHR) throw new Error('ต้องเป็น admin หรือ HR');
+    const { error } = await this.client.from('holiday_swap_requests').delete().eq('id', id);
+    if (error) throw error;
+    this.data.holidaySwapRequests = this.data.holidaySwapRequests.filter(r => r.id !== id);
   },
 
   // ─── PROBATION DUE — พนักงานที่อายุงานครบ N วันในเดือนนี้ ───
