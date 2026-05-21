@@ -408,7 +408,7 @@ const router = {
       allowance: 'เบี้ยเลี้ยงรายเดือน',
       evaluations: 'ประเมินผลงาน',
       reports: 'รายงาน / Export',
-      calendar: 'ปฏิทิน HR',
+      calendar: 'วันหยุดประเพณี',
       sso: 'ประกันสังคม',
       'branch-managers': 'ผู้บังคับบัญชาสาขา',
       'user-roles': 'ผู้ใช้และสิทธิ์',
@@ -7466,7 +7466,7 @@ router.register('calendar', () => {
   return `
     <div class="sw-page-header">
       <div>
-        <div class="sw-page-title">ปฏิทิน HR</div>
+        <div class="sw-page-title">วันหยุดประเพณี</div>
         <div class="sw-page-subtitle">วันหยุด · กิจกรรมบริษัท · ประจำปี ${buddhistYear}</div>
       </div>
       <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openCalForm()">+ เพิ่มกิจกรรม</button>' : ''}</div>
