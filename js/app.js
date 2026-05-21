@@ -8858,6 +8858,10 @@ function openLeaveRequestForm(id = null, prefilledType = null) {
         <div class="form-group"><label>จำนวนวัน *<span class="muted-2" style="font-size:11px">(แก้ได้ — รองรับครึ่งวัน)</span></label><input name="days" id="leaveDays" type="number" min="0.5" step="0.5" required value="${editing?.days || 1}"/></div>
         <div class="form-group span-2"><label>เหตุผล</label><textarea name="reason" rows="2" placeholder="ระบุเหตุผลโดยย่อ">${escapeHtml(editing?.reason || '')}</textarea></div>
       </div>
+      ${(DB.isHR && !editing) ? `<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--success-soft);border:1px solid var(--success);border-radius:8px;font-size:13px;cursor:pointer;margin:8px 0">
+        <input type="checkbox" name="autoApprove" id="leaveAutoApprove" checked/>
+        <span><strong style="color:var(--success-text)">บันทึกเป็น "อนุมัติแล้ว" ทันที</strong> — ไม่ต้องเข้า approval chain (HR/admin override)</span>
+      </label>` : ''}
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
         <button type="submit" class="btn btn-primary">${editing ? 'บันทึก' : 'ส่งคำขอ'}</button>
@@ -8940,7 +8944,24 @@ function openLeaveRequestForm(id = null, prefilledType = null) {
     try {
       const payload = { ...data, days: Number(data.days) };
       if (id) payload.id = id;
-      await DB.saveLeaveRequest(payload);
+      const saved = await DB.saveLeaveRequest(payload);
+      const autoApprove = DB.isHR && !id && data.autoApprove === 'on';
+      // ─── Auto-approve (HR/admin override) — 2nd API call ที่ catch แยก ───
+      if (autoApprove && saved?.id) {
+        try {
+          await DB.approveLeaveRequest(saved.id, '✓ บันทึกและอนุมัติโดย ' + (DB.profile?.employee_id || 'HR'));
+          toast('✓ บันทึก + อนุมัติแล้ว', 'success');
+          modal.close();
+          if (router.current === 'leave') router.go('leave');
+          return;
+        } catch (approveEx) {
+          // save สำเร็จแล้ว แต่ approve fail → record ค้างเป็น pending
+          toast(`บันทึกแล้ว แต่อนุมัติอัตโนมัติไม่สำเร็จ — คำขออยู่ใน "รออนุมัติ" (${approveEx.message || approveEx})`, 'warning');
+          modal.close();
+          if (router.current === 'leave') router.go('leave');
+          return;
+        }
+      }
       // บอกผู้ใช้ว่าคำขอจะส่งไปให้ใครอนุมัติจริง (ไม่ใช่ "admin" ลอยๆ)
       let msg;
       if (id) {
