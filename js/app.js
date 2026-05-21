@@ -7442,9 +7442,12 @@ router.register('calendar', () => {
     });
     if (!allReqs.length) return '';
 
-    // ─── แยกคำขอ "ของฉัน" ออกจากคำขอที่ต้องอนุมัติ ───
+    // ─── User context — role + employee_id ───
+    const role = DB.role;
     const myEmpId = DB.profile?.employee_id;
     const isStaffOrViewer = (role === 'branch_staff' || role === 'viewer');
+
+    // ─── แยกคำขอ "ของฉัน" ออกจากคำขอที่ต้องอนุมัติ ───
     const myReqs = myEmpId ? allReqs.filter(r => r.employeeId === myEmpId) : [];
     const othersReqs = myEmpId ? allReqs.filter(r => r.employeeId !== myEmpId) : allReqs;
     const myPendingCount = myReqs.filter(r => r.status === 'pending').length;
@@ -7561,7 +7564,6 @@ router.register('calendar', () => {
     };
 
     // Subtitle ตาม role ของผู้ใช้ — บอกขอบเขตการเห็นข้อมูลให้ชัดเจน
-    const role = DB.role;
     let scopeLabel = 'เห็นเฉพาะคำขอของฉัน';
     if (DB.isHR) scopeLabel = 'เห็นคำขอทั้งหมดของบริษัท';
     else if (role === 'operation_manager') scopeLabel = 'เห็นคำขอทั้งหมดของบริษัท';
