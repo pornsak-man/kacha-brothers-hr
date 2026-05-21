@@ -7588,6 +7588,7 @@ router.register('calendar', () => {
           <div class="sw-chart-title">คำขอเปลี่ยนวันหยุด · ปี ${buddhistYear}</div>
           <div class="sw-chart-sub">ใช้ chain อนุมัติเดียวกับการลา · ${escapeHtml(scopeLabel)} · เปลี่ยนปีที่ตัวกรองด้านบน</div>
         </div>
+        ${(DB.isHR || role === 'branch_manager' || role === 'area_manager') ? '<button class="btn btn-primary btn-sm" onclick="openBulkSwapForm()">+ บันทึกให้พนักงาน</button>' : ''}
       </div>
 
       <!-- Tabs (filter pills) -->
