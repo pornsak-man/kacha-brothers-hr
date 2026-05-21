@@ -7967,6 +7967,62 @@ const LEAVE_STATUS_BADGE = {
 
 function switchLeaveTab(t) { _leaveState.tab = t; router.go('leave'); }
 
+// แสดงสิทธิ์การลาของผู้ใช้ปัจจุบัน (ของฉัน) — แสดงทุกประเภทที่เปิดใช้งานและเข้าเงื่อนไขเพศ
+function renderMyLeaveBalance() {
+  const myEmpId = DB.profile?.employee_id;
+  if (!myEmpId) return '';                       // user ไม่ได้ผูกกับพนักงาน → ซ่อน
+  const emp = DB.getEmployee(myEmpId);
+  if (!emp) return '';
+  const year = new Date().getFullYear();
+  const myGender = DB.genderCode(emp.gender);
+  const types = DB.getLeaveTypesList()
+    .filter(t => !t.gender || t.gender === myGender);
+  // คำนวณ balance ต่อประเภท
+  const balances = types.map(t => {
+    const b = DB.calcLeaveBalance(myEmpId, t.id, year);
+    return { type: t, ...b };
+  }).filter(b => b.quota > 0);
+  if (!balances.length) return '';
+  // นับ pending ของตัวเอง (เพื่อแสดงเป็นข้อมูลเสริม)
+  const myPending = (DB.data.leaveRequests || []).filter(r => r.employeeId === myEmpId && r.status === 'pending');
+  const totalUsedAll = balances.reduce((s, b) => s + b.used, 0);
+  const totalRemainAll = balances.reduce((s, b) => s + b.remaining, 0);
+  return `
+    <div class="sw-chart-card" style="margin-bottom:24px">
+      <div class="sw-chart-header" style="align-items:flex-start;flex-wrap:wrap;gap:12px">
+        <div>
+          <div class="sw-chart-title">สิทธิ์การลาของฉัน · ปี ${fmt.num(year + 543)}</div>
+          <div class="sw-chart-sub">${escapeHtml(emp.firstName + ' ' + (emp.lastName || ''))} · ${escapeHtml(emp.id)}${emp.branch ? ' · ' + escapeHtml(emp.branch) : ''} — นับจากคำขอที่อนุมัติแล้วในปีนี้</div>
+        </div>
+        <div style="display:flex;gap:14px;align-items:center;font-size:12px;color:var(--text-2)">
+          <div><strong style="color:var(--success);font-size:16px">${fmt.num(totalRemainAll)}</strong> วันคงเหลือรวม</div>
+          <div><strong style="color:var(--warning);font-size:16px">${fmt.num(totalUsedAll)}</strong> วันที่ลาไปแล้ว</div>
+          ${myPending.length ? `<div><strong style="color:var(--info);font-size:16px">${fmt.num(myPending.length)}</strong> คำขอรออนุมัติ</div>` : ''}
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px">
+        ${balances.map(b => {
+          const usedPct = Math.min(100, (b.used / b.quota) * 100);
+          const remainColor = b.remaining === 0 ? 'var(--danger)' : usedPct >= 70 ? 'var(--warning)' : 'var(--success)';
+          const badgeCls = b.type.badge || 'badge-info';
+          return `<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;position:relative">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
+              <span class="badge ${badgeCls}" style="font-size:10.5px">${escapeHtml(b.type.label)}</span>
+              <span class="muted-2" style="font-size:10.5px;font-weight:600">ใช้ ${b.used} / ${b.quota}</span>
+            </div>
+            <div style="display:flex;align-items:baseline;gap:6px;margin-top:6px">
+              <span style="font-size:28px;font-weight:600;color:${remainColor};line-height:1;letter-spacing:-0.02em">${fmt.num(b.remaining)}</span>
+              <span style="font-size:12px;color:var(--text-3)">วันคงเหลือ</span>
+            </div>
+            <div style="height:6px;background:var(--surface);border-radius:3px;margin-top:10px;overflow:hidden">
+              <div style="height:100%;width:${usedPct}%;background:${remainColor};transition:width .3s"></div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
 router.register('leave', () => {
   const today = tz.today();
   const thisMonth = today.slice(0, 7);
@@ -8023,6 +8079,8 @@ router.register('leave', () => {
         <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">เปิดใช้งานในระบบ</div>
       </div>
     </div>
+
+    ${renderMyLeaveBalance()}
 
     <div class="sw-tabs" role="tablist">
       ${tabs.map(t => `<button class="sw-tab ${_leaveState.tab === t.id ? 'active' : ''}" onclick="switchLeaveTab('${t.id}')" role="tab">
