@@ -7588,7 +7588,7 @@ router.register('calendar', () => {
           <div class="sw-chart-title">คำขอเปลี่ยนวันหยุด · ปี ${buddhistYear}</div>
           <div class="sw-chart-sub">ใช้ chain อนุมัติเดียวกับการลา · ${escapeHtml(scopeLabel)} · เปลี่ยนปีที่ตัวกรองด้านบน</div>
         </div>
-        ${(DB.isHR || role === 'branch_manager' || role === 'area_manager') ? '<button class="btn btn-primary btn-sm" onclick="openBulkSwapForm()">+ บันทึกให้พนักงาน</button>' : ''}
+        ${(DB.isHR || role === 'branch_manager' || role === 'area_manager') ? '<button class="btn btn-primary btn-sm" onclick="openSwapRequestForm()">+ บันทึกให้พนักงาน</button>' : ''}
       </div>
 
       <!-- Tabs (filter pills) -->
@@ -7654,10 +7654,7 @@ router.register('calendar', () => {
         <div class="sw-page-title">วันหยุดประเพณี</div>
         <div class="sw-page-subtitle">วันหยุด · กิจกรรมบริษัท · ประจำปี ${buddhistYear}</div>
       </div>
-      <div class="sw-page-actions">
-        ${(DB.isHR || DB.role === 'branch_manager' || DB.role === 'area_manager') ? '<button class="btn btn-secondary" onclick="openBulkSwapForm()">⇄ บันทึกการเปลี่ยนวันหยุด</button>' : ''}
-        ${DB.isHR ? '<button class="btn btn-primary" onclick="openCalForm()">+ เพิ่มกิจกรรม</button>' : ''}
-      </div>
+      <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openCalForm()">+ เพิ่มกิจกรรม</button>' : ''}</div>
     </div>
 
     <!-- KPI Stats (per-user) -->
@@ -7793,52 +7790,52 @@ function openCalForm(id = null) {
 // ═══════════════════════════════════════════════════════
 //  HOLIDAY SWAP REQUEST — Form + Actions
 // ═══════════════════════════════════════════════════════
-function openSwapRequestForm(calendarItemId) {
-  const holiday = DB.getCalendar().find(c => c.id === calendarItemId);
-  if (!holiday) { toast('ไม่พบวันหยุด', 'error'); return; }
-  if (holiday.type !== 'holiday') { toast('เปลี่ยนได้เฉพาะประเภทวันหยุด', 'warning'); return; }
+// openSwapRequestForm(calendarItemId?) — ไม่มี arg = เปิดฟอร์มที่มี holiday dropdown ให้เลือก
+//                                       มี arg = holiday ถูก lock ไว้แล้ว (จากการกดที่การ์ดวันหยุด)
+function openSwapRequestForm(calendarItemId = null) {
+  const holiday = calendarItemId ? DB.getCalendar().find(c => c.id === calendarItemId) : null;
+  if (calendarItemId && !holiday) { toast('ไม่พบวันหยุด', 'error'); return; }
+  if (holiday && holiday.type !== 'holiday') { toast('เปลี่ยนได้เฉพาะประเภทวันหยุด', 'warning'); return; }
   // ต้องมี profile + employee_id เพื่อใช้ chain อนุมัติ
   const myEmpId = DB.profile?.employee_id;
   const canAssignOthers = DB.isHR || DB.role === 'branch_manager' || DB.role === 'area_manager';
   if (!myEmpId && !canAssignOthers) { toast('โปรไฟล์ของคุณยังไม่ผูกกับพนักงาน — ติดต่อผู้ดูแลระบบ', 'error'); return; }
-  // กันสร้างซ้ำ: ถ้ามีคำขอ pending/approved ของวันหยุดนี้แล้ว (เฉพาะของฉัน) → เปิดรายละเอียดแทน
-  // (กรณี HR บันทึกให้คนอื่น — เช็คซ้ำในตอน submit แทน)
-  if (myEmpId) {
+
+  // กันสร้างซ้ำ: ถ้ามาจากกด "เสนอเปลี่ยน" ที่การ์ด + เป็นพนักงาน → เช็คคำขอของตัวเองก่อน
+  if (calendarItemId && myEmpId && !canAssignOthers) {
     const myExisting = (DB.data.holidaySwapRequests || []).find(r =>
       r.calendarItemId === calendarItemId &&
       r.employeeId === myEmpId &&
       (r.status === 'pending' || r.status === 'approved')
     );
-    // เปิดรายละเอียดถ้าเป็นคนยื่นของตัวเอง (ไม่ใช่ HR กดเสนอเปลี่ยน)
-    if (myExisting && !canAssignOthers) { openSwapRequestDetail(myExisting.id); return; }
+    if (myExisting) { openSwapRequestDetail(myExisting.id); return; }
   }
-  const myEmp = myEmpId ? DB.getEmployee(myEmpId) : null;
 
-  // คำนวณวันถัดไป (D+1) ของวันหยุด สำหรับใช้เป็น min/default
+  // คำนวณวันถัดไป (D+1)
   const dayAfter = (dateStr) => {
     const ymd = parseYMD(dateStr);
     if (!ymd) return dateStr;
     const d = new Date(ymd[0], ymd[1] - 1, ymd[2] + 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
-  // ขั้นต่ำของ swap date = วันถัดไปของวันหยุด แต่ถ้าวันหยุดผ่านแล้ว ใช้ "วันพรุ่งนี้" แทน (กันเลือกวันในอดีต)
   const todayStr = tz.today();
-  const dayAfterHoliday = dayAfter(holiday.date);
   const dayAfterToday = dayAfter(todayStr);
-  const minSwapDate = dayAfterHoliday > dayAfterToday ? dayAfterHoliday : dayAfterToday;
-  // วันสิ้นปีของปีวันหยุด — กันการ swap ข้ามปี
-  const holidayYear = parseYMD(holiday.date)?.[0];
-  const maxSwapDate = holidayYear ? `${holidayYear}-12-31` : '';
-  const holidayIsPast = holiday.date < todayStr;
+  const todayYear = parseYMD(todayStr)?.[0];
 
-  // Employee picker (เฉพาะ HR/manager) — ใช้ getEmployees() เพื่อ auto-scope
+  // รายชื่อวันหยุดสำหรับ dropdown (เฉพาะกรณีไม่มี calendarItemId)
+  const allHolidays = DB.getCalendar()
+    .filter(c => c.type === 'holiday')
+    .filter(c => parseYMD(c.date)?.[0] === todayYear) // เฉพาะปีนี้ (กัน clutter)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Employee picker (เฉพาะ HR/manager)
   let empPickerHtml = '';
   if (canAssignOthers) {
     const empOptions = DB.getEmployees({ status: 'active' })
       .sort((a, b) => (a.firstName || '').localeCompare(b.firstName || ''))
       .map(e => `<option value="${escapeHtml(e.id)}" ${myEmpId === e.id ? 'selected' : ''}>${escapeHtml(e.firstName + ' ' + (e.lastName || ''))} (${escapeHtml(e.id)})${e.branch ? ' · ' + escapeHtml(e.branch) : ''}</option>`).join('');
     empPickerHtml = `<div class="form-group">
-      <label>พนักงาน <span class="muted-2" style="font-weight:400;letter-spacing:0">(เลือกผู้ที่จะได้รับสิทธิ์)</span></label>
+      <label>พนักงาน *</label>
       <select name="employeeId" id="swapEmpId" required>
         <option value="">— เลือกพนักงาน —</option>
         ${empOptions}
@@ -7847,30 +7844,43 @@ function openSwapRequestForm(calendarItemId) {
     </div>`;
   }
 
-  modal.open('ขอเปลี่ยนวันหยุด', `
-    <!-- Compact holiday header card -->
-    <div style="background:var(--surface-2);border-radius:10px;padding:14px 16px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;gap:12px">
-      <div style="min-width:0">
-        <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.08em;font-weight:600;margin-bottom:2px">วันหยุดที่พนักงานมาทำงาน</div>
-        <div style="font-size:15px;font-weight:600">${escapeHtml(holiday.title)}</div>
-        <div style="font-size:12.5px;color:var(--text-2);font-variant-numeric:tabular-nums">${fmt.date(holiday.date)}</div>
-      </div>
-      ${holidayIsPast ? '<span class="badge badge-warning" style="font-size:10.5px;white-space:nowrap">ผ่านมาแล้ว</span>' : ''}
-    </div>
+  // Holiday picker (ถ้าไม่มี calendarItemId ส่งมา) หรือ display lock (ถ้ามี)
+  let holidayPickerHtml = '';
+  if (holiday) {
+    holidayPickerHtml = `<div class="form-group">
+      <label>วันหยุดประเพณี</label>
+      <input type="text" value="${escapeHtml(holiday.title)} · ${fmt.date(holiday.date)}" readonly style="background:var(--surface-2);cursor:not-allowed"/>
+      <input type="hidden" name="calendarItemId" value="${escapeHtml(calendarItemId)}"/>
+    </div>`;
+  } else {
+    holidayPickerHtml = `<div class="form-group">
+      <label>วันหยุดประเพณี *</label>
+      <select name="calendarItemId" id="swapHolidayId" required>
+        <option value="">— เลือกวันหยุด —</option>
+        ${allHolidays.map(c => {
+          const isPast = c.date < todayStr;
+          return `<option value="${escapeHtml(c.id)}" data-date="${c.date}">${escapeHtml(c.title)} · ${fmt.date(c.date)}${isPast ? ' (ผ่านแล้ว)' : ''}</option>`;
+        }).join('')}
+      </select>
+    </div>`;
+  }
 
+  modal.open(canAssignOthers ? 'บันทึกการเปลี่ยนวันหยุดให้พนักงาน' : 'ขอเปลี่ยนวันหยุด', `
     <form id="swapReqForm">
       ${empPickerHtml}
+      ${holidayPickerHtml}
       <div class="form-group">
-        <label>วันหยุดชดเชย <span class="muted-2" style="font-weight:400;letter-spacing:0">(${fmt.date(minSwapDate)} – ${fmt.date(maxSwapDate)})</span></label>
-        <input name="swapToDate" type="date" value="${minSwapDate}" min="${minSwapDate}" max="${maxSwapDate}" required/>
+        <label>วันหยุดชดเชย *</label>
+        <input name="swapToDate" id="swapToDateInput" type="date" required/>
+        <div id="swapRangeHint" class="muted-2" style="font-size:11.5px;margin-top:4px"></div>
       </div>
       <div class="form-group">
-        <label>เหตุผล</label>
+        <label>เหตุผล *</label>
         <textarea name="reason" rows="2" required placeholder="เช่น มาทำงานตามคำสั่งหัวหน้า">${canAssignOthers ? 'บริษัทบันทึกการเปลี่ยนวันหยุดให้พนักงาน' : ''}</textarea>
       </div>
       ${canAssignOthers ? `<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--success-soft);border:1px solid var(--success);border-radius:8px;font-size:13px;cursor:pointer;margin-bottom:8px">
         <input type="checkbox" name="autoApprove" id="swapAutoApprove" ${DB.isHR ? 'checked' : ''}/>
-        <span><strong style="color:var(--success-text)">บันทึกเป็น "อนุมัติแล้ว" ทันที</strong> — ไม่ต้องรอเข้า approval chain (HR/admin override)</span>
+        <span><strong style="color:var(--success-text)">บันทึกเป็น "อนุมัติแล้ว" ทันที</strong> — ไม่ต้องเข้า approval chain</span>
       </label>` : ''}
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
@@ -7878,7 +7888,34 @@ function openSwapRequestForm(calendarItemId) {
       </div>
     </form>`);
 
-  // อัปเดต hint ผู้อนุมัติเมื่อเลือกพนักงาน
+  // ─── อัปเดต range (min/max) ของ swap date ตามวันหยุดที่เลือก ───
+  const getSelectedHolidayDate = () => {
+    if (holiday) return holiday.date;
+    const sel = document.getElementById('swapHolidayId');
+    return sel?.value ? DB.getCalendar().find(c => c.id === sel.value)?.date : null;
+  };
+  const updateDateRange = () => {
+    const hDate = getSelectedHolidayDate();
+    const dateInput = document.getElementById('swapToDateInput');
+    const hint = document.getElementById('swapRangeHint');
+    if (!dateInput) return;
+    if (!hDate) {
+      dateInput.value = ''; dateInput.min = ''; dateInput.max = '';
+      if (hint) hint.textContent = 'เลือกวันหยุดประเพณีก่อน';
+      return;
+    }
+    const dayAfterH = dayAfter(hDate);
+    const minD = dayAfterH > dayAfterToday ? dayAfterH : dayAfterToday;
+    const hYear = parseYMD(hDate)?.[0];
+    const maxD = hYear ? `${hYear}-12-31` : '';
+    dateInput.min = minD; dateInput.max = maxD;
+    if (!dateInput.value || dateInput.value < minD || dateInput.value > maxD) dateInput.value = minD;
+    if (hint) hint.textContent = `เลือกได้ ${fmt.date(minD)} – ${fmt.date(maxD)}`;
+  };
+  document.getElementById('swapHolidayId')?.addEventListener('change', updateDateRange);
+  updateDateRange();
+
+  // ─── อัปเดต hint ผู้อนุมัติเมื่อเลือกพนักงาน ───
   const updateApproverHint = () => {
     const hint = document.getElementById('swapApproverHint');
     if (!hint) return;
@@ -7886,11 +7923,9 @@ function openSwapRequestForm(calendarItemId) {
     if (!empId) { hint.innerHTML = ''; return; }
     const approver = DB.getHolidaySwapApprover(empId);
     const approverName = approver ? (approver.firstName + ' ' + (approver.lastName || '')).trim() : '';
-    if (approverName) {
-      hint.innerHTML = `ผู้อนุมัติ (ถ้าไม่ติ๊ก "อนุมัติทันที"): <strong>${escapeHtml(approverName)}</strong>`;
-    } else {
-      hint.innerHTML = `<span style="color:var(--warning-text)">⚠ ไม่พบผู้อนุมัติของพนักงานนี้ — ต้องติ๊ก "อนุมัติทันที"</span>`;
-    }
+    hint.innerHTML = approverName
+      ? `ผู้อนุมัติ: <strong>${escapeHtml(approverName)}</strong>`
+      : `<span style="color:var(--warning-text)">⚠ ไม่พบผู้อนุมัติ — ต้องติ๊ก "อนุมัติทันที"</span>`;
   };
   document.getElementById('swapEmpId')?.addEventListener('change', updateApproverHint);
   if (canAssignOthers) updateApproverHint();
@@ -7899,17 +7934,21 @@ function openSwapRequestForm(calendarItemId) {
     e.preventDefault();
     try {
       const data = Object.fromEntries(new FormData(e.target).entries());
-      // เลือก employee — ถ้า HR/manager ใช้ค่าจาก dropdown, ไม่งั้นใช้ตัวเอง
+      const calId = data.calendarItemId || calendarItemId;
       const targetEmpId = canAssignOthers ? (data.employeeId || myEmpId) : myEmpId;
+      if (!calId) { toast('กรุณาเลือกวันหยุดประเพณี', 'warning'); return; }
       if (!targetEmpId) { toast('กรุณาเลือกพนักงาน', 'warning'); return; }
+      const hDate = DB.getCalendar().find(c => c.id === calId)?.date;
+      if (!hDate) { toast('ไม่พบวันหยุด', 'error'); return; }
+      const hYear = parseYMD(hDate)?.[0];
       if (!data.swapToDate) { toast('กรุณาเลือกวันหยุดชดเชย', 'warning'); return; }
-      if (data.swapToDate <= holiday.date) { toast('วันหยุดชดเชยต้องเป็นวันหลังวันหยุดประเพณี', 'warning'); return; }
-      if (data.swapToDate < dayAfterToday) { toast('วันหยุดชดเชยต้องเป็นวันในอนาคต (อย่างน้อยพรุ่งนี้)', 'warning'); return; }
+      if (data.swapToDate <= hDate) { toast('วันหยุดชดเชยต้องเป็นวันหลังวันหยุดประเพณี', 'warning'); return; }
+      if (data.swapToDate < dayAfterToday) { toast('วันหยุดชดเชยต้องเป็นวันในอนาคต', 'warning'); return; }
       const swapYear = parseYMD(data.swapToDate)?.[0];
-      if (swapYear !== holidayYear) { toast(`วันหยุดชดเชยต้องอยู่ในปีเดียวกับวันหยุดประเพณี (พ.ศ. ${holidayYear + 543})`, 'warning'); return; }
-      // กันสร้างซ้ำ — ตรวจที่ฝั่ง submit
+      if (swapYear !== hYear) { toast(`วันหยุดชดเชยต้องอยู่ในปีเดียวกับวันหยุดประเพณี (พ.ศ. ${hYear + 543})`, 'warning'); return; }
+      // กันสร้างซ้ำ
       const existing = (DB.data.holidaySwapRequests || []).find(r =>
-        r.calendarItemId === calendarItemId &&
+        r.calendarItemId === calId &&
         r.employeeId === targetEmpId &&
         (r.status === 'pending' || r.status === 'approved')
       );
@@ -7921,13 +7960,12 @@ function openSwapRequestForm(calendarItemId) {
       }
       const autoApprove = canAssignOthers && data.autoApprove === 'on';
       const saved = await DB.saveHolidaySwapRequest({
-        calendarItemId,
+        calendarItemId: calId,
         employeeId: targetEmpId,
         swapToDate: data.swapToDate,
         reason: data.reason || null,
         status: 'pending'
       });
-      // ถ้าติ๊ก "อนุมัติทันที" → call approve API ต่อ (เพื่อให้ผ่าน RLS + audit ครบ)
       if (autoApprove && saved?.id) {
         await DB.approveHolidaySwapRequest(saved.id, '✓ บันทึกและอนุมัติโดย ' + (DB.profile?.employee_id || 'HR'));
       }
@@ -7936,38 +7974,6 @@ function openSwapRequestForm(calendarItemId) {
       router.go('calendar');
     } catch (ex) { toast('บันทึกไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
   });
-}
-
-// บันทึกการเปลี่ยนวันหยุดให้พนักงาน (ใช้ปุ่มที่หัวหน้า) — เลือก holiday ก่อน แล้วจึงเปิดฟอร์ม
-function openBulkSwapForm() {
-  if (!DB.isHR && DB.role !== 'branch_manager' && DB.role !== 'area_manager') {
-    toast('เฉพาะ HR / Admin / Manager', 'error'); return;
-  }
-  const today = tz.today();
-  const holidays = DB.getCalendar().filter(c => c.type === 'holiday');
-  if (!holidays.length) { toast('ยังไม่มีวันหยุดในระบบ', 'warning'); return; }
-  // จัดกลุ่ม: อนาคต/ปัจจุบัน + ผ่านแล้วในปีนี้
-  const todayYear = parseYMD(today)?.[0];
-  const upcoming = holidays.filter(c => c.date >= today).sort((a,b) => a.date.localeCompare(b.date));
-  const pastThisYear = holidays.filter(c => c.date < today && parseYMD(c.date)?.[0] === todayYear).sort((a,b) => b.date.localeCompare(a.date));
-  modal.open('บันทึกการเปลี่ยนวันหยุดให้พนักงาน', `
-    <div class="muted-2" style="font-size:12px;margin-bottom:14px;padding:10px 12px;background:var(--info-soft,#e3f2fd);border-radius:8px;border-left:3px solid var(--info)">
-      💡 เลือกวันหยุดประเพณีที่ต้องการบันทึก — จากนั้นกรอกพนักงาน + วันชดเชย
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px;max-height:60vh;overflow:auto">
-      ${upcoming.length ? `<div class="muted-2" style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;padding:4px 0">วันหยุดที่กำลังจะมาถึง</div>` : ''}
-      ${upcoming.map(c => `<button type="button" class="btn btn-ghost" style="text-align:left;justify-content:flex-start;padding:12px 16px" onclick="modal.close(); openSwapRequestForm('${c.id}')">
-        <span style="font-weight:600;flex:1">${escapeHtml(c.title)}</span>
-        <span class="muted-2" style="font-size:12px;font-variant-numeric:tabular-nums">${fmt.date(c.date)}</span>
-      </button>`).join('')}
-      ${pastThisYear.length ? `<div class="muted-2" style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;padding:8px 0 4px">วันหยุดที่ผ่านมาแล้วในปีนี้</div>` : ''}
-      ${pastThisYear.map(c => `<button type="button" class="btn btn-ghost" style="text-align:left;justify-content:flex-start;padding:12px 16px;opacity:0.7" onclick="modal.close(); openSwapRequestForm('${c.id}')">
-        <span style="font-weight:600;flex:1">${escapeHtml(c.title)}</span>
-        <span class="muted-2" style="font-size:12px;font-variant-numeric:tabular-nums">${fmt.date(c.date)} · ผ่านแล้ว</span>
-      </button>`).join('')}
-    </div>
-    <div class="form-actions"><button type="button" class="btn btn-secondary" data-close>ปิด</button></div>
-  `);
 }
 
 function openSwapRequestDetail(requestId) {
