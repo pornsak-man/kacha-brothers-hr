@@ -7287,28 +7287,45 @@ router.register('calendar', () => {
     loadHolidaySwapHistory();
   }
 
-  // สถิติ
+  // ─── PER-USER SWAP STATE ──────────────────────────────────
+  // วันหยุด = calendar_items (เหมือนกันทุกคน) + ทับด้วย swap ของ "ฉันเอง"
+  const myEmpId = DB.profile?.employee_id || null;
+  const mySwapsApproved = new Map();   // key: calendarItemId → swap request
+  const mySwapsPending  = new Map();
+  if (myEmpId) {
+    for (const r of (DB.data.holidaySwapRequests || []).filter(r => r.employeeId === myEmpId)) {
+      if (r.status === 'approved')      mySwapsApproved.set(r.calendarItemId, r);
+      else if (r.status === 'pending')  mySwapsPending.set(r.calendarItemId, r);
+    }
+  }
+
+  // สถิติ — per-user view
   const holidays = items.filter(c => c.type === 'holiday');
-  const swappedHolidays = holidays.filter(c => c.swapToDate);
+  const swappedHolidayIds = new Set(mySwapsApproved.keys());
+  const myPendingCount = mySwapsPending.size;
   const upcomingItems = items.filter(c => c.date >= today);
   const pastItems = items.filter(c => c.date < today);
 
-  // สร้าง virtual entries สำหรับวันหยุดชดเชย เพื่อให้แสดงในรายการเดียวกัน
-  const swapEntries = holidays
-    .filter(c => c.swapToDate)
-    .map(c => ({
-      id: c.id + '__swap',
-      date: c.swapToDate,
-      title: `หยุดชดเชย — แทน ${c.title}`,
+  // สร้าง virtual entries สำหรับวันหยุดชดเชย "ของฉัน" — ใช้แสดงใน upcoming
+  const myCompensationEntries = [];
+  for (const [calId, req] of mySwapsApproved.entries()) {
+    const original = holidays.find(c => c.id === calId);
+    if (!original) continue;
+    myCompensationEntries.push({
+      id: original.id + '__swap',
+      date: req.swapToDate,
+      title: `หยุดชดเชย — แทน ${original.title}`,
       type: 'holiday',
       _isSwapTarget: true,
-      _originalId: c.id,
-      _originalDate: c.date,
-      _originalTitle: c.title
-    }));
+      _originalId: original.id,
+      _originalDate: original.date,
+      _originalTitle: original.title,
+      _swapReqId: req.id
+    });
+  }
 
   // รวมรายการทั้งหมด + เรียงตามวันที่
-  const allItems = [...items, ...swapEntries].sort((a, b) => a.date.localeCompare(b.date));
+  const allItems = [...items, ...myCompensationEntries].sort((a, b) => a.date.localeCompare(b.date));
   const upcomingAll = allItems.filter(c => c.date >= today);
   const nextHoliday = upcomingAll[0] || null;
   const nextDays = nextHoliday ? daysUntil(nextHoliday.date, today) : null;
@@ -7329,26 +7346,22 @@ router.register('calendar', () => {
   };
   const quarterGroups = groupByQuarter(allItems);
 
-  // ดึงคำขอเปลี่ยนวันหยุดที่ pending — ใช้ map ตาม calendar_item_id
-  const pendingSwapByCal = new Map();
-  for (const r of DB.getHolidaySwapRequests({ status: 'pending' })) {
-    if (!pendingSwapByCal.has(r.calendarItemId)) pendingSwapByCal.set(r.calendarItemId, r);
-  }
-
   // Render การ์ดวันหยุดแต่ละใบ
   const renderCard = (c) => {
-    const swapped = c.type === 'holiday' && c.swapToDate;
     const isTarget = !!c._isSwapTarget;
     const isPast = c.date < today;
     const isNext = nextHoliday && c.date === nextHoliday.date && c.title === nextHoliday.title && !isPast;
-    const pendingReq = !isTarget ? pendingSwapByCal.get(c.id) : null;
+    // swap state ของ "ฉัน" สำหรับวันหยุดนี้
+    const mySwapApproved = !isTarget ? mySwapsApproved.get(c.id) : null;
+    const myPendingReq   = !isTarget ? mySwapsPending.get(c.id) : null;
+    const isMineSwapped  = !!mySwapApproved;
     const classes = ['sw-cal-card'];
     if (isPast) classes.push('is-past');
     if (isNext) classes.push('is-next');
-    if (swapped) classes.push('is-swapped');
+    if (isMineSwapped) classes.push('is-swapped');
     if (isTarget) classes.push('is-swap-target');
     const icon = isTarget ? '🔁' : holidayEmoji(isTarget ? c._originalTitle : c.title, c.date, c.type);
-    const canRequestSwap = c.type === 'holiday' && !isTarget && !isPast && !swapped && !pendingReq && (DB.isHR || DB.role === 'branch_manager' || DB.role === 'area_manager');
+    const canRequestSwap = c.type === 'holiday' && !isTarget && !isPast && !isMineSwapped && !myPendingReq && !!myEmpId;
     return `<div class="${classes.join(' ')}">
       ${(DB.isHR && !isTarget) ? `<div class="sw-cal-card-actions">
         <button class="btn btn-ghost btn-sm" onclick="openCalForm('${c.id}')">แก้</button>
@@ -7359,9 +7372,9 @@ router.register('calendar', () => {
         <span class="sw-cal-card-date">${fmt.date(c.date)}</span>
       </div>
       <div class="sw-cal-card-title">${escapeHtml(c.title)}</div>
-      ${swapped ? `<div class="sw-cal-swap-note">⚠ มาทำงาน · ชดเชย ${fmt.date(c.swapToDate)}${c.swapNote ? ' · ' + escapeHtml(c.swapNote) : ''}</div>` : ''}
+      ${isMineSwapped ? `<div class="sw-cal-swap-note" style="cursor:pointer" onclick="openSwapRequestDetail('${mySwapApproved.id}')">⚠ ฉันมาทำงาน · ชดเชย ${fmt.date(mySwapApproved.swapToDate)}</div>` : ''}
       ${isTarget ? `<div style="font-size:11.5px;color:var(--success-text);margin-top:4px">✓ หยุดแทนวันที่ ${fmt.date(c._originalDate)}</div>` : ''}
-      ${pendingReq ? `<div style="font-size:11.5px;margin-top:6px;padding:4px 8px;background:var(--warning-soft);color:var(--warning-text);border-radius:6px;display:inline-flex;align-items:center;gap:4px;cursor:pointer" onclick="openSwapRequestDetail('${pendingReq.id}')">🕒 มีคำขอเปลี่ยน → ${fmt.date(pendingReq.swapToDate)}</div>` : ''}
+      ${myPendingReq ? `<div style="font-size:11.5px;margin-top:6px;padding:4px 8px;background:var(--warning-soft);color:var(--warning-text);border-radius:6px;display:inline-flex;align-items:center;gap:4px;cursor:pointer" onclick="openSwapRequestDetail('${myPendingReq.id}')">🕒 คำขอของฉัน · รออนุมัติ → ${fmt.date(myPendingReq.swapToDate)}</div>` : ''}
       <div class="sw-cal-card-foot">
         <span class="badge ${isTarget ? 'badge-success' : typeBadge(c.type)}" style="font-size:10.5px">${isTarget ? 'หยุดชดเชย' : typeLabel(c.type)}</span>
         ${isNext ? `<span style="font-size:10.5px;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:0.08em">วันถัดไป</span>` : canRequestSwap ? `<button class="btn btn-ghost btn-sm" style="padding:3px 9px;font-size:11px" onclick="openSwapRequestForm('${c.id}')">⇄ เสนอเปลี่ยน</button>` : ''}
@@ -7429,13 +7442,13 @@ router.register('calendar', () => {
       <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openCalForm()">+ เพิ่มกิจกรรม</button>' : ''}</div>
     </div>
 
-    <!-- KPI Stats -->
+    <!-- KPI Stats (per-user) -->
     <div class="sw-stats-grid sw-cal-stats">
       <div class="sw-stat-card sw-accent-primary">
         <div class="sw-stat-icon">${ICON.calendar}</div>
         <div class="sw-stat-label">วันหยุดทั้งหมด</div>
         <div class="sw-stat-value">${fmt.num(holidays.length)}</div>
-        <div class="sw-stat-change">รวมวันหยุดประเพณีและพิเศษ</div>
+        <div class="sw-stat-change">วันหยุดประเพณีที่บริษัทกำหนด</div>
       </div>
       <div class="sw-stat-card sw-accent-green">
         <div class="sw-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
@@ -7445,9 +7458,9 @@ router.register('calendar', () => {
       </div>
       <div class="sw-stat-card sw-accent-amber">
         <div class="sw-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></div>
-        <div class="sw-stat-label">เปลี่ยน / เลื่อน</div>
-        <div class="sw-stat-value" style="color:${swappedHolidays.length ? 'var(--warning)' : 'var(--text)'}">${fmt.num(swappedHolidays.length)}</div>
-        <div class="sw-stat-change">${swappedHolidays.length ? 'มีการเลื่อนเป็นวันอื่น' : 'ไม่มีการเลื่อนวันหยุด'}</div>
+        <div class="sw-stat-label">ฉันเปลี่ยน / เลื่อน</div>
+        <div class="sw-stat-value" style="color:${swappedHolidayIds.size ? 'var(--warning)' : 'var(--text)'}">${fmt.num(swappedHolidayIds.size)}</div>
+        <div class="sw-stat-change">${myPendingCount ? `+ ${fmt.num(myPendingCount)} คำขอรออนุมัติ` : (swappedHolidayIds.size ? 'มีการเลื่อนเป็นวันอื่น' : 'ยังไม่มีคำขอเปลี่ยน')}</div>
       </div>
       <div class="sw-stat-card sw-accent-red">
         <div class="sw-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
@@ -7509,24 +7522,31 @@ router.register('calendar', () => {
 function openCalForm(id = null) {
   if (!requireHR()) return;
   const c = id ? DB.getCalendar().find(x => x.id === id) : { date: tz.today(), title: '', type: 'holiday' };
-  // ดึงคำขอเปลี่ยนวันหยุดที่เกี่ยวกับ holiday นี้ (ถ้าแก้ไข)
-  const swapReqs = id ? DB.getHolidaySwapRequests({ calendarItemId: id, _noScope: true }) : [];
-  const pendingReq = swapReqs.find(r => r.status === 'pending');
-  const approvedReq = swapReqs.find(r => r.status === 'approved');
+  // ดึงคำขอเปลี่ยนวันหยุดของ "ตัวเอง" สำหรับ holiday นี้ (ถ้ามี)
+  const myEmpId = DB.profile?.employee_id;
+  const swapReqs = (id && myEmpId)
+    ? (DB.data.holidaySwapRequests || []).filter(r => r.calendarItemId === id && r.employeeId === myEmpId)
+    : [];
+  const myPendingReq = swapReqs.find(r => r.status === 'pending');
+  const myApprovedReq = swapReqs.find(r => r.status === 'approved');
+  // นับคำขอของพนักงานคนอื่นๆ (เฉพาะ HR/manager ที่เห็นใน scope)
+  const otherReqsCount = id
+    ? DB.getHolidaySwapRequests({ calendarItemId: id }).filter(r => r.employeeId !== myEmpId && r.status === 'pending').length
+    : 0;
   const swapInfoHtml = c.type === 'holiday' && id ? `
     <div style="margin-top:12px;padding:14px 16px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div>
-          <div style="font-weight:600;font-size:13px;margin-bottom:2px">การเปลี่ยนวันหยุด</div>
+          <div style="font-weight:600;font-size:13px;margin-bottom:2px">สิทธิ์เปลี่ยนวันหยุดของฉัน</div>
           <div class="muted-2" style="font-size:11.5px">${
-            pendingReq ? `🕒 คำขอกำลังรออนุมัติ — เลื่อนเป็น ${fmt.date(pendingReq.swapToDate)}` :
-            approvedReq ? `✓ อนุมัติแล้ว — หยุดชดเชยวันที่ ${fmt.date(approvedReq.swapToDate)}` :
-            'ยังไม่มีคำขอเปลี่ยนวันหยุด'
-          }</div>
+            myPendingReq  ? `🕒 ฉันยื่นคำขอแล้ว · รออนุมัติ — เลื่อนเป็น ${fmt.date(myPendingReq.swapToDate)}` :
+            myApprovedReq ? `✓ ได้รับอนุมัติ — หยุดชดเชยวันที่ ${fmt.date(myApprovedReq.swapToDate)}` :
+            'ฉันยังไม่ได้ขอเปลี่ยนวันหยุดนี้'
+          }${otherReqsCount ? ` · มีคำขอ pending ของพนักงานอื่น ${otherReqsCount} รายการ` : ''}</div>
         </div>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="modal.close(); openSwapRequestForm('${id}')">
-          ${pendingReq || approvedReq ? 'ดูคำขอ' : '+ เสนอเปลี่ยน'}
-        </button>
+        ${myEmpId ? `<button type="button" class="btn btn-secondary btn-sm" onclick="modal.close(); ${myPendingReq || myApprovedReq ? `openSwapRequestDetail('${(myPendingReq || myApprovedReq).id}')` : `openSwapRequestForm('${id}')`}">
+          ${myPendingReq || myApprovedReq ? 'ดูคำขอของฉัน' : '+ เสนอเปลี่ยน'}
+        </button>` : ''}
       </div>
     </div>` : '';
   modal.open(id ? 'แก้ไข' : 'เพิ่มกิจกรรม / วันหยุด', `
@@ -7544,12 +7564,6 @@ function openCalForm(id = null) {
     try {
       const data = Object.fromEntries(new FormData(e.target).entries());
       if (id) data.id = id;
-      // เก็บฟิลด์ swap เดิมไว้ (อย่าเขียนทับด้วย null) เพราะ workflow ใหม่จัดการผ่านคำขอ
-      const existing = id ? DB.getCalendar().find(x => x.id === id) : null;
-      if (existing) {
-        data.swapToDate = existing.swapToDate || null;
-        data.swapNote = existing.swapNote || null;
-      }
       await DB.saveCalendarItem(data);
       modal.close();
       toast('บันทึกแล้ว', 'success');
@@ -7565,30 +7579,37 @@ function openSwapRequestForm(calendarItemId) {
   const holiday = DB.getCalendar().find(c => c.id === calendarItemId);
   if (!holiday) { toast('ไม่พบวันหยุด', 'error'); return; }
   if (holiday.type !== 'holiday') { toast('เปลี่ยนได้เฉพาะประเภทวันหยุด', 'warning'); return; }
-  const existing = DB.getHolidaySwapRequests({ calendarItemId, _noScope: true })
-    .filter(r => r.status === 'pending' || r.status === 'approved');
-  if (existing.length) { openSwapRequestDetail(existing[0].id); return; }
   // ต้องมี profile + employee_id เพื่อใช้ chain อนุมัติ
   const myEmpId = DB.profile?.employee_id;
   if (!myEmpId) { toast('โปรไฟล์ของคุณยังไม่ผูกกับพนักงาน — ติดต่อผู้ดูแลระบบ', 'error'); return; }
+  // กันสร้างซ้ำ: ถ้าฉันมีคำขอ pending/approved ของวันหยุดนี้แล้ว → เปิดรายละเอียดแทน
+  const myExisting = (DB.data.holidaySwapRequests || []).find(r =>
+    r.calendarItemId === calendarItemId &&
+    r.employeeId === myEmpId &&
+    (r.status === 'pending' || r.status === 'approved')
+  );
+  if (myExisting) { openSwapRequestDetail(myExisting.id); return; }
   const myEmp = DB.getEmployee(myEmpId);
   const approver = DB.getHolidaySwapApprover(myEmpId);
   const approverHint = approver
     ? `<div class="muted-2" style="font-size:11.5px;margin-top:6px">ผู้อนุมัติคำขอ: <strong>${escapeHtml(approver.firstName + ' ' + (approver.lastName || ''))}</strong></div>`
     : (DB.isHR ? `<div class="muted-2" style="font-size:11.5px;margin-top:6px;color:var(--warning-text)">ไม่พบผู้อนุมัติในระบบ admin ต้อง override อนุมัติเอง</div>` : `<div class="muted-2" style="font-size:11.5px;margin-top:6px;color:var(--danger)">ไม่พบผู้อนุมัติ — ติดต่อผู้ดูแลระบบ</div>`);
 
-  modal.open('เสนอเปลี่ยนวันหยุด', `
+  modal.open('ขอเปลี่ยนวันหยุดของฉัน', `
     <div style="background:var(--surface-2);border-radius:10px;padding:12px 14px;margin-bottom:14px">
-      <div class="muted-2" style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600">วันหยุดเดิม</div>
+      <div class="muted-2" style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600">วันหยุดเดิม (ที่ฉันจะมาทำงาน)</div>
       <div style="font-size:15px;font-weight:600;margin-top:2px">${escapeHtml(holiday.title)}</div>
       <div style="font-size:13px;color:var(--text-2);margin-top:2px">${fmt.date(holiday.date)}</div>
+    </div>
+    <div class="muted-2" style="font-size:12px;margin-bottom:14px;padding:10px 12px;background:var(--info-soft,#e3f2fd);border-radius:8px;border-left:3px solid var(--info)">
+      💡 ใช้เมื่อบริษัทขอให้คุณมาทำงานในวันหยุดประเพณี — คำขอจะถูกส่งให้ผู้บังคับบัญชาอนุมัติเช่นเดียวกับการลา
     </div>
     <form id="swapReqForm">
       <div class="form-group"><label>วันที่ขอหยุดชดเชย *</label>
         <input name="swapToDate" type="date" value="${holiday.date}" required/>
       </div>
       <div class="form-group"><label>เหตุผล *</label>
-        <textarea name="reason" rows="3" required placeholder="เช่น บริษัทได้รับยกเว้นทางกฎหมายให้เปิดให้บริการในวันหยุดประเพณี"></textarea>
+        <textarea name="reason" rows="3" required placeholder="เช่น ได้รับคำสั่งจากหัวหน้าให้มาทำงานในวันสงกรานต์ ขอหยุดวันที่ ... แทน"></textarea>
       </div>
       <div style="background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:11.5px;color:var(--text-2);line-height:1.6">
         <div><strong>ผู้ยื่น:</strong> ${escapeHtml((myEmp?.firstName || '') + ' ' + (myEmp?.lastName || ''))} (${escapeHtml(myEmpId)})</div>

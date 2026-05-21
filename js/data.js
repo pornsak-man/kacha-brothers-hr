@@ -431,16 +431,12 @@ const DB = {
     id: r.id,
     date: r.date,
     title: r.title,
-    type: r.type || 'holiday',
-    swapToDate: r.swap_to_date || null,
-    swapNote: r.swap_note || ''
+    type: r.type || 'holiday'
   }),
   _calToDB: (c) => ({
     date: c.date,
     title: c.title,
-    type: c.type,
-    swap_to_date: c.swapToDate || null,
-    swap_note: c.swapNote || null
+    type: c.type
   }),
   _swapReqFromDB: (r) => ({
     id: r.id,
