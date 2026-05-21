@@ -7196,6 +7196,7 @@ const _swapReqUI = {
   tab: 'pending',
   search: '',
   branch: '',
+  status: '',     // เฉพาะ HR/admin granular filter
   page: 0,
   pageSize: 20
 };
@@ -7210,6 +7211,7 @@ function swapReqSetFilter(k, v) {
 function swapReqClearFilters() {
   _swapReqUI.search = '';
   _swapReqUI.branch = '';
+  _swapReqUI.status = '';
   _swapReqUI.page = 0;
   router.go('calendar');
 }
@@ -7383,6 +7385,10 @@ router.register('calendar', () => {
         return emp?.branch === _swapReqUI.branch;
       });
     }
+    // ─── Filter by status (granular - แยกอนุมัติ/ปฏิเสธ/ยกเลิก) ───
+    if (_swapReqUI.status) {
+      filtered = filtered.filter(r => r.status === _swapReqUI.status);
+    }
 
     // ─── Pagination ───
     const total = filtered.length;
@@ -7392,15 +7398,11 @@ router.register('calendar', () => {
     const startIdx = page * _swapReqUI.pageSize + 1;
     const endIdx = Math.min((page + 1) * _swapReqUI.pageSize, total);
 
-    // ─── Branches dropdown — auto-scope ───
-    const branchSet = new Set();
-    for (const r of allReqs) {
-      const emp = DB.getEmployee(r.employeeId);
-      if (emp?.branch) branchSet.add(emp.branch);
-    }
-    const branches = Array.from(branchSet).sort();
+    // ─── Branches dropdown — ใช้สาขาทั้งหมดที่ผู้ใช้เห็น (จาก employees auto-scope) ───
+    // ไม่ใช่แค่สาขาที่มีคำขอ → HR/admin filter หาสาขาที่ยังไม่มีคำขอได้
+    const branches = [...new Set(DB.getEmployees({ status: 'active' }).map(e => e.branch).filter(Boolean))].sort();
 
-    const hasFilters = !!(s || _swapReqUI.branch);
+    const hasFilters = !!(s || _swapReqUI.branch || _swapReqUI.status);
 
     // ─── Row: พนักงาน + วันหยุด + วันชดเชย + สถานะ + วันยื่น + actions ───
     const renderRow = (r) => {
@@ -7504,6 +7506,10 @@ router.register('calendar', () => {
           <option value="">— ทุกสาขา —</option>
           ${branches.map(b => `<option value="${escapeHtml(b)}" ${_swapReqUI.branch === b ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('')}
         </select>` : ''}
+        <select class="sw-filter-select" onchange="swapReqSetFilter('status', this.value)">
+          <option value="">— ทุกสถานะ —</option>
+          ${Object.entries(SWAP_STATUS_BADGE).map(([k, v]) => `<option value="${k}" ${_swapReqUI.status === k ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('')}
+        </select>
         ${hasFilters ? `<button class="btn btn-ghost btn-sm sw-filter-clear" onclick="swapReqClearFilters()">✕ ล้างตัวกรอง</button>` : ''}
       </div>` : ''}
 
