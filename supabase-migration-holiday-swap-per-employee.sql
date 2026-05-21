@@ -18,11 +18,18 @@ DROP FUNCTION IF EXISTS public.apply_holiday_swap();
 
 -- 2) เคลียร์ค่า swap_to_date/swap_note ที่ถูก trigger เก่า apply ลง calendar_items
 --    (เพราะค่าเดิมเป็น company-wide ซึ่งเลิกใช้แล้ว — สิทธิ์ swap อยู่ที่แต่ละพนักงาน)
-UPDATE public.calendar_items
-   SET swap_to_date = NULL,
-       swap_note    = NULL
- WHERE swap_to_date IS NOT NULL
-    OR swap_note    IS NOT NULL;
+--    ห่อใน DO block เพื่อให้รันได้แม้ column ไม่มีอยู่ (กรณีรันซ้ำ)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name   = 'calendar_items'
+      AND column_name  = 'swap_to_date'
+  ) THEN
+    EXECUTE 'UPDATE public.calendar_items SET swap_to_date = NULL, swap_note = NULL WHERE swap_to_date IS NOT NULL OR swap_note IS NOT NULL';
+  END IF;
+END $$;
 
 -- 3) Drop คอลัมน์ swap_to_date / swap_note จาก calendar_items (เลิกใช้)
 ALTER TABLE public.calendar_items
