@@ -7493,7 +7493,8 @@ router.register('calendar', () => {
         </button>
       </div>
 
-      <!-- Filter bar -->
+      <!-- Filter bar — แสดงเฉพาะ role ที่เห็นข้อมูลของหลายคน -->
+      ${(role !== 'branch_staff' && role !== 'viewer') ? `
       <div class="sw-filter-bar">
         <input id="swapReqSearch" type="text" class="sw-filter-input" placeholder="🔍 ค้นชื่อ/รหัสพนักงาน"
           value="${escapeHtml(_swapReqUI.search)}"
@@ -7504,7 +7505,7 @@ router.register('calendar', () => {
           ${branches.map(b => `<option value="${escapeHtml(b)}" ${_swapReqUI.branch === b ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('')}
         </select>` : ''}
         ${hasFilters ? `<button class="btn btn-ghost btn-sm sw-filter-clear" onclick="swapReqClearFilters()">✕ ล้างตัวกรอง</button>` : ''}
-      </div>
+      </div>` : ''}
 
       <!-- Table -->
       ${slice.length ? `
