@@ -7442,15 +7442,32 @@ router.register('calendar', () => {
     });
     if (!allReqs.length) return '';
 
-    // ─── Stats ตามสถานะ ───
-    const counts = { all: allReqs.length, pending: 0, approved: 0, rejected: 0, cancelled: 0 };
+    // ─── แยกคำขอ "ของฉัน" ออกจากคำขอที่ต้องอนุมัติ ───
+    const myEmpId = DB.profile?.employee_id;
+    const isStaffOrViewer = (role === 'branch_staff' || role === 'viewer');
+    const myReqs = myEmpId ? allReqs.filter(r => r.employeeId === myEmpId) : [];
+    const othersReqs = myEmpId ? allReqs.filter(r => r.employeeId !== myEmpId) : allReqs;
+    const myPendingCount = myReqs.filter(r => r.status === 'pending').length;
+
+    // ─── Stats ตามสถานะ — pending = เฉพาะที่ "ต้องอนุมัติ" (ไม่รวมของฉัน สำหรับ manager+) ───
+    const counts = { all: allReqs.length, pending: 0, approved: 0, rejected: 0, cancelled: 0, mine: myReqs.length };
     for (const r of allReqs) counts[r.status] = (counts[r.status] || 0) + 1;
     const decidedCount = counts.approved + counts.rejected + counts.cancelled;
+    // pending "ต้องอนุมัติ" = pending ทั้งหมด - pending ของฉัน (เพราะ self-approval ไม่ได้)
+    const actionablePendingCount = counts.pending - myPendingCount;
 
     // ─── Filter by tab ───
     let filtered = allReqs;
-    if (_swapReqUI.tab === 'pending') filtered = allReqs.filter(r => r.status === 'pending');
-    else if (_swapReqUI.tab === 'decided') filtered = allReqs.filter(r => r.status !== 'pending');
+    if (_swapReqUI.tab === 'pending') {
+      // pending ที่ต้อง act on — สำหรับ manager+ ไม่รวมของตัวเอง (กัน self-approval, ลดความสับสน)
+      filtered = isStaffOrViewer
+        ? allReqs.filter(r => r.status === 'pending')
+        : othersReqs.filter(r => r.status === 'pending');
+    } else if (_swapReqUI.tab === 'decided') {
+      filtered = othersReqs.filter(r => r.status !== 'pending');
+    } else if (_swapReqUI.tab === 'mine') {
+      filtered = myReqs;
+    }
 
     // ─── Filter by search (ชื่อ/รหัสพนักงาน) ───
     const s = (_swapReqUI.search || '').trim().toLowerCase();
@@ -7568,8 +7585,11 @@ router.register('calendar', () => {
       <!-- Tabs (filter pills) -->
       <div class="sw-tabs" style="margin-bottom:14px" role="tablist">
         <button class="sw-tab ${_swapReqUI.tab === 'pending' ? 'active' : ''}" onclick="swapReqSetTab('pending')" role="tab">
-          <span>รออนุมัติ</span>${counts.pending ? `<span class="sw-tab-pill" style="background:var(--warning-soft);color:var(--warning-text)">${fmt.num(counts.pending)}</span>` : ''}
+          <span>${isStaffOrViewer ? 'รออนุมัติ' : 'ต้องอนุมัติ'}</span>${(isStaffOrViewer ? counts.pending : actionablePendingCount) ? `<span class="sw-tab-pill" style="background:var(--warning-soft);color:var(--warning-text)">${fmt.num(isStaffOrViewer ? counts.pending : actionablePendingCount)}</span>` : ''}
         </button>
+        ${(!isStaffOrViewer && myReqs.length) ? `<button class="sw-tab ${_swapReqUI.tab === 'mine' ? 'active' : ''}" onclick="swapReqSetTab('mine')" role="tab">
+          <span>ของฉัน</span><span class="sw-tab-pill" style="background:var(--primary-soft);color:var(--primary-text)">${fmt.num(myReqs.length)}</span>
+        </button>` : ''}
         <button class="sw-tab ${_swapReqUI.tab === 'decided' ? 'active' : ''}" onclick="swapReqSetTab('decided')" role="tab">
           <span>ตัดสินใจแล้ว</span>${decidedCount ? `<span class="sw-tab-pill">${fmt.num(decidedCount)}</span>` : ''}
         </button>
