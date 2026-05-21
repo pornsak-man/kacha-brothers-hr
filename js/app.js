@@ -7457,7 +7457,7 @@ router.register('calendar', () => {
     <div class="sw-page-header">
       <div>
         <div class="sw-page-title">ปฏิทิน HR</div>
-        <div class="sw-page-subtitle">วันหยุด · กิจกรรมบริษัท · ประจำปี ${fmt.num(buddhistYear)}</div>
+        <div class="sw-page-subtitle">วันหยุด · กิจกรรมบริษัท · ประจำปี ${buddhistYear}</div>
       </div>
       <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openCalForm()">+ เพิ่มกิจกรรม</button>' : ''}</div>
     </div>
@@ -7629,6 +7629,15 @@ function openSwapRequestForm(calendarItemId) {
     ? `<div class="muted-2" style="font-size:11.5px;margin-top:6px">ผู้อนุมัติคำขอ: <strong>${escapeHtml(approver.firstName + ' ' + (approver.lastName || ''))}</strong></div>`
     : (DB.isHR ? `<div class="muted-2" style="font-size:11.5px;margin-top:6px;color:var(--warning-text)">ไม่พบผู้อนุมัติในระบบ admin ต้อง override อนุมัติเอง</div>` : `<div class="muted-2" style="font-size:11.5px;margin-top:6px;color:var(--danger)">ไม่พบผู้อนุมัติ — ติดต่อผู้ดูแลระบบ</div>`);
 
+  // คำนวณวันถัดไป (D+1) ของวันหยุด สำหรับใช้เป็น min/default
+  const dayAfter = (dateStr) => {
+    const ymd = parseYMD(dateStr);
+    if (!ymd) return dateStr;
+    const d = new Date(ymd[0], ymd[1] - 1, ymd[2] + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const minSwapDate = dayAfter(holiday.date);
+
   modal.open('ขอเปลี่ยนวันหยุดของฉัน', `
     <div style="background:var(--surface-2);border-radius:10px;padding:12px 14px;margin-bottom:14px">
       <div class="muted-2" style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600">วันหยุดเดิม (ที่ฉันจะมาทำงาน)</div>
@@ -7636,11 +7645,13 @@ function openSwapRequestForm(calendarItemId) {
       <div style="font-size:13px;color:var(--text-2);margin-top:2px">${fmt.date(holiday.date)}</div>
     </div>
     <div class="muted-2" style="font-size:12px;margin-bottom:14px;padding:10px 12px;background:var(--info-soft,#e3f2fd);border-radius:8px;border-left:3px solid var(--info)">
-      💡 ใช้เมื่อบริษัทขอให้คุณมาทำงานในวันหยุดประเพณี — คำขอจะถูกส่งให้ผู้บังคับบัญชาอนุมัติเช่นเดียวกับการลา
+      💡 ใช้เมื่อบริษัทขอให้คุณมาทำงานในวันหยุดประเพณี — คำขอจะถูกส่งให้ผู้บังคับบัญชาอนุมัติเช่นเดียวกับการลา<br>
+      <strong>วันหยุดชดเชยต้องเป็นวันหลังวันหยุดประเพณี</strong> (ไม่ใช่วันก่อน)
     </div>
     <form id="swapReqForm">
       <div class="form-group"><label>วันที่ขอหยุดชดเชย *</label>
-        <input name="swapToDate" type="date" value="${holiday.date}" required/>
+        <input name="swapToDate" type="date" value="${minSwapDate}" min="${minSwapDate}" required/>
+        <div class="muted-2" style="font-size:11.5px;margin-top:4px">ต้องเป็นวันหลังจาก ${fmt.date(holiday.date)}</div>
       </div>
       <div class="form-group"><label>เหตุผล *</label>
         <textarea name="reason" rows="3" required placeholder="เช่น ได้รับคำสั่งจากหัวหน้าให้มาทำงานในวันสงกรานต์ ขอหยุดวันที่ ... แทน"></textarea>
@@ -7659,7 +7670,7 @@ function openSwapRequestForm(calendarItemId) {
     try {
       const data = Object.fromEntries(new FormData(e.target).entries());
       if (!data.swapToDate) { toast('กรุณาเลือกวันหยุดชดเชย', 'warning'); return; }
-      if (data.swapToDate === holiday.date) { toast('วันชดเชยต้องไม่ใช่วันเดียวกับวันหยุดเดิม', 'warning'); return; }
+      if (data.swapToDate <= holiday.date) { toast('วันหยุดชดเชยต้องเป็นวันหลังวันหยุดประเพณี (ห้ามเป็นวันเดียวกัน หรือก่อนหน้า)', 'warning'); return; }
       await DB.saveHolidaySwapRequest({
         calendarItemId,
         employeeId: myEmpId,
@@ -8046,7 +8057,7 @@ function renderMyLeaveBalance() {
     <div class="sw-chart-card" style="margin-bottom:24px">
       <div class="sw-chart-header" style="align-items:flex-start;flex-wrap:wrap;gap:12px">
         <div>
-          <div class="sw-chart-title">สิทธิ์การลาของฉัน · ปี ${fmt.num(year + 543)}</div>
+          <div class="sw-chart-title">สิทธิ์การลาของฉัน · ปี ${year + 543}</div>
           <div class="sw-chart-sub">${escapeHtml(emp.firstName + ' ' + (emp.lastName || ''))} · ${escapeHtml(emp.id)}${emp.branch ? ' · ' + escapeHtml(emp.branch) : ''} — นับจากคำขอที่อนุมัติแล้วในปีนี้</div>
         </div>
         <div style="display:flex;gap:14px;align-items:center;font-size:12px;color:var(--text-2)">
