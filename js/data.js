@@ -2239,6 +2239,8 @@ const DB = {
     }
     const result = [];
     for (const [branch, stat] of map) {
+      // ข้ามสาขาที่ไม่มีพนักงานปัจจุบัน — turnover จะแกว่งสูงไม่มีความหมาย
+      if (stat.active === 0) continue;
       const avgHeadcount = stat.active + stat.exits / 2;
       const turnover = avgHeadcount > 0 ? (stat.exits / avgHeadcount) * 100 : 0;
       result.push({
