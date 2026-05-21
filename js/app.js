@@ -1360,12 +1360,20 @@ router.register('employees', () => {
           <option value="pending"  ${empState.status === 'pending'  ? 'selected' : ''}>นัดพ้นสภาพ</option>
           <option value="resigned" ${empState.status === 'resigned' ? 'selected' : ''}>พ้นสภาพแล้ว</option>
         </select>
-        ${(empState.search || empState.branch || empState.position || empState.status !== 'active') ? `<button class="btn btn-ghost btn-sm sw-filter-clear" onclick="clearEmpFilters()">✕ ล้างตัวกรอง</button>` : ''}
+        <button id="empClearFilter" class="btn btn-ghost btn-sm sw-filter-clear" onclick="clearEmpFilters()" style="${(empState.search || empState.branch || empState.position || empState.status !== 'active') ? '' : 'display:none'}">✕ ล้างตัวกรอง</button>
       </div>
       <div id="empList"></div>
     </div>
   `;
 });
+
+// Toggle visibility ของปุ่ม "✕ ล้างตัวกรอง" ตามสถานะ filter ปัจจุบัน
+function updateEmpClearButton() {
+  const btn = document.getElementById('empClearFilter');
+  if (!btn) return;
+  const hasFilters = empState.search || empState.branch || empState.position || (empState.status !== 'active');
+  btn.style.display = hasFilters ? '' : 'none';
+}
 
 // ล้างตัวกรองทั้งหมดในหน้าทะเบียนพนักงาน (กลับไปค่าเริ่มต้น = ปฏิบัติงาน)
 function clearEmpFilters() {
@@ -1374,7 +1382,17 @@ function clearEmpFilters() {
   empState.position = '';
   empState.status = 'active';
   empState.page = 1;
-  router.go('employees');
+  // Reset DOM controls โดยตรง (ไม่ต้อง re-render ทั้งหน้า)
+  const searchEl = document.getElementById('empSearch');
+  const branchEl = document.getElementById('empBranch');
+  const positionEl = document.getElementById('empPosition');
+  const statusEl = document.getElementById('empStatus');
+  if (searchEl) searchEl.value = '';
+  if (branchEl) branchEl.value = '';
+  if (positionEl) positionEl.value = '';
+  if (statusEl) statusEl.value = 'active';
+  renderEmployeeList();
+  updateEmpClearButton();
 }
 
 function wireEmployeePage() {
@@ -1386,11 +1404,12 @@ function wireEmployeePage() {
       empState.search = e.target.value;
       empState.page = 1;
       renderEmployeeList();
+      updateEmpClearButton();
     }, 200);
   });
-  $('#empBranch')?.addEventListener('change', (e) => { empState.branch = e.target.value; empState.page = 1; renderEmployeeList(); });
-  $('#empPosition')?.addEventListener('change', (e) => { empState.position = e.target.value; empState.page = 1; renderEmployeeList(); });
-  $('#empStatus')?.addEventListener('change', (e) => { empState.status = e.target.value; empState.page = 1; renderEmployeeList(); });
+  $('#empBranch')?.addEventListener('change', (e) => { empState.branch = e.target.value; empState.page = 1; renderEmployeeList(); updateEmpClearButton(); });
+  $('#empPosition')?.addEventListener('change', (e) => { empState.position = e.target.value; empState.page = 1; renderEmployeeList(); updateEmpClearButton(); });
+  $('#empStatus')?.addEventListener('change', (e) => { empState.status = e.target.value; empState.page = 1; renderEmployeeList(); updateEmpClearButton(); });
 
   // คลิกหัวคอลัมน์ที่มี class .sortable → toggle sort
   $('#empList')?.addEventListener('click', (e) => {
