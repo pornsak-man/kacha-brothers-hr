@@ -3778,12 +3778,20 @@ router.register('departments', () => {
 
 function openDeptForm(id = null) {
   if (!requireHR()) return;
-  const d = id ? DB.getDepartment(id) : { id: DB.nextDepartmentId(), name: '', manager: '', note: '' };
+  const d = id ? DB.getDepartment(id) : { id: '', name: '', manager: '', note: '' };
   const emps = DB.getEmployees({ status: 'active' });
+  const nextId = !id ? DB.nextDepartmentId() : '';
   modal.open(id ? 'แก้ไขฝ่าย' : 'เพิ่มฝ่าย', `
     <form id="deptForm">
       <div class="form-grid">
-        <div class="form-group"><label>รหัส *</label><input name="id" value="${escapeHtml(d.id)}" required ${id ? 'readonly' : ''}/></div>
+        <div class="form-group">
+          <label>รหัส * <span class="muted-2" style="font-weight:normal;font-size:11px">${id ? '(แก้ไม่ได้)' : '(ตั้งเองได้ — เช่น KITCHEN, OPS, D012)'}</span></label>
+          <input name="id" id="deptIdInput" value="${escapeHtml(d.id)}" required ${id ? 'readonly' : `placeholder="เช่น ${escapeHtml(nextId)} หรือ KITCHEN" maxlength="20" pattern="[A-Za-z0-9_-]+" title="ใช้ A-Z, 0-9, _ หรือ - เท่านั้น"`} />
+          ${!id ? `<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn btn-ghost btn-sm" style="padding:4px 10px;font-size:11.5px" onclick="document.getElementById('deptIdInput').value='${escapeHtml(nextId)}';document.getElementById('deptIdInput').focus()">↻ ใช้รหัสถัดไป (${escapeHtml(nextId)})</button>
+            <span class="muted-2" style="font-size:11px">ใช้ A-Z, 0-9, _ หรือ -</span>
+          </div>` : ''}
+        </div>
         <div class="form-group"><label>ชื่อฝ่าย *</label><input name="name" value="${escapeHtml(d.name)}" required/></div>
         <div class="form-group span-2"><label>หัวหน้าฝ่าย <span class="muted-2" style="font-weight:normal;font-size:11px">(ไม่บังคับ — เคลียร์ช่องเพื่อไม่ระบุ)</span></label>${employeePicker({ name: 'manager', emps, selected: d.manager, placeholder: 'พิมพ์ชื่อหรือเคลียร์เพื่อไม่ระบุ' })}</div>
         <div class="form-group span-2"><label>หมายเหตุ</label><textarea name="note" rows="2">${escapeHtml(d.note)}</textarea></div>
@@ -3798,6 +3806,12 @@ function openDeptForm(id = null) {
     e.preventDefault();
     try {
       const data = Object.fromEntries(new FormData(e.target).entries());
+      data.id = (data.id || '').trim();
+      // กันรหัสซ้ำตอนเพิ่มใหม่ (UPSERT จะ overwrite ฝ่ายเดิม → อันตราย)
+      if (!id && DB.getDepartment(data.id)) {
+        toast(`รหัส "${data.id}" มีอยู่แล้ว — เปลี่ยนเป็นรหัสอื่น`, 'error');
+        return;
+      }
       await DB.saveDepartment(data);
       modal.close();
       toast('บันทึกข้อมูลฝ่ายแล้ว', 'success');
