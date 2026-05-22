@@ -363,6 +363,7 @@ const auth = {
     if (typeof updateLeaveBadge === 'function') updateLeaveBadge();
     if (typeof updateCalendarBadge === 'function') updateCalendarBadge();
     if (typeof updateSSOBadge === 'function') updateSSOBadge();
+    if (typeof updateAnnouncementBadge === 'function') updateAnnouncementBadge();
     // ซ่อนเมนูตาม role:
     //   .nav-admin-only  → เฉพาะ admin (ตั้งค่าระบบ)
     //   .nav-hr-only     → admin + hr (ปรับค่าจ้าง, กู้, audit log)
@@ -500,6 +501,14 @@ window.onRealtimeChange = (payload) => {
 
   // อัปเดต badge ประกันสังคม เมื่อ employees เปลี่ยน — เสมอ (ไม่ขึ้นกับหน้าปัจจุบัน)
   if (table === 'employees' && typeof updateSSOBadge === 'function') updateSSOBadge();
+
+  // อัปเดต badge ประกาศ — เมื่อมีประกาศใหม่ (เพิ่ม unread) หรือ ตัวเองอ่าน (ลด unread)
+  if ((table === 'company_announcements' || table === 'announcement_reads')
+      && typeof updateAnnouncementBadge === 'function') {
+    updateAnnouncementBadge();
+    // ถ้ากำลังอยู่หน้า announcements → re-render เพื่อให้ป้าย "ยังไม่อ่าน" อัปเดต
+    if (router.current === 'announcements') router.go('announcements');
+  }
 
   // ─── TERMINATION ENFORCEMENT (Realtime) ───
   // ถ้า employees update + เกี่ยวกับ "ตัวเอง" → ตรวจว่าพ้นสภาพแล้วหรือไม่
@@ -8193,21 +8202,25 @@ router.register('announcements', () => {
   const yearOptions = Array.from(yearsSet).filter(Boolean).sort((a, b) => Number(b) - Number(a));
   const hasFilters = !!(_annState.search || _annState.year || _annState.tab !== 'all');
 
+  // ผู้ที่ไม่ใช่ admin/HR เท่านั้นที่เห็นป้าย "ยังไม่อ่าน" (admin/HR ไม่นับเป็นผู้รับ)
+  const showUnread = !DB.isHR && !!DB.profile?.employee_id;
   const renderCard = (a) => {
     const TYPE = { label: ANN_TYPE_LABEL[a.type] || a.type, cls: ANN_TYPE_BADGE[a.type] || 'badge' };
     const PRI = a.priority !== 'normal' ? { label: ANN_PRIORITY_LABEL[a.priority], cls: ANN_PRIORITY_BADGE[a.priority] } : null;
     const dateStr = a.createdAt ? new Date(a.createdAt).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' }) : '';
     const bodyPreview = (a.body || '').replace(/\s+/g, ' ').slice(0, 140);
-    return `<div class="sw-ann-card ${a.pinned ? 'is-pinned' : ''}" onclick="openAnnouncementDetail('${a.id}')">
+    const isUnread = showUnread && !DB.isAnnouncementRead(a.id);
+    return `<div class="sw-ann-card ${a.pinned ? 'is-pinned' : ''}" style="${isUnread ? 'border-left:3px solid var(--danger);position:relative' : ''}" onclick="openAnnouncementDetail('${a.id}')">
       ${a.imageUrl ? `<div class="sw-ann-thumb" style="background-image:url('${escapeHtml(a.imageUrl)}')"></div>` : '<div class="sw-ann-thumb sw-ann-thumb-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M3 11l18-5v12L3 14v-3z"/></svg></div>'}
       <div class="sw-ann-body">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+          ${isUnread ? '<span class="badge badge-danger" style="font-size:10.5px;font-weight:700;padding:3px 8px">● ยังไม่ได้อ่าน</span>' : ''}
           <span class="badge ${TYPE.cls}" style="font-size:10.5px">${TYPE.label}</span>
           ${PRI ? `<span class="badge ${PRI.cls}" style="font-size:10.5px">⚠ ${PRI.label}</span>` : ''}
           ${a.pinned ? '<span style="font-size:11px;color:var(--warning);font-weight:600">📌 ปักหมุด</span>' : ''}
           <span class="muted-2" style="font-size:11.5px;margin-left:auto">${dateStr}</span>
         </div>
-        <div style="font-size:15px;font-weight:600;color:var(--text);line-height:1.35;margin-bottom:4px">${escapeHtml(a.title)}</div>
+        <div style="font-size:15px;font-weight:${isUnread ? '700' : '600'};color:var(--text);line-height:1.35;margin-bottom:4px">${escapeHtml(a.title)}</div>
         <div class="muted-2" style="font-size:12.5px;line-height:1.5">${escapeHtml(bodyPreview)}${a.body.length > 140 ? '...' : ''}</div>
       </div>
     </div>`;
@@ -8290,8 +8303,18 @@ function openAnnouncementDetail(id) {
     </div>
   `);
   // พนักงาน: บันทึกว่าอ่านแล้ว (fire-and-forget) · admin/HR: โหลดรายชื่อผู้อ่าน
-  if (DB.isHR) loadAnnouncementReaders(a.id);
-  else DB.markAnnouncementRead(a.id);
+  if (DB.isHR) {
+    loadAnnouncementReaders(a.id);
+  } else {
+    const wasUnread = !DB.isAnnouncementRead(a.id);
+    DB.markAnnouncementRead(a.id).then(() => {
+      if (wasUnread) {
+        updateAnnouncementBadge();
+        // re-render หน้า list (ถ้าอยู่หน้านั้น) เพื่อลบป้าย "ยังไม่อ่าน" ออกจาก card
+        if (router.current === 'announcements') router.go('announcements');
+      }
+    });
+  }
 }
 
 async function loadAnnouncementReaders(id) {
@@ -9411,6 +9434,21 @@ function updateLeaveBadge() {
   if (!badge) return;
   if (pending > 0) { badge.textContent = String(pending); badge.style.display = 'inline-block'; badge.title = `${pending} คำขอลารออนุมัติ`; }
   else { badge.style.display = 'none'; }
+}
+
+// Badge ประกาศ — นับประกาศ/คำสั่งที่พนักงานยังไม่ได้เปิดอ่าน
+// admin/HR ไม่นับ (เพราะเป็นผู้สร้างประกาศ)
+function updateAnnouncementBadge() {
+  const badge = document.getElementById('navBadgeAnnouncement');
+  if (!badge) return;
+  const count = DB.getUnreadAnnouncementCount();
+  if (count > 0) {
+    badge.textContent = String(count);
+    badge.style.display = 'inline-block';
+    badge.title = `${count} ประกาศ/คำสั่งที่ยังไม่ได้อ่าน`;
+  } else {
+    badge.style.display = 'none';
+  }
 }
 
 // Badge ปฏิทิน HR — นับคำขอเปลี่ยนวันหยุดที่ user มีสิทธิ์อนุมัติ (logic เดียวกับ leave)

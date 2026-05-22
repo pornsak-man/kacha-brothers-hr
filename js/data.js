@@ -221,6 +221,15 @@ const DB = {
       return all;
     };
 
+    // โหลด read receipts ของพนักงานคนนี้ — สำหรับ unread badge (skip ถ้าเป็น admin/HR)
+    const fetchMyAnnReads = async () => {
+      if (this.isHR || !this.profile?.employee_id) return [];
+      const { data } = await this.client.from('announcement_reads')
+        .select('announcement_id')
+        .eq('employee_id', this.profile.employee_id);
+      return data || [];
+    };
+
     const critical = await Promise.all([
       this.client.from('departments').select('*').order('id'),
       this.client.from('position_levels').select('*').order('id'),
@@ -232,9 +241,10 @@ const DB = {
       this._fetchAllPages('leave_types', 'sort_order', true).catch(() => []),
       this._fetchAllPages('holiday_swap_requests', 'requested_at', false).catch(() => []),
       this.client.from('user_profiles').select('*').then(r => r.data || [], () => []),
-      this._fetchAllPages('company_announcements', 'created_at', false).catch(() => [])
+      this._fetchAllPages('company_announcements', 'created_at', false).catch(() => []),
+      fetchMyAnnReads().catch(() => [])
     ]);
-    const [deps, pos, cal, comp, emps, branchRows, leaves, lvTypes, swapReqs, ups, anns] = critical;
+    const [deps, pos, cal, comp, emps, branchRows, leaves, lvTypes, swapReqs, ups, anns, myReads] = critical;
 
     this.data.departments = (deps.data || []).map(this._depFromDB);
     this.data.positionLevels = (pos.data || []).map(this._posFromDB);
@@ -247,6 +257,7 @@ const DB = {
     this.data.holidaySwapRequests = (swapReqs || []).map(this._swapReqFromDB);
     this.data.announcements = (anns || []).map(this._annFromDB);
     this._userProfiles = ups || [];
+    this._myAnnReads = new Set((myReads || []).map(r => r.announcement_id));
 
     this._invalidateIndex();
 
@@ -330,6 +341,18 @@ const DB = {
 
   _applyChange(payload) {
     const { table, eventType, new: newRow, old: oldRow } = payload;
+    // announcement_reads — update local set (เฉพาะ rows ของตัวเอง)
+    if (table === 'announcement_reads') {
+      const myEmpId = this.profile?.employee_id;
+      if (this._myAnnReads && myEmpId) {
+        if (eventType === 'INSERT' && newRow?.employee_id === myEmpId) {
+          this._myAnnReads.add(newRow.announcement_id);
+        } else if (eventType === 'DELETE' && oldRow?.employee_id === myEmpId) {
+          this._myAnnReads.delete(oldRow.announcement_id);
+        }
+      }
+      return;
+    }
     const map = {
       employees: { list: 'employees', from: this._empFromDB },
       departments: { list: 'departments', from: this._depFromDB },
@@ -2213,15 +2236,30 @@ const DB = {
     if (this.isHR) return;  // ไม่บันทึกผู้สร้างประกาศ
     const empId = this.profile?.employee_id;
     if (!empId) return;     // ไม่มี employee_id (เช่น admin ที่ไม่ผูกพนักงาน)
+    if (this._myAnnReads?.has(announcementId)) return; // อ่านแล้ว — skip network
     try {
       await this.client.from('announcement_reads').upsert({
         announcement_id: announcementId,
         employee_id: empId,
         user_id: this.user?.id || null
       }, { onConflict: 'announcement_id,employee_id', ignoreDuplicates: true });
+      if (this._myAnnReads) this._myAnnReads.add(announcementId);
     } catch (e) {
       console.warn('[ann-read] mark failed:', e.message || e);
     }
+  },
+
+  // เช็คว่าประกาศนี้ฉันอ่านแล้วหรือยัง
+  isAnnouncementRead(id) { return this._myAnnReads?.has(id) || false; },
+
+  // จำนวนประกาศที่ยังไม่ได้อ่าน (สำหรับ badge sidebar) — admin/HR คืน 0
+  getUnreadAnnouncementCount() {
+    if (this.isHR || !this.profile?.employee_id || !this._myAnnReads) return 0;
+    let count = 0;
+    for (const a of (this.data.announcements || [])) {
+      if (!this._myAnnReads.has(a.id)) count++;
+    }
+    return count;
   },
 
   // ดึงรายชื่อผู้อ่าน + ผู้ที่ยังไม่อ่าน — เฉพาะ admin/HR
