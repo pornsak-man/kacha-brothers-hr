@@ -2086,10 +2086,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
       <div class="form-section">
         <h3>การทำงาน</h3>
         <div class="form-grid">
-          <div class="form-group"><label>ฝ่าย *</label><select name="department" id="empFormDept" required><option value="" ${!emp.department ? 'selected' : ''}>— เลือกฝ่าย —</option>${depts.map(d => {
-            const scopeIcon = d.scope === 'operation' ? '🍳 ' : d.scope === 'office' ? '🏢 ' : '';
-            return `<option value="${d.id}" data-scope="${escapeHtml(d.scope || '')}" ${emp.department === d.id ? 'selected' : ''}>${scopeIcon}${escapeHtml(d.name)}</option>`;
-          }).join('')}</select></div>
+          <div class="form-group"><label>ฝ่าย *</label><select name="department" id="empFormDept" required><option value="" ${!emp.department ? 'selected' : ''}>— เลือกฝ่าย —</option>${depts.map(d => `<option value="${d.id}" data-scope="${escapeHtml(d.scope || '')}" ${emp.department === d.id ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}</select></div>
           <div class="form-group"><label>สาขา</label><input name="branch" list="dl-emp-branches" value="${escapeHtml(emp.branch)}" placeholder="เช่น KMB, GE" autocomplete="off"/><datalist id="dl-emp-branches">${DB.getBranchMaster({ activeOnly: true }).map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name || b.id)}</option>`).join('')}</datalist></div>
           <div class="form-group"><label>ระดับตำแหน่งงาน *</label>${(() => {
             // filter ตาม scope ของฝ่าย (ถ้ามี): operation → ตำแหน่ง operation + ไม่ระบุ, office → office + ไม่ระบุ
@@ -2116,7 +2113,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
               </select>`;
             }
             // มี scope — แสดงเฉพาะตำแหน่งที่ตรง (filter ใน getPositionsForDepartment แล้ว)
-            const label = deptScope === 'operation' ? '🍳 ตำแหน่งสายปฏิบัติการ' : '🏢 ตำแหน่งสายสำนักงาน';
+            const label = deptScope === 'operation' ? 'ตำแหน่งสายปฏิบัติการ (Operation)' : 'ตำแหน่งสายสำนักงาน (Office)';
             return `<select name="position" id="empFormPos" required>
               <optgroup label="${label}">${opt(sorted)}</optgroup>
             </select>`;
@@ -2312,7 +2309,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
         (kitchen.length ? `<optgroup label="ฝ่ายครัว">${kitchen.map(opt).join('')}</optgroup>` : '') +
         (common.length ? `<optgroup label="อื่นๆ">${common.map(opt).join('')}</optgroup>` : '');
     } else {
-      const label = deptScope === 'operation' ? '🍳 ตำแหน่งสายปฏิบัติการ' : '🏢 ตำแหน่งสายสำนักงาน';
+      const label = deptScope === 'operation' ? 'ตำแหน่งสายปฏิบัติการ (Operation)' : 'ตำแหน่งสายสำนักงาน (Office)';
       posSel.innerHTML = `<optgroup label="${label}">${sorted.map(opt).join('')}</optgroup>`;
     }
     // คงค่าตำแหน่งเดิมถ้ายังอยู่ในรายการใหม่ ไม่งั้นเลือก option แรก
@@ -3852,8 +3849,8 @@ router.register('departments', () => {
           ${sortedDepts.map(d => {
             const mgr = d.manager ? DB.getEmployee(d.manager) : null;
             const count = countByDept.get(d.id) || 0;
-            const scopeBadge = d.scope === 'operation' ? '<span class="badge" style="background:rgba(245,158,11,0.15);color:#b45309;font-size:10.5px">🍳 ปฏิบัติการ</span>'
-              : d.scope === 'office' ? '<span class="badge" style="background:rgba(30,136,229,0.15);color:#1565c0;font-size:10.5px">🏢 สำนักงาน</span>'
+            const scopeBadge = d.scope === 'operation' ? '<span class="badge" style="background:rgba(245,158,11,0.15);color:#b45309;font-size:10.5px">ปฏิบัติการ (Operation)</span>'
+              : d.scope === 'office' ? '<span class="badge" style="background:rgba(30,136,229,0.15);color:#1565c0;font-size:10.5px">สำนักงาน (Office)</span>'
               : '<span class="muted-2" style="font-size:11px">—</span>';
             return `<tr>
               <td><code style="font-size:11.5px;font-weight:600">${escapeHtml(d.id)}</code></td>
@@ -3899,8 +3896,8 @@ function openDeptForm(id = null) {
         <div class="form-group span-2"><label>สาย <span class="muted-2" style="font-weight:normal;font-size:11px">(เลือกเพื่อให้ dropdown ตำแหน่งใน "เพิ่มพนักงาน" แสดงเฉพาะตำแหน่งที่ตรงกับสายนี้)</span></label>
           <select name="scope">
             <option value=""           ${!d.scope ? 'selected' : ''}>— ไม่ระบุ (ใช้ตำแหน่งทุกแบบ) —</option>
-            <option value="operation"  ${d.scope === 'operation' ? 'selected' : ''}>🍳 สายปฏิบัติการ (ครัว / บริการ / โรงงาน)</option>
-            <option value="office"     ${d.scope === 'office' ? 'selected' : ''}>🏢 สายสำนักงาน (HR / บัญชี / IT / บริหาร)</option>
+            <option value="operation"  ${d.scope === 'operation' ? 'selected' : ''}>สายปฏิบัติการ (Operation)</option>
+            <option value="office"     ${d.scope === 'office' ? 'selected' : ''}>สายสำนักงาน (Office)</option>
           </select>
         </div>
         <div class="form-group span-2"><label>หัวหน้าฝ่าย <span class="muted-2" style="font-weight:normal;font-size:11px">(ไม่บังคับ — เคลียร์ช่องเพื่อไม่ระบุ)</span></label>${employeePicker({ name: 'manager', emps, selected: d.manager, placeholder: 'พิมพ์ชื่อหรือเคลียร์เพื่อไม่ระบุ' })}</div>
@@ -3984,8 +3981,8 @@ router.register('positions', () => {
           ${ps.map(p => {
             const count = emps.filter(e => e.position === p.id).length;
             const lvBadge = p.level >= 7 ? 'badge-success' : p.level >= 4 ? 'badge-info' : 'badge';
-            const scopeBadge = p.scope === 'operation' ? '<span class="badge" style="background:rgba(245,158,11,0.15);color:#b45309;font-size:10.5px">🍳 ปฏิบัติการ</span>'
-              : p.scope === 'office' ? '<span class="badge" style="background:rgba(30,136,229,0.15);color:#1565c0;font-size:10.5px">🏢 สำนักงาน</span>'
+            const scopeBadge = p.scope === 'operation' ? '<span class="badge" style="background:rgba(245,158,11,0.15);color:#b45309;font-size:10.5px">ปฏิบัติการ (Operation)</span>'
+              : p.scope === 'office' ? '<span class="badge" style="background:rgba(30,136,229,0.15);color:#1565c0;font-size:10.5px">สำนักงาน (Office)</span>'
               : '<span class="muted-2" style="font-size:11px">—</span>';
             return `<tr>
               <td><code style="font-size:11.5px;font-weight:600">${escapeHtml(p.id)}</code></td>
@@ -4018,8 +4015,8 @@ function openPositionForm(id = null) {
         <div class="form-group span-2"><label>สาย <span class="muted-2" style="font-weight:normal;font-size:11px">(ใช้กับฝ่ายแบบไหน — จะ filter dropdown ในฟอร์มเพิ่มพนักงาน)</span></label>
           <select name="scope">
             <option value=""           ${!p.scope ? 'selected' : ''}>— ไม่ระบุ (ใช้ได้ทุกฝ่าย) —</option>
-            <option value="operation"  ${p.scope === 'operation' ? 'selected' : ''}>🍳 สายปฏิบัติการ (ครัว / บริการ / โรงงาน)</option>
-            <option value="office"     ${p.scope === 'office' ? 'selected' : ''}>🏢 สายสำนักงาน (HR / บัญชี / IT / บริหาร)</option>
+            <option value="operation"  ${p.scope === 'operation' ? 'selected' : ''}>สายปฏิบัติการ (Operation)</option>
+            <option value="office"     ${p.scope === 'office' ? 'selected' : ''}>สายสำนักงาน (Office)</option>
           </select>
         </div>
         <div class="form-group"><label>ระดับ (1-8) *</label><input name="level" type="number" min="1" max="20" value="${p.level || 1}" required/></div>
