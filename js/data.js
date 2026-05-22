@@ -1058,7 +1058,12 @@ const DB = {
   },
 
   // ─── DEPARTMENTS ───
-  getDepartments() { return this.data.departments.slice(); },
+  // เรียงตามชื่อ (ภาษาไทย) — sort ใน getDepartments() เพื่อให้ทุก dropdown/list สอดคล้องกัน
+  getDepartments() {
+    return this.data.departments.slice().sort((a, b) =>
+      (a.name || '').localeCompare(b.name || '', 'th')
+    );
+  },
   getDepartment(id) {
     if (!this._deptIndex) {
       this._deptIndex = new Map();
