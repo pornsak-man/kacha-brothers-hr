@@ -88,6 +88,8 @@ const DB = {
     this.user = null;
     this.profile = null;
     this.isAdmin = false;
+    this._asEmployee = false;
+    try { sessionStorage.removeItem('kb_as_employee'); } catch (e) {}
     this.ready = false;
   },
 
@@ -99,6 +101,27 @@ const DB = {
     this.isAdmin = this.role === 'admin';                          // เฉพาะ admin
     this.isHR    = this.role === 'admin' || this.role === 'hr';    // admin + hr
     this._managedBranches = Array.isArray(data?.managed_branches) ? data.managed_branches.filter(Boolean) : [];
+    // restore "ดูเสมือนพนักงาน" จาก session (กรณีรีเฟรชหน้า) — เฉพาะ HR ที่ผูก employee_id
+    try {
+      const flag = sessionStorage.getItem('kb_as_employee') === '1';
+      this._asEmployee = flag && this.isHR && !!this.profile?.employee_id;
+    } catch (e) { this._asEmployee = false; }
+  },
+
+  // ─── EMPLOYEE-VIEW MODE (impersonation) ───
+  // HR/admin สลับมุมมองเป็น "เสมือนพนักงาน" เพื่อขอลา / ดูยอดวันลา ตารางกะ ฯลฯ ของตัวเอง
+  // โดยไม่ต้อง logout/login ใหม่ — สิทธิ์เขียน/แก้ยังเป็น HR เหมือนเดิม (UI behavior เท่านั้น)
+  isViewingAsEmployee() {
+    return !!this._asEmployee && this.isHR && !!this.profile?.employee_id;
+  },
+  setEmployeeView(on) {
+    const enabled = !!on && this.isHR && !!this.profile?.employee_id;
+    this._asEmployee = enabled;
+    try {
+      if (enabled) sessionStorage.setItem('kb_as_employee', '1');
+      else sessionStorage.removeItem('kb_as_employee');
+    } catch (e) {}
+    return enabled;
   },
 
   // ─── PERMISSION HELPERS (ตาม matrix) ───
@@ -221,9 +244,10 @@ const DB = {
       return all;
     };
 
-    // โหลด read receipts ของพนักงานคนนี้ — สำหรับ unread badge (skip ถ้าเป็น admin/HR)
+    // โหลด read receipts ของพนักงานคนนี้ — สำหรับ unread badge
+    // โหลดให้ HR ด้วย เพื่อรองรับโหมด "ดูเสมือนพนักงาน" (query ขนาดเล็ก — filter by employee_id)
     const fetchMyAnnReads = async () => {
-      if (this.isHR || !this.profile?.employee_id) return [];
+      if (!this.profile?.employee_id) return [];
       const { data } = await this.client.from('announcement_reads')
         .select('announcement_id')
         .eq('employee_id', this.profile.employee_id);
@@ -2233,7 +2257,9 @@ const DB = {
   // mark = พนักงานเปิดอ่าน (ignore duplicate — เก็บเวลาอ่านครั้งแรก)
   // admin/HR ไม่ถูกบันทึก (พวกเขาเป็นคนสร้าง — ไม่ใช่ผู้รับสาร)
   async markAnnouncementRead(announcementId) {
-    if (this.isHR) return;  // ไม่บันทึกผู้สร้างประกาศ
+    // HR ปกติ: ไม่บันทึก (เป็นผู้สร้างประกาศ ไม่ใช่ผู้รับ)
+    // HR ใน "ดูเสมือนพนักงาน": บันทึกได้
+    if (this.isHR && !this.isViewingAsEmployee()) return;
     const empId = this.profile?.employee_id;
     if (!empId) return;     // ไม่มี employee_id (เช่น admin ที่ไม่ผูกพนักงาน)
     if (this._myAnnReads?.has(announcementId)) return; // อ่านแล้ว — skip network
@@ -2252,9 +2278,13 @@ const DB = {
   // เช็คว่าประกาศนี้ฉันอ่านแล้วหรือยัง
   isAnnouncementRead(id) { return this._myAnnReads?.has(id) || false; },
 
-  // จำนวนประกาศที่ยังไม่ได้อ่าน (สำหรับ badge sidebar) — admin/HR คืน 0
+  // จำนวนประกาศที่ยังไม่ได้อ่าน (สำหรับ badge sidebar)
+  // - HR ปกติ → 0 (ไม่นับ unread เพราะเป็นผู้สร้าง)
+  // - HR ที่กำลังดูเสมือนพนักงาน → นับจริง
+  // - พนักงานทั่วไป → นับจริง
   getUnreadAnnouncementCount() {
-    if (this.isHR || !this.profile?.employee_id || !this._myAnnReads) return 0;
+    if (this.isHR && !this.isViewingAsEmployee()) return 0;
+    if (!this.profile?.employee_id || !this._myAnnReads) return 0;
     let count = 0;
     for (const a of (this.data.announcements || [])) {
       if (!this._myAnnReads.has(a.id)) count++;

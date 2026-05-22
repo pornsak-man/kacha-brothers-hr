@@ -304,6 +304,45 @@ const auth = {
       }
     });
     $('#logoutBtn').addEventListener('click', () => this.logout());
+    $('#impersonateBtn').addEventListener('click', () => this.toggleImpersonate());
+  },
+
+  toggleImpersonate() {
+    const newVal = !DB.isViewingAsEmployee();
+    if (newVal && (!DB.isHR || !DB.profile?.employee_id)) {
+      toast('โหมดนี้สำหรับ HR/admin ที่ผูก employee_id เท่านั้น', 'error');
+      return;
+    }
+    DB.setEmployeeView(newVal);
+    this.refreshImpersonateUI();
+    if (typeof updateAnnouncementBadge === 'function') updateAnnouncementBadge();
+    // re-render หน้าปัจจุบันให้สะท้อนมุมมองใหม่ (Personal Dashboard, banner ฯลฯ)
+    router.go(router.current || 'dashboard');
+    toast(newVal ? '👤 สลับเป็นมุมมองพนักงานแล้ว' : '↩ กลับมาเป็นมุมมอง HR แล้ว', 'success');
+  },
+
+  // อัปเดต UI ที่เกี่ยวข้องกับ impersonate mode (ปุ่ม + ป้าย role + banner)
+  refreshImpersonateUI() {
+    const canImpersonate = DB.isHR && !!DB.profile?.employee_id;
+    const btn = $('#impersonateBtn');
+    if (btn) {
+      btn.style.display = canImpersonate ? '' : 'none';
+      if (DB.isViewingAsEmployee()) {
+        btn.title = 'กลับเป็นมุมมอง HR';
+        btn.style.color = 'var(--warning)';
+      } else {
+        btn.title = 'ดูเสมือนพนักงาน';
+        btn.style.color = '';
+      }
+    }
+    // อัปเดต role label บน sidebar — บอกชัดเจนว่ากำลัง impersonate
+    const roleEl = $('.user-role');
+    if (roleEl && canImpersonate && DB.isViewingAsEmployee()) {
+      const empId = DB.profile.employee_id;
+      const emp = DB.getEmployee(empId);
+      const empName = emp ? `${emp.firstName || ''} ${emp.lastName || ''}`.trim() : empId;
+      roleEl.innerHTML = `<span style="color:var(--warning);font-weight:600">👤 มุมมองพนักงาน</span><div style="font-size:11px;color:var(--text-3);margin-top:2px">${escapeHtml(empName)}</div>`;
+    }
   },
   async logout() {
     await DB.signOut();
@@ -364,6 +403,7 @@ const auth = {
     if (typeof updateCalendarBadge === 'function') updateCalendarBadge();
     if (typeof updateSSOBadge === 'function') updateSSOBadge();
     if (typeof updateAnnouncementBadge === 'function') updateAnnouncementBadge();
+    this.refreshImpersonateUI();
     // ซ่อนเมนูตาม role:
     //   .nav-admin-only  → เฉพาะ admin (ตั้งค่าระบบ)
     //   .nav-hr-only     → admin + hr (ปรับค่าจ้าง, กู้, audit log)
@@ -433,7 +473,15 @@ const router = {
     $('#pageTitle').textContent = titles[name] || name;
     const fn = this.pages[name];
     const content = $('#content');
-    content.innerHTML = fn ? fn() : '<p>ไม่พบหน้า</p>';
+    // ─── Banner "ดูเสมือนพนักงาน" — เตือนชัดเจนว่ากำลัง impersonate ───
+    const impersonateBanner = DB.isViewingAsEmployee()
+      ? `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;margin-bottom:14px;background:linear-gradient(90deg, rgba(217,119,6,0.12), rgba(217,119,6,0.04));border:1px solid var(--warning);border-radius:8px;font-size:13px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <div style="flex:1"><strong style="color:var(--warning)">👤 มุมมองพนักงาน</strong> · กำลังดูระบบเสมือน HR เป็นพนักงานทั่วไป — สิทธิ์เขียน/แก้ยังเหมือนเดิม</div>
+        <button class="btn btn-sm btn-secondary" onclick="auth.toggleImpersonate()">↩ กลับเป็น HR</button>
+      </div>`
+      : '';
+    content.innerHTML = impersonateBanner + (fn ? fn() : '<p>ไม่พบหน้า</p>');
     // ใส่ animation class เฉพาะตอนเปลี่ยนหน้าจริงๆ (ไม่ใส่ตอน refresh จาก realtime)
     if (isNavigation) {
       content.classList.remove('sw-anim-enter');
@@ -732,8 +780,9 @@ function renderPersonalDashboard() {
 
 router.register('dashboard', () => {
   // ─── PERSONAL DASHBOARD (Self-Service) สำหรับ branch_staff / viewer ───
+  // หรือ HR/admin ที่กำลังใช้โหมด "ดูเสมือนพนักงาน"
   // ถ้าเป็นพนักงานปกติ (ไม่ใช่ admin/hr/manager) → แสดง dashboard ส่วนตัวแทน
-  if ((DB.role === 'branch_staff' || DB.role === 'viewer') && DB.profile?.employee_id) {
+  if (((DB.role === 'branch_staff' || DB.role === 'viewer') || DB.isViewingAsEmployee()) && DB.profile?.employee_id) {
     return renderPersonalDashboard();
   }
 
