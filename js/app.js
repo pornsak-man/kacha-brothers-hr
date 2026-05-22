@@ -2086,24 +2086,39 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
       <div class="form-section">
         <h3>การทำงาน</h3>
         <div class="form-grid">
-          <div class="form-group"><label>ฝ่าย *</label><select name="department" required><option value="" ${!emp.department ? 'selected' : ''}>— เลือกฝ่าย —</option>${depts.map(d => `<option value="${d.id}" ${emp.department === d.id ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}</select></div>
+          <div class="form-group"><label>ฝ่าย *</label><select name="department" id="empFormDept" required><option value="" ${!emp.department ? 'selected' : ''}>— เลือกฝ่าย —</option>${depts.map(d => {
+            const scopeIcon = d.scope === 'operation' ? '🍳 ' : d.scope === 'office' ? '🏢 ' : '';
+            return `<option value="${d.id}" data-scope="${escapeHtml(d.scope || '')}" ${emp.department === d.id ? 'selected' : ''}>${scopeIcon}${escapeHtml(d.name)}</option>`;
+          }).join('')}</select></div>
           <div class="form-group"><label>สาขา</label><input name="branch" list="dl-emp-branches" value="${escapeHtml(emp.branch)}" placeholder="เช่น KMB, GE" autocomplete="off"/><datalist id="dl-emp-branches">${DB.getBranchMaster({ activeOnly: true }).map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name || b.id)}</option>`).join('')}</datalist></div>
           <div class="form-group"><label>ระดับตำแหน่งงาน *</label>${(() => {
-            // จัดกลุ่มตาม track: ฝ่ายปฏิบัติการ / ฝ่ายครัว / อื่นๆ
-            const kitchen = [], ops = [], common = [];
-            for (const p of positions) {
-              const n = (p.name || '').toLowerCase();
-              if (n.includes('chef') || n.includes('barista')) kitchen.push(p);
-              else if (n.includes('part')) common.push(p);
-              else ops.push(p);
-            }
+            // filter ตาม scope ของฝ่าย (ถ้ามี): operation → ตำแหน่ง operation + ไม่ระบุ, office → office + ไม่ระบุ
+            const filtered = DB.getPositionsForDepartment(emp.department || '');
             const byLevel = (a, b) => (b.level || 0) - (a.level || 0) || (a.name || '').localeCompare(b.name || '');
-            ops.sort(byLevel); kitchen.sort(byLevel); common.sort(byLevel);
+            const sorted = filtered.slice().sort(byLevel);
+            // ถ้า scope = null (ไม่ filter) ใช้ heuristic grouping เดิม — ป้องกันรายการยาวมาก
+            const dept = emp.department ? DB.getDepartment(emp.department) : null;
+            const deptScope = dept?.scope || '';
             const opt = (arr) => arr.map(p => `<option value="${p.id}" ${emp.position === p.id ? 'selected' : ''}>${escapeHtml(p.name)}${p.level ? ' · ระดับ ' + p.level : ''}</option>`).join('');
-            return `<select name="position" required>
-              ${ops.length ? `<optgroup label="ฝ่ายปฏิบัติการ">${opt(ops)}</optgroup>` : ''}
-              ${kitchen.length ? `<optgroup label="ฝ่ายครัว">${opt(kitchen)}</optgroup>` : ''}
-              ${common.length ? `<optgroup label="อื่นๆ">${opt(common)}</optgroup>` : ''}
+            if (!deptScope) {
+              // ไม่ filter — ใช้ heuristic แยก kitchen/ops/common เหมือนเดิม
+              const kitchen = [], ops = [], common = [];
+              for (const p of sorted) {
+                const n = (p.name || '').toLowerCase();
+                if (n.includes('chef') || n.includes('barista')) kitchen.push(p);
+                else if (n.includes('part')) common.push(p);
+                else ops.push(p);
+              }
+              return `<select name="position" id="empFormPos" required>
+                ${ops.length ? `<optgroup label="ฝ่ายปฏิบัติการ">${opt(ops)}</optgroup>` : ''}
+                ${kitchen.length ? `<optgroup label="ฝ่ายครัว">${opt(kitchen)}</optgroup>` : ''}
+                ${common.length ? `<optgroup label="อื่นๆ">${opt(common)}</optgroup>` : ''}
+              </select>`;
+            }
+            // มี scope — แสดงเฉพาะตำแหน่งที่ตรง (filter ใน getPositionsForDepartment แล้ว)
+            const label = deptScope === 'operation' ? '🍳 ตำแหน่งสายปฏิบัติการ' : '🏢 ตำแหน่งสายสำนักงาน';
+            return `<select name="position" id="empFormPos" required>
+              <optgroup label="${label}">${opt(sorted)}</optgroup>
             </select>`;
           })()}</div>
           <div class="form-group"><label>ตำแหน่ง</label><input name="positionTitle" value="${escapeHtml(emp.positionTitle)}" placeholder="เช่น ผู้จัดการฝ่ายบุคคล"/></div>
@@ -2271,6 +2286,42 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
     const p = DB.getPosition(ev.target.value);
     const titleInput = $('#empForm [name="positionTitle"]');
     if (p && titleInput) titleInput.value = p.name;
+  });
+
+  // ─── AUTO: เมื่อเปลี่ยน "ฝ่าย" → rebuild dropdown ระดับตำแหน่งงานตาม scope ของฝ่ายใหม่ ───
+  $('#empFormDept')?.addEventListener('change', (ev) => {
+    const deptId = ev.target.value;
+    const dept = deptId ? DB.getDepartment(deptId) : null;
+    const deptScope = dept?.scope || '';
+    const posSel = $('#empFormPos');
+    if (!posSel) return;
+    const prevVal = posSel.value;
+    const filtered = DB.getPositionsForDepartment(deptId);
+    const sorted = filtered.slice().sort((a, b) => (b.level || 0) - (a.level || 0) || (a.name || '').localeCompare(b.name || ''));
+    const opt = (p) => `<option value="${p.id}">${escapeHtml(p.name)}${p.level ? ' · ระดับ ' + p.level : ''}</option>`;
+    if (!deptScope) {
+      const kitchen = [], ops = [], common = [];
+      for (const p of sorted) {
+        const n = (p.name || '').toLowerCase();
+        if (n.includes('chef') || n.includes('barista')) kitchen.push(p);
+        else if (n.includes('part')) common.push(p);
+        else ops.push(p);
+      }
+      posSel.innerHTML =
+        (ops.length ? `<optgroup label="ฝ่ายปฏิบัติการ">${ops.map(opt).join('')}</optgroup>` : '') +
+        (kitchen.length ? `<optgroup label="ฝ่ายครัว">${kitchen.map(opt).join('')}</optgroup>` : '') +
+        (common.length ? `<optgroup label="อื่นๆ">${common.map(opt).join('')}</optgroup>` : '');
+    } else {
+      const label = deptScope === 'operation' ? '🍳 ตำแหน่งสายปฏิบัติการ' : '🏢 ตำแหน่งสายสำนักงาน';
+      posSel.innerHTML = `<optgroup label="${label}">${sorted.map(opt).join('')}</optgroup>`;
+    }
+    // คงค่าตำแหน่งเดิมถ้ายังอยู่ในรายการใหม่ ไม่งั้นเลือก option แรก
+    const stillValid = sorted.some(p => p.id === prevVal);
+    if (stillValid) posSel.value = prevVal;
+    else {
+      // trigger change ให้ field "ตำแหน่ง" (positionTitle) อัปเดตตาม
+      posSel.dispatchEvent(new Event('change'));
+    }
   });
 
   // ─── UPDATE STATUS DISPLAY + แสดง/ซ่อน section "การพ้นสภาพ" ตามการกรอกวันพ้นสภาพ ───
@@ -3791,6 +3842,7 @@ router.register('departments', () => {
         <thead><tr>
           ${sortHead('id', 'รหัส')}
           ${sortHead('name', 'ชื่อฝ่าย')}
+          <th>สาย</th>
           ${sortHead('manager', 'หัวหน้าฝ่าย')}
           ${sortHead('count', 'จำนวนพนักงาน', 'num')}
           <th>หมายเหตุ</th>
@@ -3800,9 +3852,13 @@ router.register('departments', () => {
           ${sortedDepts.map(d => {
             const mgr = d.manager ? DB.getEmployee(d.manager) : null;
             const count = countByDept.get(d.id) || 0;
+            const scopeBadge = d.scope === 'operation' ? '<span class="badge" style="background:rgba(245,158,11,0.15);color:#b45309;font-size:10.5px">🍳 ปฏิบัติการ</span>'
+              : d.scope === 'office' ? '<span class="badge" style="background:rgba(30,136,229,0.15);color:#1565c0;font-size:10.5px">🏢 สำนักงาน</span>'
+              : '<span class="muted-2" style="font-size:11px">—</span>';
             return `<tr>
               <td><code style="font-size:11.5px;font-weight:600">${escapeHtml(d.id)}</code></td>
               <td><strong>${escapeHtml(d.name)}</strong></td>
+              <td>${scopeBadge}</td>
               <td class="sw-cell-meta">${mgr ? escapeHtml(mgr.firstName + ' ' + mgr.lastName) : '<span class="muted-2">—</span>'}</td>
               <td class="num"><strong>${fmt.num(count)}</strong><span class="muted-2" style="font-size:11px"> คน</span></td>
               <td class="sw-reason-cell">${escapeHtml(d.note || '—')}</td>
@@ -3840,6 +3896,13 @@ function openDeptForm(id = null) {
           </div>` : `<div style="margin-top:6px"><span class="muted-2" style="font-size:11px">ใช้ A-Z, 0-9, _ หรือ -${affectedCount ? ` · มีพนักงาน/ผู้สมัคร ${affectedCount} คนผูกอยู่กับรหัสนี้` : ''}</span></div>`}
         </div>
         <div class="form-group"><label>ชื่อฝ่าย *</label><input name="name" value="${escapeHtml(d.name)}" required/></div>
+        <div class="form-group span-2"><label>สาย <span class="muted-2" style="font-weight:normal;font-size:11px">(เลือกเพื่อให้ dropdown ตำแหน่งใน "เพิ่มพนักงาน" แสดงเฉพาะตำแหน่งที่ตรงกับสายนี้)</span></label>
+          <select name="scope">
+            <option value=""           ${!d.scope ? 'selected' : ''}>— ไม่ระบุ (ใช้ตำแหน่งทุกแบบ) —</option>
+            <option value="operation"  ${d.scope === 'operation' ? 'selected' : ''}>🍳 สายปฏิบัติการ (ครัว / บริการ / โรงงาน)</option>
+            <option value="office"     ${d.scope === 'office' ? 'selected' : ''}>🏢 สายสำนักงาน (HR / บัญชี / IT / บริหาร)</option>
+          </select>
+        </div>
         <div class="form-group span-2"><label>หัวหน้าฝ่าย <span class="muted-2" style="font-weight:normal;font-size:11px">(ไม่บังคับ — เคลียร์ช่องเพื่อไม่ระบุ)</span></label>${employeePicker({ name: 'manager', emps, selected: d.manager, placeholder: 'พิมพ์ชื่อหรือเคลียร์เพื่อไม่ระบุ' })}</div>
         <div class="form-group span-2"><label>หมายเหตุ</label><textarea name="note" rows="2">${escapeHtml(d.note)}</textarea></div>
       </div>
@@ -3916,14 +3979,18 @@ router.register('positions', () => {
       </div>
       ${ps.length ? `
       <div class="table-wrap"><table class="table table-compact sw-emp-table">
-        <thead><tr><th>รหัส</th><th>ชื่อตำแหน่ง</th><th class="num">ระดับ</th><th class="num">เงินเดือนต่ำสุด</th><th class="num">เงินเดือนสูงสุด</th><th class="num">พนักงาน</th><th></th></tr></thead>
+        <thead><tr><th>รหัส</th><th>ชื่อตำแหน่ง</th><th>สาย</th><th class="num">ระดับ</th><th class="num">เงินเดือนต่ำสุด</th><th class="num">เงินเดือนสูงสุด</th><th class="num">พนักงาน</th><th></th></tr></thead>
         <tbody>
           ${ps.map(p => {
             const count = emps.filter(e => e.position === p.id).length;
             const lvBadge = p.level >= 7 ? 'badge-success' : p.level >= 4 ? 'badge-info' : 'badge';
+            const scopeBadge = p.scope === 'operation' ? '<span class="badge" style="background:rgba(245,158,11,0.15);color:#b45309;font-size:10.5px">🍳 ปฏิบัติการ</span>'
+              : p.scope === 'office' ? '<span class="badge" style="background:rgba(30,136,229,0.15);color:#1565c0;font-size:10.5px">🏢 สำนักงาน</span>'
+              : '<span class="muted-2" style="font-size:11px">—</span>';
             return `<tr>
               <td><code style="font-size:11.5px;font-weight:600">${escapeHtml(p.id)}</code></td>
               <td><strong>${escapeHtml(p.name)}</strong></td>
+              <td>${scopeBadge}</td>
               <td class="num"><span class="badge ${lvBadge}" style="min-width:32px;font-weight:700">${p.level || '—'}</span></td>
               <td class="num">${p.minSalary ? fmt.money(p.minSalary) : '<span class="muted-2">—</span>'}</td>
               <td class="num">${p.maxSalary ? fmt.money(p.maxSalary) : '<span class="muted-2">—</span>'}</td>
@@ -3942,12 +4009,19 @@ router.register('positions', () => {
 
 function openPositionForm(id = null) {
   if (!requireHR()) return;
-  const p = id ? DB.getPosition(id) : { id: DB.nextPositionId(), name: '', level: 1, minSalary: 0, maxSalary: 0 };
+  const p = id ? DB.getPosition(id) : { id: DB.nextPositionId(), name: '', level: 1, minSalary: 0, maxSalary: 0, scope: '' };
   modal.open(id ? 'แก้ไขตำแหน่ง' : 'เพิ่มตำแหน่ง', `
     <form id="posForm">
       <div class="form-grid">
         <div class="form-group"><label>รหัส *</label><input name="id" value="${escapeHtml(p.id)}" required ${id ? 'readonly' : ''}/></div>
         <div class="form-group"><label>ชื่อตำแหน่ง *</label><input name="name" value="${escapeHtml(p.name)}" required placeholder="เช่น Senior Head Chef"/></div>
+        <div class="form-group span-2"><label>สาย <span class="muted-2" style="font-weight:normal;font-size:11px">(ใช้กับฝ่ายแบบไหน — จะ filter dropdown ในฟอร์มเพิ่มพนักงาน)</span></label>
+          <select name="scope">
+            <option value=""           ${!p.scope ? 'selected' : ''}>— ไม่ระบุ (ใช้ได้ทุกฝ่าย) —</option>
+            <option value="operation"  ${p.scope === 'operation' ? 'selected' : ''}>🍳 สายปฏิบัติการ (ครัว / บริการ / โรงงาน)</option>
+            <option value="office"     ${p.scope === 'office' ? 'selected' : ''}>🏢 สายสำนักงาน (HR / บัญชี / IT / บริหาร)</option>
+          </select>
+        </div>
         <div class="form-group"><label>ระดับ (1-8) *</label><input name="level" type="number" min="1" max="20" value="${p.level || 1}" required/></div>
         <div class="form-group"><label>เงินเดือนต่ำสุด</label><input name="minSalary" type="number" min="0" value="${p.minSalary || 0}"/></div>
         <div class="form-group"><label>เงินเดือนสูงสุด</label><input name="maxSalary" type="number" min="0" value="${p.maxSalary || 0}"/></div>
