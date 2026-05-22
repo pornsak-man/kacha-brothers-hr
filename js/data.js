@@ -2339,6 +2339,63 @@ const DB = {
       .sort((a, b) => b.count - a.count);
   },
 
+  // ─── อัตราผ่านทดลองงาน (120 วัน) แยกตามสาขา — เฉพาะพนักงานประจำ (Full-time) ───
+  // ใช้เกณฑ์เดียวกับ getDashboardKPI(): cohort = ปจ. ที่จ้างใน 12 เดือนล่าสุด + ครบ 120 วันแล้ว
+  // Passed = ยังทำงานอยู่ หรือลาออกหลังวันจ้าง+120 / Failed = ลาออกภายใน 120 วันแรก
+  // inProbation = ปจ. ที่ยังไม่ครบ 120 วัน + ยังทำงานอยู่ (เพื่อบอก context)
+  getProbationPassByBranch() {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const [ty, tm] = today.split('-').map(Number);
+    const todayDay = Number(today.slice(8, 10)) || 1;
+    const twelveMonthsAgo = (() => {
+      const d = new Date(ty, tm - 13, todayDay);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
+    const addDays = (dateStr, days) => {
+      const m = String(dateStr).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (!m) return null;
+      const d = new Date(+m[1], +m[2] - 1, +m[3] + days);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const isFullTime = (e) => e.employeeType === 'พนักงานประจำ';
+    const emps = this.getEmployees();
+    const stats = new Map();
+    const ensure = (branch) => {
+      if (!stats.has(branch)) {
+        stats.set(branch, { branch, cohort: 0, passed: 0, failed: 0, inProbation: 0 });
+      }
+      return stats.get(branch);
+    };
+    for (const e of emps) {
+      if (!isFullTime(e)) continue;
+      if (!e.hireDate || e.hireDate > today) continue;
+      const branch = (e.branch || 'ไม่ระบุ').trim() || 'ไม่ระบุ';
+      const day120 = addDays(e.hireDate, 120);
+      if (!day120) continue;
+      if (day120 > today) {
+        if (this.empStatus(e) !== 'resigned') ensure(branch).inProbation++;
+        continue;
+      }
+      if (e.hireDate < twelveMonthsAgo) continue;
+      const rec = ensure(branch);
+      rec.cohort++;
+      if (!e.terminationDate || e.terminationDate > day120) rec.passed++;
+      else rec.failed++;
+    }
+    const rows = [...stats.values()].map(r => ({
+      ...r,
+      rate: r.cohort > 0 ? (r.passed / r.cohort * 100) : null
+    }));
+    rows.sort((a, b) => {
+      if (a.cohort === 0 && b.cohort === 0) return b.inProbation - a.inProbation || a.branch.localeCompare(b.branch, 'th');
+      if (a.cohort === 0) return 1;
+      if (b.cohort === 0) return -1;
+      if (b.rate !== a.rate) return b.rate - a.rate;
+      return b.cohort - a.cohort;
+    });
+    return rows;
+  },
+
   // ─── YEARLY HIRE / EXIT (ปฏิทินทั้งปี ม.ค.-ธ.ค.) ───
   getYearlyHireExit(year = null) {
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });

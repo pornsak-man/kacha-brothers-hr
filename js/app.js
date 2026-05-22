@@ -738,6 +738,7 @@ router.register('dashboard', () => {
     .slice(0, 10);
   const reach90 = DB.getProbationDue(90);
   const reach119 = DB.getProbationDue(119);
+  const probByBranch = DB.getProbationPassByBranch();
   const pendingUniform = DB.getUniformRequests({ status: 'pending' });
 
   window.afterRender = () => renderDashboardCharts(s, monthly, trailing12);
@@ -892,6 +893,50 @@ router.register('dashboard', () => {
         </div>
       </div>
     </div>` : ''}
+
+    ${probByBranch.length ? (() => {
+      const withCohort = probByBranch.filter(b => b.cohort > 0);
+      const totalCohort = withCohort.reduce((s, b) => s + b.cohort, 0);
+      const totalPassed = withCohort.reduce((s, b) => s + b.passed, 0);
+      const overallRate = totalCohort > 0 ? (totalPassed / totalCohort * 100) : null;
+      return `
+    <div class="sw-section-label">อัตราผ่านทดลองงาน รายสาขา</div>
+    <div class="sw-chart-card">
+      <div class="sw-chart-title">อัตราผ่านทดลองงาน 120 วัน — แยกตามสาขา
+        <span class="badge badge-success" style="margin-left:10px;font-size:11px">${withCohort.length} สาขามีข้อมูล</span>
+        ${overallRate !== null ? `<span class="badge" style="margin-left:6px;font-size:11px;background:rgba(135,169,107,0.18);color:var(--sage,#6b8d52)">รวม ${overallRate.toFixed(1)}%</span>` : ''}
+      </div>
+      <div class="sw-chart-sub">เฉพาะพนักงานประจำ (Full-time) · จ้างใน 12 เดือนล่าสุด + ครบ 120 วันแล้ว (เกณฑ์เดียวกับ KPI ด้านบน)</div>
+      <div style="max-height:540px;overflow-y:auto;padding-right:6px;margin-top:10px">
+        ${probByBranch.map(b => {
+          if (b.cohort === 0) {
+            return `<div style="margin-bottom:14px;opacity:0.55">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;gap:10px;flex-wrap:wrap">
+                <div style="font-size:13.5px;font-weight:600;color:var(--text)">${escapeHtml(b.branch)}</div>
+                <div style="font-size:11.5px;color:var(--text-3)">— ยังไม่มี ปจ. ครบ 120 วันใน 12 เดือนล่าสุด${b.inProbation ? ` · กำลังทดลอง ${fmt.num(b.inProbation)} คน` : ''}</div>
+              </div>
+              <div class="sw-bar-bg"><div class="sw-bar-fill" style="width:0%"></div></div>
+            </div>`;
+          }
+          const rate = b.rate;
+          const color = rate >= 80 ? 'var(--success)' : rate >= 60 ? 'var(--warning)' : 'var(--danger)';
+          const label = rate >= 80 ? 'ดีมาก' : rate >= 60 ? 'ปานกลาง' : 'ต่ำ';
+          return `<div style="margin-bottom:14px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;gap:10px;flex-wrap:wrap">
+              <div style="font-size:13.5px;font-weight:600;color:var(--text)">${escapeHtml(b.branch)}
+                <span style="font-size:11px;font-weight:500;color:${color};margin-left:6px">· ${label}</span>
+              </div>
+              <div style="font-size:12px;color:var(--text-3);text-align:right;font-variant-numeric:tabular-nums">
+                <span style="font-size:15px;font-weight:700;color:${color}">${rate.toFixed(1)}%</span>
+                <span style="font-size:11.5px;margin-left:6px">ผ่าน ${fmt.num(b.passed)}/${fmt.num(b.cohort)} คน${b.failed ? ` · ไม่ผ่าน ${fmt.num(b.failed)}` : ''}${b.inProbation ? ` · กำลังทดลอง ${fmt.num(b.inProbation)}` : ''}</span>
+              </div>
+            </div>
+            <div class="sw-bar-bg"><div class="sw-bar-fill" style="width:${rate.toFixed(1)}%;background:${color}"></div></div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+    })() : ''}
 
     <div class="sw-section-label">ภาพรวมพนักงาน</div>
     <div class="sw-charts-grid">
