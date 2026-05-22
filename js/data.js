@@ -190,65 +190,72 @@ const DB = {
   },
 
   async loadAll() {
-    // ตารางเล็ก / คงที่ — single query พอ
-    const [deps, pos, cal, comp] = await Promise.all([
+    // ─── Phase 1 (critical) — รวม Promise.all เดียวให้ parallel สูงสุด ───
+    // ทุกตารางที่ต้องใช้สำหรับ: dashboard, sidebar badges, login profile
+    // = พนักงาน + master + leave + swap + user_profiles
+    const critical = await Promise.all([
       this.client.from('departments').select('*').order('id'),
       this.client.from('position_levels').select('*').order('id'),
       this.client.from('calendar_items').select('*').order('date'),
-      this.client.from('company_settings').select('*').eq('id', 1).maybeSingle()
-    ]);
-    // ตารางที่อาจมีเกิน 1000 records — ดึงด้วย pagination
-    const [emps, loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues, uniSched, branchRows, leaves, lvTypes, swapReqs] = await Promise.all([
+      this.client.from('company_settings').select('*').eq('id', 1).maybeSingle(),
       this._fetchAllPages('employees', 'id', true),
-      this._fetchAllPages('loans', 'date', false),
-      this._fetchAllPages('advances', 'date', false),
-      this._fetchAllPages('allowances', 'month', false),
-      this._fetchAllPages('evaluations', 'date', false),
-      this._fetchAllPages('salary_history', 'date', false),
-      this._fetchAllPages('applicants', 'applied_date', false).catch(() => []),  // legacy DB อาจยังไม่มี
-      this._fetchAllPages('uniform_items', 'name', true).catch(() => []),
-      this._fetchAllPages('uniform_requests', 'requested_date', false).catch(() => []),
-      this._fetchAllPages('uniform_issues', 'issued_date', false).catch(() => []),
-      this._fetchAllPages('uniform_delivery_schedule', 'branch_code', true).catch(() => []),
       this._fetchAllPages('branches', 'id', true).catch(() => []),
       this._fetchAllPages('leave_requests', 'start_date', false).catch(() => []),
       this._fetchAllPages('leave_types', 'sort_order', true).catch(() => []),
-      this._fetchAllPages('holiday_swap_requests', 'requested_at', false).catch(() => [])
+      this._fetchAllPages('holiday_swap_requests', 'requested_at', false).catch(() => []),
+      this.client.from('user_profiles').select('*').then(r => r.data || [], () => [])
     ]);
+    const [deps, pos, cal, comp, emps, branchRows, leaves, lvTypes, swapReqs, ups] = critical;
+
     this.data.departments = (deps.data || []).map(this._depFromDB);
     this.data.positionLevels = (pos.data || []).map(this._posFromDB);
-    this.data.employees = emps.map(this._empFromDB);
-    this.data.loans = loans.map(this._loanFromDB);
-    this.data.advances = advs.map(this._advFromDB);
-    this.data.allowances = allow.map(this._allowFromDB);
-    this.data.evaluations = evals.map(this._evalFromDB);
-    this.data.salaryHistory = sal.map(this._salFromDB);
     this.data.calendar = (cal.data || []).map(this._calFromDB);
-    this.data.applicants = (appls || []).map(this._applFromDB);
-    this.data.uniformItems = (uniItems || []).map(this._uniItemFromDB);
-    this.data.uniformRequests = (uniReqs || []).map(this._uniReqFromDB);
-    this.data.uniformIssues = (uniIssues || []).map(this._uniIssueFromDB);
-    this.data.uniformSchedule = (uniSched || []).map(this._uniSchedFromDB);
+    if (comp.data) this.data.company = this._compFromDB(comp.data);
+    this.data.employees = emps.map(this._empFromDB);
     this.data.branches = (branchRows || []).map(this._branchFromDB);
     this.data.leaveRequests = (leaves || []).map(this._leaveFromDB);
     this.data.leaveTypes = (lvTypes || []).map(this._leaveTypeFromDB);
     this.data.holidaySwapRequests = (swapReqs || []).map(this._swapReqFromDB);
-    if (comp.data) this.data.company = this._compFromDB(comp.data);
-
-    // Pre-fetch user_profiles cache — RLS อนุญาต admin เห็นทั้งหมด, ผู้ใช้ทั่วไปเห็นแค่ของตัวเอง
-    // ใช้สำหรับ getLeaveApprover() escalation logic (Branch Mgr → Area Mgr)
-    try {
-      const { data: ups } = await this.client.from('user_profiles').select('*');
-      this._userProfiles = ups || [];
-    } catch (e) { this._userProfiles = []; }
-
-    // Role matrix (เอกสารอ้างอิงสิทธิ์) — ทุกคนอ่านได้
-    try {
-      const { data: rm } = await this.client.from('role_permission_matrix').select('*').order('sort_order');
-      this.data.roleMatrix = (rm || []).map(this._matrixFromDB);
-    } catch (e) { this.data.roleMatrix = []; }
+    this._userProfiles = ups || [];
 
     this._invalidateIndex();
+
+    // ─── Phase 2 (deferred) — โหลดเบื้องหลังไม่ block login ───
+    // ใช้ตอนผู้ใช้กดเข้าหน้าที่ต้องการ (เงินเดือน, ลา, จัดชุด, ฯลฯ)
+    // ถ้าผู้ใช้กดก่อนโหลดเสร็จ → ตารางจะค่อยๆ populated เมื่อ promise resolve
+    this._secondaryLoadPromise = Promise.all([
+      this._fetchAllPages('loans', 'date', false).catch(() => []),
+      this._fetchAllPages('advances', 'date', false).catch(() => []),
+      this._fetchAllPages('allowances', 'month', false).catch(() => []),
+      this._fetchAllPages('evaluations', 'date', false).catch(() => []),
+      this._fetchAllPages('salary_history', 'date', false).catch(() => []),
+      this._fetchAllPages('applicants', 'applied_date', false).catch(() => []),
+      this._fetchAllPages('uniform_items', 'name', true).catch(() => []),
+      this._fetchAllPages('uniform_requests', 'requested_date', false).catch(() => []),
+      this._fetchAllPages('uniform_issues', 'issued_date', false).catch(() => []),
+      this._fetchAllPages('uniform_delivery_schedule', 'branch_code', true).catch(() => []),
+      this.client.from('role_permission_matrix').select('*').order('sort_order').then(r => r.data || [], () => [])
+    ]).then(([loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues, uniSched, rm]) => {
+      this.data.loans = loans.map(this._loanFromDB);
+      this.data.advances = advs.map(this._advFromDB);
+      this.data.allowances = allow.map(this._allowFromDB);
+      this.data.evaluations = evals.map(this._evalFromDB);
+      this.data.salaryHistory = sal.map(this._salFromDB);
+      this.data.applicants = appls.map(this._applFromDB);
+      this.data.uniformItems = uniItems.map(this._uniItemFromDB);
+      this.data.uniformRequests = uniReqs.map(this._uniReqFromDB);
+      this.data.uniformIssues = uniIssues.map(this._uniIssueFromDB);
+      this.data.uniformSchedule = uniSched.map(this._uniSchedFromDB);
+      this.data.roleMatrix = rm.map(this._matrixFromDB);
+      this._secondaryLoaded = true;
+      // Re-render หน้าปัจจุบันถ้าผู้ใช้อยู่บนหน้าที่ใช้ secondary data
+      if (typeof router !== 'undefined' && router.current) {
+        const usesSecondary = ['loans', 'advances', 'allowance', 'evaluations', 'recruit', 'uniform', 'salary-adjust'];
+        if (usesSecondary.includes(router.current)) router.go(router.current);
+      }
+    }).catch(err => {
+      console.warn('Secondary data load failed:', err);
+    });
   },
 
   // ─── REALTIME ───
