@@ -349,7 +349,7 @@ const auth = {
     // ─── Reset client-side state (กัน state leak ระหว่างผู้ใช้บนเครื่องเดียวกัน) ───
     // ทุก global filter/UI state กลับสู่ค่าเริ่มต้น
     try {
-      if (typeof empState === 'object') Object.assign(empState, { search: '', branch: '', position: '', status: 'active', sortBy: '', sortDir: 'asc', page: 1 });
+      if (typeof empState === 'object') Object.assign(empState, { search: '', branch: '', department: '', position: '', status: 'active', sortBy: '', sortDir: 'asc', page: 1 });
       if (typeof recruitState === 'object') Object.assign(recruitState, { search: '', status: '', year: '', page: 1 });
       if (typeof _swapReqUI === 'object') Object.assign(_swapReqUI, { tab: 'pending', search: '', branch: '', status: '', page: 0 });
       if (typeof _calendarState === 'object') _calendarState.filterYear = new Date().getFullYear();
@@ -1391,7 +1391,7 @@ function renderDashboardCharts(s, monthly, trailing12) {
 // ═══════════════════════════════════════════════════════
 //  PAGE: EMPLOYEES
 // ═══════════════════════════════════════════════════════
-const empState = { search: '', branch: '', position: '', status: 'active', sortBy: '', sortDir: 'asc', page: 1, pageSize: 50 };
+const empState = { search: '', branch: '', department: '', position: '', status: 'active', sortBy: '', sortDir: 'asc', page: 1, pageSize: 50 };
 let _empSearchTimer = null;
 
 router.register('employees', () => {
@@ -1474,6 +1474,10 @@ router.register('employees', () => {
           <option value="">— ทุกสาขา —</option>
           ${DB.getBranches().map(b => `<option value="${escapeHtml(b)}" ${empState.branch === b ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('')}
         </select>
+        <select class="sw-filter-select" id="empDepartment">
+          <option value="">— ทุกฝ่าย —</option>
+          ${DB.getDepartments().map(d => `<option value="${escapeHtml(d.id)}" ${empState.department === d.id ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}
+        </select>
         ${(() => {
           const ps = DB.getPositions();
           const kitchen = [], ops = [], common = [];
@@ -1499,7 +1503,7 @@ router.register('employees', () => {
           <option value="pending"  ${empState.status === 'pending'  ? 'selected' : ''}>นัดพ้นสภาพ</option>
           <option value="resigned" ${empState.status === 'resigned' ? 'selected' : ''}>พ้นสภาพแล้ว</option>
         </select>
-        <button id="empClearFilter" class="btn btn-ghost btn-sm sw-filter-clear" onclick="clearEmpFilters()" style="${(empState.search || empState.branch || empState.position || empState.status !== 'active') ? '' : 'display:none'}">✕ ล้างตัวกรอง</button>
+        <button id="empClearFilter" class="btn btn-ghost btn-sm sw-filter-clear" onclick="clearEmpFilters()" style="${(empState.search || empState.branch || empState.department || empState.position || empState.status !== 'active') ? '' : 'display:none'}">✕ ล้างตัวกรอง</button>
       </div>
       <div id="empList"></div>
     </div>
@@ -1510,7 +1514,7 @@ router.register('employees', () => {
 function updateEmpClearButton() {
   const btn = document.getElementById('empClearFilter');
   if (!btn) return;
-  const hasFilters = empState.search || empState.branch || empState.position || (empState.status !== 'active');
+  const hasFilters = empState.search || empState.branch || empState.department || empState.position || (empState.status !== 'active');
   btn.style.display = hasFilters ? '' : 'none';
 }
 
@@ -1518,16 +1522,19 @@ function updateEmpClearButton() {
 function clearEmpFilters() {
   empState.search = '';
   empState.branch = '';
+  empState.department = '';
   empState.position = '';
   empState.status = 'active';
   empState.page = 1;
   // Reset DOM controls โดยตรง (ไม่ต้อง re-render ทั้งหน้า)
   const searchEl = document.getElementById('empSearch');
   const branchEl = document.getElementById('empBranch');
+  const deptEl = document.getElementById('empDepartment');
   const positionEl = document.getElementById('empPosition');
   const statusEl = document.getElementById('empStatus');
   if (searchEl) searchEl.value = '';
   if (branchEl) branchEl.value = '';
+  if (deptEl) deptEl.value = '';
   if (positionEl) positionEl.value = '';
   if (statusEl) statusEl.value = 'active';
   renderEmployeeList();
@@ -1547,6 +1554,7 @@ function wireEmployeePage() {
     }, 200);
   });
   $('#empBranch')?.addEventListener('change', (e) => { empState.branch = e.target.value; empState.page = 1; renderEmployeeList(); updateEmpClearButton(); });
+  $('#empDepartment')?.addEventListener('change', (e) => { empState.department = e.target.value; empState.page = 1; renderEmployeeList(); updateEmpClearButton(); });
   $('#empPosition')?.addEventListener('change', (e) => { empState.position = e.target.value; empState.page = 1; renderEmployeeList(); updateEmpClearButton(); });
   $('#empStatus')?.addEventListener('change', (e) => { empState.status = e.target.value; empState.page = 1; renderEmployeeList(); updateEmpClearButton(); });
 
