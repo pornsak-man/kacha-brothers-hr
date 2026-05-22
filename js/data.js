@@ -193,12 +193,39 @@ const DB = {
     // ─── Phase 1 (critical) — รวม Promise.all เดียวให้ parallel สูงสุด ───
     // ทุกตารางที่ต้องใช้สำหรับ: dashboard, sidebar badges, login profile
     // = พนักงาน + master + leave + swap + user_profiles
+    //
+    // Optimization: โหลด employees เฉพาะ active + พ้นสภาพไม่เกิน 1 ปีย้อนหลัง
+    //   พนักงานเก่ากว่านั้น (เก็บประวัติยาว) → load Phase 2 background
+    //   ผลลัพธ์: ลด employees ที่โหลดจาก 5000 → ~700 (active 500 + recent resigned 200)
+    const oneYearAgo = (() => {
+      const d = new Date(); d.setFullYear(d.getFullYear() - 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
+    // _fetchAllPagesFiltered: เหมือน _fetchAllPages แต่รับ extra filter callback
+    const fetchEmployeesActive = async () => {
+      const PAGE = 1000;
+      const all = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await this.client.from('employees')
+          .select('*').order('id', { ascending: true })
+          .or(`termination_date.is.null,termination_date.gte.${oneYearAgo}`)
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE) break;
+        from += PAGE;
+      }
+      return all;
+    };
+
     const critical = await Promise.all([
       this.client.from('departments').select('*').order('id'),
       this.client.from('position_levels').select('*').order('id'),
       this.client.from('calendar_items').select('*').order('date'),
       this.client.from('company_settings').select('*').eq('id', 1).maybeSingle(),
-      this._fetchAllPages('employees', 'id', true),
+      fetchEmployeesActive(),
       this._fetchAllPages('branches', 'id', true).catch(() => []),
       this._fetchAllPages('leave_requests', 'start_date', false).catch(() => []),
       this._fetchAllPages('leave_types', 'sort_order', true).catch(() => []),
@@ -222,7 +249,27 @@ const DB = {
 
     // ─── Phase 2 (deferred) — โหลดเบื้องหลังไม่ block login ───
     // ใช้ตอนผู้ใช้กดเข้าหน้าที่ต้องการ (เงินเดือน, ลา, จัดชุด, ฯลฯ)
+    // + พนักงานที่พ้นสภาพ > 1 ปีย้อนหลัง (เก็บประวัติยาว)
     // ถ้าผู้ใช้กดก่อนโหลดเสร็จ → ตารางจะค่อยๆ populated เมื่อ promise resolve
+    const fetchEmployeesArchive = async () => {
+      const PAGE = 1000;
+      const all = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await this.client.from('employees')
+          .select('*').order('id', { ascending: true })
+          .not('termination_date', 'is', null)
+          .lt('termination_date', oneYearAgo)
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE) break;
+        from += PAGE;
+      }
+      return all;
+    };
+
     this._secondaryLoadPromise = Promise.all([
       this._fetchAllPages('loans', 'date', false).catch(() => []),
       this._fetchAllPages('advances', 'date', false).catch(() => []),
@@ -234,8 +281,9 @@ const DB = {
       this._fetchAllPages('uniform_requests', 'requested_date', false).catch(() => []),
       this._fetchAllPages('uniform_issues', 'issued_date', false).catch(() => []),
       this._fetchAllPages('uniform_delivery_schedule', 'branch_code', true).catch(() => []),
-      this.client.from('role_permission_matrix').select('*').order('sort_order').then(r => r.data || [], () => [])
-    ]).then(([loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues, uniSched, rm]) => {
+      this.client.from('role_permission_matrix').select('*').order('sort_order').then(r => r.data || [], () => []),
+      fetchEmployeesArchive().catch(() => [])
+    ]).then(([loans, advs, allow, evals, sal, appls, uniItems, uniReqs, uniIssues, uniSched, rm, oldEmps]) => {
       this.data.loans = loans.map(this._loanFromDB);
       this.data.advances = advs.map(this._advFromDB);
       this.data.allowances = allow.map(this._allowFromDB);
@@ -247,10 +295,17 @@ const DB = {
       this.data.uniformIssues = uniIssues.map(this._uniIssueFromDB);
       this.data.uniformSchedule = uniSched.map(this._uniSchedFromDB);
       this.data.roleMatrix = rm.map(this._matrixFromDB);
+      // Merge employees เก่าเข้ากับ active employees (เรียง id เพื่อให้ stable)
+      if (oldEmps.length) {
+        const existingIds = new Set(this.data.employees.map(e => e.id));
+        const newOldEmps = oldEmps.filter(e => !existingIds.has(e.id)).map(this._empFromDB);
+        this.data.employees = [...this.data.employees, ...newOldEmps].sort((a, b) => a.id.localeCompare(b.id));
+        this._invalidateIndex();
+      }
       this._secondaryLoaded = true;
       // Re-render หน้าปัจจุบันถ้าผู้ใช้อยู่บนหน้าที่ใช้ secondary data
       if (typeof router !== 'undefined' && router.current) {
-        const usesSecondary = ['loans', 'advances', 'allowance', 'evaluations', 'recruit', 'uniform', 'salary-adjust'];
+        const usesSecondary = ['loans', 'advances', 'allowance', 'evaluations', 'recruit', 'uniform', 'salary-adjust', 'employees'];
         if (usesSecondary.includes(router.current)) router.go(router.current);
       }
     }).catch(err => {
