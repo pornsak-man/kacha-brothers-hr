@@ -1071,7 +1071,29 @@ const DB = {
     }
     return this._deptIndex.get(id);
   },
-  async saveDepartment(dept) {
+  // saveDepartment(dept) — เพิ่ม/แก้ไขทั่วไป (id ไม่เปลี่ยน)
+  // saveDepartment(dept, originalId) — รองรับการ rename id (originalId !== dept.id)
+  //   FK ของ employees + applicants ตั้ง ON UPDATE CASCADE แล้ว → cascade อัตโนมัติใน DB
+  //   client cache ต้อง mirror update เอง (employees/applicants.department field)
+  async saveDepartment(dept, originalId = null) {
+    if (originalId && originalId !== dept.id) {
+      // Rename: UPDATE row เดิม (PK ใหม่จะ cascade ผ่าน FK)
+      const { data, error } = await this.client.from('departments')
+        .update(this._depToDB(dept)).eq('id', originalId).select().single();
+      if (error) throw error;
+      const mapped = this._depFromDB(data);
+      const idx = this.data.departments.findIndex(d => d.id === originalId);
+      if (idx >= 0) this.data.departments[idx] = mapped;
+      // mirror FK cascade ใน local cache (Postgres ทำให้แล้วใน DB)
+      for (const e of (this.data.employees || [])) {
+        if (e.department === originalId) e.department = dept.id;
+      }
+      for (const a of (this.data.applicants || [])) {
+        if (a.department === originalId) a.department = dept.id;
+      }
+      this._invalidateIndex('departments');
+      return mapped;
+    }
     const { data, error } = await this.client.from('departments').upsert(this._depToDB(dept)).select().single();
     if (error) throw error;
     const mapped = this._depFromDB(data);

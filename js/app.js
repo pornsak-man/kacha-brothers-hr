@@ -3781,16 +3781,21 @@ function openDeptForm(id = null) {
   const d = id ? DB.getDepartment(id) : { id: '', name: '', manager: '', note: '' };
   const emps = DB.getEmployees({ status: 'active' });
   const nextId = !id ? DB.nextDepartmentId() : '';
+  // นับพนักงาน + ผู้สมัครที่ใช้ฝ่ายนี้ — ใช้ใน confirm ตอน rename
+  const affectedCount = id
+    ? (DB.data.employees || []).filter(e => e.department === id).length
+      + (DB.data.applicants || []).filter(a => a.department === id).length
+    : 0;
   modal.open(id ? 'แก้ไขฝ่าย' : 'เพิ่มฝ่าย', `
     <form id="deptForm">
       <div class="form-grid">
         <div class="form-group">
-          <label>รหัส * <span class="muted-2" style="font-weight:normal;font-size:11px">${id ? '(แก้ไม่ได้)' : '(ตั้งเองได้ — เช่น KITCHEN, OPS, D012)'}</span></label>
-          <input name="id" id="deptIdInput" value="${escapeHtml(d.id)}" required ${id ? 'readonly' : `placeholder="เช่น ${escapeHtml(nextId)} หรือ KITCHEN" maxlength="20" pattern="[A-Za-z0-9_-]+" title="ใช้ A-Z, 0-9, _ หรือ - เท่านั้น"`} />
+          <label>รหัส * <span class="muted-2" style="font-weight:normal;font-size:11px">${id ? '(เปลี่ยนได้ — ระบบจะอัปเดต FK ในตารางพนักงาน/ผู้สมัครให้)' : '(ตั้งเองได้ — เช่น KITCHEN, OPS, D012)'}</span></label>
+          <input name="id" id="deptIdInput" value="${escapeHtml(d.id)}" required maxlength="20" pattern="[A-Za-z0-9_-]+" title="ใช้ A-Z, 0-9, _ หรือ - เท่านั้น" ${id ? '' : `placeholder="เช่น ${escapeHtml(nextId)} หรือ KITCHEN"`} />
           ${!id ? `<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <button type="button" class="btn btn-ghost btn-sm" style="padding:4px 10px;font-size:11.5px" onclick="document.getElementById('deptIdInput').value='${escapeHtml(nextId)}';document.getElementById('deptIdInput').focus()">↻ ใช้รหัสถัดไป (${escapeHtml(nextId)})</button>
             <span class="muted-2" style="font-size:11px">ใช้ A-Z, 0-9, _ หรือ -</span>
-          </div>` : ''}
+          </div>` : `<div style="margin-top:6px"><span class="muted-2" style="font-size:11px">ใช้ A-Z, 0-9, _ หรือ -${affectedCount ? ` · มีพนักงาน/ผู้สมัคร ${affectedCount} คนผูกอยู่กับรหัสนี้` : ''}</span></div>`}
         </div>
         <div class="form-group"><label>ชื่อฝ่าย *</label><input name="name" value="${escapeHtml(d.name)}" required/></div>
         <div class="form-group span-2"><label>หัวหน้าฝ่าย <span class="muted-2" style="font-weight:normal;font-size:11px">(ไม่บังคับ — เคลียร์ช่องเพื่อไม่ระบุ)</span></label>${employeePicker({ name: 'manager', emps, selected: d.manager, placeholder: 'พิมพ์ชื่อหรือเคลียร์เพื่อไม่ระบุ' })}</div>
@@ -3812,9 +3817,23 @@ function openDeptForm(id = null) {
         toast(`รหัส "${data.id}" มีอยู่แล้ว — เปลี่ยนเป็นรหัสอื่น`, 'error');
         return;
       }
-      await DB.saveDepartment(data);
+      // เปลี่ยนรหัสฝ่าย (rename) — ยืนยันก่อนเพราะกระทบพนักงาน/ผู้สมัครหลายคน
+      const isRename = id && data.id !== id;
+      if (isRename) {
+        if (DB.getDepartment(data.id)) {
+          toast(`รหัส "${data.id}" ถูกใช้กับฝ่ายอื่นแล้ว — เลือกรหัสอื่น`, 'error');
+          return;
+        }
+        const ok = await modal.confirm(
+          'ยืนยันการเปลี่ยนรหัสฝ่าย',
+          `เปลี่ยนรหัสจาก "${id}" → "${data.id}"?\n\n` +
+          `ระบบจะอัปเดต FK ของพนักงาน${affectedCount ? ` ${affectedCount} คน` : ''} + ผู้สมัครที่ผูกอยู่กับรหัสนี้ให้อัตโนมัติ (atomic) — ดำเนินการต่อ?`
+        );
+        if (!ok) return;
+      }
+      await DB.saveDepartment(data, id);
       modal.close();
-      toast('บันทึกข้อมูลฝ่ายแล้ว', 'success');
+      toast(isRename ? 'เปลี่ยนรหัสฝ่ายแล้ว' : 'บันทึกข้อมูลฝ่ายแล้ว', 'success');
       router.go('departments');
     } catch (ex) { toast('บันทึกไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
   });
