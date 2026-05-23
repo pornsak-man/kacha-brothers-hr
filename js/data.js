@@ -207,20 +207,41 @@ const DB = {
   },
 
   // ─── AUTO-DETECT ROLE จาก positionTitle ของพนักงาน ───
-  // ใช้เมื่อ admin กดปุ่ม "auto-detect" ในหน้า User Management
-  // คืน role ที่ derived; null ถ้าไม่ match (เรียกใช้แล้ว default เป็น branch_staff)
+  // ใช้เมื่อสร้างพนักงานใหม่ (auto-create account) หรือ bulk import จาก Excel
+  // คืน role ที่ derived; default = 'branch_staff' (ปลอดภัยที่สุด) ถ้าไม่ match อะไรชัดเจน
+  //
+  // กฎความปลอดภัย:
+  //   1. ตำแหน่ง junior/ฝึกงาน/ผู้ช่วย → ห้าม promote เป็น manager/hr (ป้องกัน "HR Intern" ได้สิทธิ์ HR)
+  //   2. ใช้ word-boundary regex (Latin + Thai) แทน partial match
+  //      → "Senior Operation Specialist" จะไม่ match "operation manager"
+  //      → "HR Officer" ยัง match "hr" ปกติ (word เดี่ยว)
   autoDetectRole(employee) {
     if (!employee) return null;
-    const title = (employee.positionTitle || '').toLowerCase();
+    const title = (employee.positionTitle || '').toLowerCase().trim();
     const dept  = (employee.department || '').toUpperCase();
-    // HR: department = ฝ่ายบุคคล หรือ title มี HR/บุคคล/human resource
-    if (dept === 'D002' || /hr|บุคคล|human\s*resource/i.test(title)) return 'hr';
-    // Operation Manager
-    if (/operation\s*(manager|มง|mng)?|ผู้จัดการ.*ปฏิบัติการ|om\b/i.test(title)) return 'operation_manager';
+
+    // ── Guardrail: ตำแหน่งระดับ junior → ไม่อนุญาตให้ promote เป็น manager/HR อัตโนมัติ ──
+    // คำเหล่านี้บ่งชี้ว่ายังไม่ใช่ตำแหน่งเต็ม → ต้องตั้ง role manually ทีหลัง
+    if (/(intern|trainee|junior|jr\b|assistant|asst\b|helper|ฝึกงาน|ฝึกหัด|ผู้ช่วย|ทดลอง|รุ่นใหม่)/i.test(title)) {
+      return 'branch_staff';
+    }
+
+    // ── helper: word-boundary match รองรับ Latin (a-z0-9) + Thai (ก-๙) ──
+    const matchWord = (pat) => new RegExp(`(^|[^a-z0-9ก-๙])(?:${pat})($|[^a-z0-9ก-๙])`, 'i').test(title);
+
+    // HR: department = D002 (ฝ่ายบุคคล) เชื่อถือได้ที่สุด — เป็น authoritative
+    if (dept === 'D002') return 'hr';
+    if (matchWord('hr|human\\s*resources?|ฝ่ายบุคคล|บุคคล')) return 'hr';
+
+    // Operation Manager — ต้องเป็นคำเต็ม ไม่ใช่ "operation" ลำพัง
+    if (matchWord('operations?\\s*(manager|director|head|มง|mng)|ผู้จัดการ(\\s*ฝ่าย)?\\s*ปฏิบัติการ|om')) return 'operation_manager';
+
     // Area Manager
-    if (/area\s*(manager|มง|mng)?|ผู้จัดการ.*เขต|am\b/i.test(title)) return 'area_manager';
-    // Branch Manager
-    if (/branch\s*(manager|มง|mng)?|store\s*manager|ผู้จัดการ(สาขา|ร้าน)|bm\b/i.test(title)) return 'branch_manager';
+    if (matchWord('area\\s*(manager|director|head|มง|mng)|ผู้จัดการเขต|am')) return 'area_manager';
+
+    // Branch Manager / Store Manager
+    if (matchWord('branch\\s*(manager|director|head|มง|mng)|store\\s*manager|ผู้จัดการสาขา|ผู้จัดการร้าน|bm')) return 'branch_manager';
+
     // default = พนักงานสาขาทั่วไป
     return 'branch_staff';
   },
@@ -1206,6 +1227,18 @@ const DB = {
     return this._posIndex.get(id);
   },
   async savePosition(pos) {
+    // ── Validation: ห้ามชื่อตำแหน่งซ้ำ (case-insensitive + trim) ──
+    // เพราะ filter ทะเบียนพนักงาน + positionTitle snapshot ใช้ชื่อตำแหน่งเทียบกัน
+    // ถ้ามี 2 records ที่ชื่อเดียวกัน → dropdown แสดงซ้ำ + filter จะรวมพนักงานของทั้ง 2 records
+    const name = (pos.name || '').trim();
+    if (!name) throw new Error('ต้องระบุชื่อตำแหน่ง');
+    const nameLc = name.toLowerCase();
+    const duplicate = this.data.positionLevels.find(p =>
+      p.id !== pos.id && (p.name || '').trim().toLowerCase() === nameLc
+    );
+    if (duplicate) {
+      throw new Error(`ชื่อตำแหน่ง "${name}" ซ้ำกับรหัส ${duplicate.id} — กรุณาใช้ชื่ออื่น หรือแก้ไขตำแหน่งเดิมแทน`);
+    }
     const { data, error } = await this.client.from('position_levels').upsert(this._posToDB(pos)).select().single();
     if (error) throw error;
     const mapped = this._posFromDB(data);
