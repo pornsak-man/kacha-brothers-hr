@@ -10355,7 +10355,7 @@ async function bulkCreateAccounts() {
 
 async function resetEmpPassword(empId) {
   if (!requireHR()) return;
-  const newPwd = await modal.prompt('รีเซ็ตรหัสผ่าน', `รหัสผ่านใหม่สำหรับ "${empId}" (เว้นว่างเพื่อรีเซ็ตเป็นรหัสพนักงาน):`, '');
+  const newPwd = await modal.prompt('รีเซ็ตรหัสผ่าน', `รหัสผ่านใหม่สำหรับ "${empId}" (เว้นว่างเพื่อรีเซ็ตเป็นเลขประชาชน):`, '');
   if (newPwd === null) return;
   try {
     const res = await DB.resetEmployeePassword(empId, newPwd.trim() || null);

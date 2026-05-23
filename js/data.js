@@ -1774,18 +1774,20 @@ const DB = {
     return this._userProfiles;
   },
 
-  // คำนวณรหัสผ่านเริ่มต้นจากข้อมูลพนักงาน (hybrid logic)
-  // [Security C4] รหัสผ่านเริ่มต้น = สุ่ม 12 ตัว — ไม่ใช้ข้อมูลที่เพื่อนร่วมงานเดาได้
-  // เดิม: ใช้เลข ปชช หรือ passport เป็นรหัสผ่าน → ใครรู้เลข ปชช เพื่อนร่วมงานก็ login ได้
-  // ใหม่: สุ่ม a-z + 0-9 (ไม่ใส่ I, l, 1, O, 0 เพื่อกันสับสน) 12 ตัว
-  //       HR เห็นรหัสผ่าน 1 ครั้งตอนสร้างบัญชี → แจ้งพนักงาน → ควรเปลี่ยนทันที
+  // คำนวณรหัสผ่านเริ่มต้นจากข้อมูลพนักงาน
+  // นโยบายของบริษัท: ใช้เลข ปชช เป็นรหัสผ่านเริ่มต้นให้ทุกคน (สะดวกสำหรับ HR)
+  //  1) เลข ปชช (>= 6 หลัก, strip non-digit) → ใช้
+  //  2) Passport number (>= 6 ตัว) → ใช้ (สำหรับชาวต่างชาติ)
+  //  3) Fallback → "kacha{employee_id}"
+  // ⚠️ Security note: เพื่อนร่วมงานที่อ่าน RLS scope ของ employees ในสาขาเดียวกัน
+  //    เห็นเลข ปชช ของกัน → สามารถ login เป็นกันได้ — แนะนำให้พนักงานเปลี่ยนรหัสผ่าน
+  //    ผ่านปุ่ม 🔒 มุมล่างซ้ายหลัง login ครั้งแรก
   _computeInitialPassword(emp) {
-    const chars = 'abcdefghjkmnpqrstuvwxyz23456789ABCDEFGHJKMNPQRSTUVWXYZ';
-    let password = '';
-    const arr = new Uint32Array(12);
-    crypto.getRandomValues(arr);
-    for (let i = 0; i < 12; i++) password += chars[arr[i] % chars.length];
-    return { password, source: 'สุ่มอัตโนมัติ' };
+    const nat = String(emp.nationalId || '').replace(/\D/g, '');
+    if (nat.length >= 6) return { password: nat, source: 'เลขประชาชน' };
+    const pp = String(emp.passportNumber || '').trim();
+    if (pp.length >= 6) return { password: pp, source: 'passport' };
+    return { password: `kacha${emp.id}`, source: 'kacha+รหัส' };
   },
 
   // สร้างบัญชี 1 คนด้วย Supabase signUp — เก็บ admin session ไว้ก่อน, signUp, แล้ว restore กลับ
