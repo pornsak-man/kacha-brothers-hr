@@ -835,6 +835,8 @@ function renderPersonalDashboard() {
   `;
 }
 
+const dashState = { scope: '' };
+
 router.register('dashboard', () => {
   // ─── PERSONAL DASHBOARD (Self-Service) สำหรับ branch_staff / viewer ───
   // หรือ HR/admin ที่กำลังใช้โหมด "ดูเสมือนพนักงาน"
@@ -843,14 +845,20 @@ router.register('dashboard', () => {
     return renderPersonalDashboard();
   }
 
-  const s = DB.getStats();
-  const kpi = DB.getDashboardKPI();
-  const yearly = DB.getYearlyHireExit();
+  // ─── Scope filter (เห็นเฉพาะ admin/HR) — กรอง KPI/charts ตามสายงาน ───
+  const scope = dashState.scope || '';
+  const opts = { scope };
+  const activeScope = scope ? DB.getScope(scope) : null;
+
+  const s = DB.getStats(opts);
+  const kpi = DB.getDashboardKPI(opts);
+  const yearly = DB.getYearlyHireExit(null, opts);
   const monthly = yearly.months;
-  const trailing12 = DB.getMonthlyHireExit(12);
-  const branchStats = DB.getBranchStats();
+  const trailing12 = DB.getMonthlyHireExit(12, opts);
+  const branchStats = DB.getBranchStats(opts);
+  // scope chart = breakdown ของทุกสาย → แสดงเสมอ (ไม่ filter)
   const scopeStats = DB.getScopeStats();
-  const recentEmps = DB.getEmployees()
+  const recentEmps = DB._filterByScope(DB.getEmployees(), scope)
     .filter(e => DB.empStatus(e) !== 'resigned')
     .sort((a, b) => (b.hireDate || '').localeCompare(a.hireDate || ''))
     .slice(0, 10);
@@ -859,7 +867,13 @@ router.register('dashboard', () => {
   const probByBranch = DB.getProbationPassByBranch();
   const pendingUniform = DB.getUniformRequests({ status: 'pending' });
 
-  window.afterRender = () => renderDashboardCharts(s, monthly, trailing12);
+  window.afterRender = () => {
+    renderDashboardCharts(s, monthly, trailing12);
+    document.getElementById('dashScope')?.addEventListener('change', (e) => {
+      dashState.scope = e.target.value;
+      router.go('dashboard');
+    });
+  };
 
   const todayStr = new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bangkok' });
   const tvColor = kpi.turnoverAnnualized <= 5 ? 'var(--success)' : kpi.turnoverAnnualized <= 10 ? 'var(--warning)' : 'var(--danger)';
@@ -870,11 +884,16 @@ router.register('dashboard', () => {
   return `
     <div class="sw-page-header">
       <div>
-        <div class="sw-page-title">ภาพรวมองค์กร</div>
-        <div class="sw-page-subtitle">บริษัท คชา บราเธอร์ส จำกัด — ข้อมูล ณ ${todayStr}</div>
+        <div class="sw-page-title">ภาพรวมองค์กร${activeScope ? ` <span class="badge" style="background:${escapeHtml(activeScope.badgeBg)};color:${escapeHtml(activeScope.badgeColor)};font-size:12px;padding:4px 12px;margin-left:8px;vertical-align:middle">${escapeHtml(activeScope.label)}</span>` : ''}</div>
+        <div class="sw-page-subtitle">บริษัท คชา บราเธอร์ส จำกัด — ข้อมูล ณ ${todayStr}${activeScope ? ' · กรองเฉพาะสาย ' + escapeHtml(activeScope.label) : ''}</div>
       </div>
-      <div class="sw-page-actions">
-        ${DB.isHR ? `<button class="btn btn-primary" onclick="openEmployeeForm()">+ เพิ่มพนักงาน</button>` : ''}
+      <div class="sw-page-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${DB.isHR ? `
+        <select id="dashScope" class="sw-filter-select" title="กรองตามสายงาน" style="min-width:180px">
+          <option value="">— ทุกสายงาน —</option>
+          ${DB.getScopes().map(sc => `<option value="${escapeHtml(sc.id)}" ${scope === sc.id ? 'selected' : ''}>${escapeHtml(sc.label)}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary" onclick="openEmployeeForm()">+ เพิ่มพนักงาน</button>` : ''}
       </div>
     </div>
 

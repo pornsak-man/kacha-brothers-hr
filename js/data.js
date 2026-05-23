@@ -2658,13 +2658,14 @@ const DB = {
   },
 
   // ─── DASHBOARD KPI (Safari-style) ───
-  getDashboardKPI() {
+  getDashboardKPI({ scope = '' } = {}) {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
     const [ty, tm] = today.split('-').map(Number);
     const thisYM = `${ty}-${String(tm).padStart(2, '0')}`;
     const yearStart = `${ty}-01-01`;
     // ใช้ getEmployees() เพื่อ auto-scope ตาม RBAC (admin/hr เห็นทั้งหมด, manager เห็นเฉพาะสาขา)
-    const emps = this.getEmployees();
+    // + กรอง scope (สายงาน) เพิ่มเติม ถ้า dashboard ระบุมา
+    const emps = this._filterByScope(this.getEmployees(), scope);
     const active = emps.filter(e => this.empStatus(e) !== 'resigned');
     // Turnover คิดเฉพาะ "พนักงานประจำ" (full-time) เท่านั้น — ไม่รวม part-time/contract/probation
     const isFullTime = (e) => e.employeeType === 'พนักงานประจำ';
@@ -2749,9 +2750,21 @@ const DB = {
   },
 
   // ─── BRANCH STATS (จำนวนพนักงานต่อสาขา — เฉพาะที่ยังปฏิบัติงาน) ───
-  getBranchStats() {
+  // ─── Helper: กรอง employees ตาม scope (สายงาน) ───
+  // ใช้ใน dashboard filters: scope = 'operation'/'office'/'scm'/... | '' = no filter
+  // chain: employee.position → positionLevels.scope → match กับ scope ที่กรอง
+  _filterByScope(emps, scope) {
+    if (!scope) return emps;
+    return emps.filter(e => {
+      const pos = e.position ? this.getPosition(e.position) : null;
+      return pos?.scope === scope;
+    });
+  },
+
+  getBranchStats({ scope = '' } = {}) {
     const counts = new Map();
-    for (const e of this.data.employees) {
+    const list = this._filterByScope(this.data.employees, scope);
+    for (const e of list) {
       if (this.empStatus(e) === 'resigned') continue;
       const b = (e.branch || 'ไม่ระบุ').trim() || 'ไม่ระบุ';
       counts.set(b, (counts.get(b) || 0) + 1);
@@ -2849,7 +2862,7 @@ const DB = {
   },
 
   // ─── YEARLY HIRE / EXIT (ปฏิทินทั้งปี ม.ค.-ธ.ค.) ───
-  getYearlyHireExit(year = null) {
+  getYearlyHireExit(year = null, { scope = '' } = {}) {
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
     const y = year || parseInt(todayStr.slice(0, 4), 10);
     const months = [];
@@ -2861,7 +2874,7 @@ const DB = {
       });
     }
     const idx = new Map(months.map(m => [m.ym, m]));
-    for (const e of this.data.employees) {
+    for (const e of this._filterByScope(this.data.employees, scope)) {
       if (e.hireDate) {
         const ym = String(e.hireDate).slice(0, 7);
         const m = idx.get(ym);
@@ -2877,7 +2890,7 @@ const DB = {
   },
 
   // ─── MONTHLY HIRE / EXIT (สำหรับ Dashboard chart) ───
-  getMonthlyHireExit(monthsBack = 12) {
+  getMonthlyHireExit(monthsBack = 12, { scope = '' } = {}) {
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
     const [ty, tm] = todayStr.split('-').map(Number);
     const months = [];
@@ -2892,7 +2905,7 @@ const DB = {
       });
     }
     const idx = new Map(months.map(m => [m.ym, m]));
-    for (const e of this.data.employees) {
+    for (const e of this._filterByScope(this.data.employees, scope)) {
       if (e.hireDate) {
         const ym = String(e.hireDate).slice(0, 7);
         const m = idx.get(ym);
@@ -2910,7 +2923,7 @@ const DB = {
   // ─── AGE DISTRIBUTION ───
   // คำนวณช่วงอายุของพนักงานที่ยังปฏิบัติงาน
   // คืน [{ label, count }] สำหรับ chart — ครอบคลุม < 20, 20-29, 30-39, 40-49, 50-59, 60+, ไม่ระบุ
-  getAgeDistribution() {
+  getAgeDistribution({ scope = '' } = {}) {
     const buckets = [
       { label: 'ต่ำกว่า 20 ปี', min: 0,  max: 19,  count: 0 },
       { label: '20-29 ปี',       min: 20, max: 29,  count: 0 },
@@ -2923,7 +2936,7 @@ const DB = {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
     const [ty, tm, td] = today.split('-').map(Number);
 
-    for (const e of this.data.employees) {
+    for (const e of this._filterByScope(this.data.employees, scope)) {
       if (this.empStatus(e) === 'resigned') continue;
       const m = String(e.dob || '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
       if (!m) { noBirth.count++; continue; }
@@ -3024,9 +3037,9 @@ const DB = {
   },
 
   // ─── STATS ───
-  getStats() {
-    // ใช้ getEmployees() เพื่อ auto-scope ตาม RBAC
-    const emps = this.getEmployees();
+  getStats({ scope = '' } = {}) {
+    // ใช้ getEmployees() เพื่อ auto-scope ตาม RBAC + กรอง scope ที่ dashboard เลือก
+    const emps = this._filterByScope(this.getEmployees(), scope);
     // ใช้ effective status (ตามวันพ้นสภาพ — ไม่ใช่ field 'status' ที่อาจ stale)
     const active = emps.filter(e => this.empStatus(e) !== 'resigned');
     const totalSalary = active.reduce((s, e) => s + (e.salary || 0), 0);
@@ -3049,7 +3062,7 @@ const DB = {
         count: active.filter(e => e.department === d.id).length
       })),
       byPosition,
-      byAge: this.getAgeDistribution(),
+      byAge: this.getAgeDistribution({ scope }),
       salaryByPosition: this.getSalaryByPosition(),
       turnoverByBranch: this.getTurnoverByBranch(),
       byGender: {
