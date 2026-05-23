@@ -9176,19 +9176,20 @@ router.register('announcements', () => {
     const bodyPreview = (a.body || '').replace(/\s+/g, ' ').slice(0, 140);
     const isUnread = showUnread && !DB.isAnnouncementRead(a.id);
     const docLabel = a.docNumber ? `${a.type === 'order' ? 'คำสั่งที่' : 'ประกาศที่'} ${a.docNumber}` : '';
-    return `<div class="sw-ann-card ${a.pinned ? 'is-pinned' : ''}" style="${isUnread ? 'border-left:3px solid var(--danger);position:relative' : ''}" onclick="openAnnouncementDetail('${a.id}')">
-      ${a.imageUrl ? `<div class="sw-ann-thumb" style="background-image:url('${escapeHtml(a.imageUrl)}')"></div>` : '<div class="sw-ann-thumb sw-ann-thumb-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M3 11l18-5v12L3 14v-3z"/></svg></div>'}
+    const cardClasses = ['sw-ann-card', a.pinned ? 'is-pinned' : '', isUnread ? 'is-unread' : ''].filter(Boolean).join(' ');
+    return `<div class="${cardClasses}" data-type="${a.type}" onclick="openAnnouncementDetail('${a.id}')">
+      ${a.imageUrl ? `<div class="sw-ann-thumb" style="background-image:url('${escapeHtml(a.imageUrl)}')"></div>` : ''}
       <div class="sw-ann-body">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-          ${isUnread ? '<span class="badge badge-danger" style="font-size:10.5px;font-weight:700;padding:3px 8px">● ยังไม่ได้อ่าน</span>' : ''}
-          <span class="badge ${TYPE.cls}" style="font-size:10.5px">${TYPE.label}</span>
-          ${PRI ? `<span class="badge ${PRI.cls}" style="font-size:10.5px">⚠ ${PRI.label}</span>` : ''}
-          ${a.pinned ? '<span style="font-size:11px;color:var(--warning);font-weight:600">📌 ปักหมุด</span>' : ''}
-          <span class="muted-2" style="font-size:11.5px;margin-left:auto">${dateStr}</span>
+        <div class="sw-ann-meta">
+          ${isUnread ? '<span class="sw-ann-unread">ยังไม่ได้อ่าน</span>' : ''}
+          <span class="sw-ann-type sw-ann-type-${a.type}">${TYPE.label}</span>
+          ${PRI ? `<span class="sw-ann-pri sw-ann-pri-${a.priority}">${PRI.label}</span>` : ''}
+          ${a.pinned ? '<span class="sw-ann-pin"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M14.5 2.5l7 7-3.5 1.5-3.5 3.5-1 5-1.5-1.5-3.5 3.5-1-1 3.5-3.5L8 14.5l5-1 3.5-3.5L18 6.5l-3.5-4z"/></svg>ปักหมุด</span>' : ''}
+          <span class="sw-ann-date">${dateStr}</span>
         </div>
-        ${docLabel ? `<div style="font-size:11.5px;font-weight:600;color:var(--primary);margin-bottom:4px;font-variant-numeric:tabular-nums">${escapeHtml(docLabel)}</div>` : ''}
-        <div style="font-size:15px;font-weight:${isUnread ? '700' : '600'};color:var(--text);line-height:1.35;margin-bottom:4px">${escapeHtml(a.title)}</div>
-        <div class="muted-2" style="font-size:12.5px;line-height:1.5">${escapeHtml(bodyPreview)}${a.body.length > 140 ? '...' : ''}</div>
+        ${docLabel ? `<div class="sw-ann-doc">${escapeHtml(docLabel)}</div>` : ''}
+        <div class="sw-ann-title">${escapeHtml(a.title)}</div>
+        <div class="sw-ann-preview">${escapeHtml(bodyPreview)}${a.body.length > 140 ? '…' : ''}</div>
       </div>
     </div>`;
   };
