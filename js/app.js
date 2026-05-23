@@ -3846,17 +3846,97 @@ function toggleShowClosedBranches() { _branchPageState.showClosed = !_branchPage
 router.register('branch-managers', () => {
   // ใช้ getBranchMaster แบบไม่ scope — แสดงสาขาทั้งหมดที่ active
   const allBranches = (DB.getBranchMaster({ activeOnly: true }) || []);
-  const myBranch = DB.profile?.employee_id ? (DB.getEmployee(DB.profile.employee_id)?.branch || '') : '';
+  const myEmp = DB.profile?.employee_id ? DB.getEmployee(DB.profile.employee_id) : null;
+  const myBranch = myEmp?.branch || '';
+  const myDept = myEmp?.department || '';
+
+  // ─── สำนักงาน: ดึงฝ่ายทั้งหมด แล้วหาหัวหน้าฝ่าย (จาก dept.manager หรือ auto-detect ระดับสูงสุด) ───
+  // ถ้ามี scope=office ให้กรองเฉพาะออฟฟิศ; ถ้าไม่มี department ที่ตั้ง scope ไว้เลย → แสดงทุกฝ่าย (fallback)
+  const allDepts = (DB.getDepartments?.() || []);
+  const hasOfficeScope = allDepts.some(d => (d.scope || '').toLowerCase() === 'office');
+  const officeDepts = hasOfficeScope
+    ? allDepts.filter(d => (d.scope || '').toLowerCase() === 'office')
+    : allDepts;
+
+  // หัวหน้าฝ่าย: ถ้ามี dept.manager ระบุไว้ → ใช้ค่านั้น (กรณี active); ถ้าไม่ → auto-detect ระดับสูงสุดในฝ่าย
+  const getDeptHead = (dept) => {
+    if (dept.manager) {
+      const m = DB.getEmployee?.(dept.manager);
+      if (m && DB.empStatus(m) !== 'resigned') return m;
+    }
+    const emps = (DB.data.employees || []).filter(e =>
+      e.department === dept.id && DB.empStatus(e) !== 'resigned'
+    );
+    if (!emps.length) return null;
+    let best = null, bestLevel = -1;
+    for (const e of emps) {
+      const pos = DB.getPosition?.(e.position);
+      const lvl = Number(pos?.level || 0);
+      if (lvl > bestLevel) { bestLevel = lvl; best = e; }
+    }
+    return best;
+  };
+
+  const renderBranchRow = (b) => {
+    const mgr = DB.getBranchManager(b.id);
+    const pos = mgr ? (DB.getPosition(mgr.position) || {}) : {};
+    const mgrName = mgr ? `${(mgr.title || '') + mgr.firstName} ${mgr.lastName || ''}`.trim() : '';
+    const mgrPos = mgr ? (mgr.positionTitle || pos.name || '') : '';
+    const levelBadge = pos.level ? ` <span class="badge badge-info" style="font-size:10px;margin-left:4px">ระดับ ${pos.level}</span>` : '';
+    const isMine = b.id === myBranch;
+    return `<tr ${isMine ? 'style="background:rgba(78,112,176,0.06)"' : ''}>
+      <td>
+        <code style="font-size:12px;font-weight:700">${escapeHtml(b.id)}</code>
+        ${isMine ? '<span class="badge badge-success" style="font-size:10px;margin-left:6px">สาขาของฉัน</span>' : ''}
+      </td>
+      <td>${mgr
+        ? `<strong>${escapeHtml(mgrName)}</strong>${mgr.nickname ? `<span class="muted-2" style="margin-left:6px">· ${escapeHtml(mgr.nickname)}</span>` : ''}`
+        : '<span class="muted-2">—</span>'}</td>
+      <td class="sw-cell-meta">${escapeHtml(mgrPos)}${levelBadge}</td>
+      <td>${mgr?.phone ? `<a href="tel:${escapeHtml(mgr.phone)}" style="color:var(--primary);text-decoration:none">${escapeHtml(mgr.phone)}</a>` : '<span class="muted-2">—</span>'}</td>
+      <td>${b.phone ? `<a href="tel:${escapeHtml(b.phone)}" style="color:var(--primary);text-decoration:none">${escapeHtml(b.phone)}</a>` : '<span class="muted-2">—</span>'}</td>
+      <td>${b.email ? `<a href="mailto:${escapeHtml(b.email)}" style="color:var(--primary);text-decoration:none">${escapeHtml(b.email)}</a>` : '<span class="muted-2">—</span>'}</td>
+    </tr>`;
+  };
+
+  const renderDeptRow = (d) => {
+    const mgr = getDeptHead(d);
+    const pos = mgr ? (DB.getPosition(mgr.position) || {}) : {};
+    const mgrName = mgr ? `${(mgr.title || '') + mgr.firstName} ${mgr.lastName || ''}`.trim() : '';
+    const mgrPos = mgr ? (mgr.positionTitle || pos.name || '') : '';
+    const levelBadge = pos.level ? ` <span class="badge badge-info" style="font-size:10px;margin-left:4px">ระดับ ${pos.level}</span>` : '';
+    const isMine = d.id === myDept;
+    const explicit = !!d.manager;
+    return `<tr ${isMine ? 'style="background:rgba(196,165,116,0.08)"' : ''}>
+      <td>
+        <code style="font-size:12px;font-weight:700">${escapeHtml(d.id)}</code>
+        ${isMine ? '<span class="badge badge-gold" style="font-size:10px;margin-left:6px">ฝ่ายของฉัน</span>' : ''}
+      </td>
+      <td><strong>${escapeHtml(d.name || '—')}</strong></td>
+      <td>${mgr
+        ? `<strong>${escapeHtml(mgrName)}</strong>${mgr.nickname ? `<span class="muted-2" style="margin-left:6px">· ${escapeHtml(mgr.nickname)}</span>` : ''}${!explicit ? '<span class="muted-2" style="font-size:11px;margin-left:6px">(auto-detect)</span>' : ''}`
+        : '<span class="muted-2">— ยังไม่ได้กำหนด —</span>'}</td>
+      <td class="sw-cell-meta">${escapeHtml(mgrPos)}${levelBadge}</td>
+      <td>${mgr?.phone ? `<a href="tel:${escapeHtml(mgr.phone)}" style="color:var(--primary);text-decoration:none">${escapeHtml(mgr.phone)}</a>` : '<span class="muted-2">—</span>'}</td>
+      <td>${mgr?.email ? `<a href="mailto:${escapeHtml(mgr.email)}" style="color:var(--primary);text-decoration:none">${escapeHtml(mgr.email)}</a>` : '<span class="muted-2">—</span>'}</td>
+    </tr>`;
+  };
 
   return `
     <div class="sw-page-header">
       <div>
-        <div class="sw-page-title">ผู้บังคับบัญชาสาขา</div>
-        <div class="sw-page-subtitle">ติดต่อหัวหน้าและสำนักงานของแต่ละสาขา — อิงตามระดับตำแหน่งสูงสุด (auto-detect)</div>
+        <div class="sw-page-title">ผู้บังคับบัญชา &amp; ติดต่อ</div>
+        <div class="sw-page-subtitle">ติดต่อหัวหน้าสาขาและฝ่ายสำนักงาน — สำหรับเรื่องที่เกี่ยวข้อง</div>
       </div>
     </div>
 
     <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">ผู้บังคับบัญชาสาขา <span class="sw-chart-count">${fmt.num(allBranches.length)}</span></div>
+          <div class="sw-chart-sub">หัวหน้าและสำนักงานของแต่ละสาขา · อิงตามระดับตำแหน่งสูงสุด (auto-detect)</div>
+        </div>
+      </div>
       ${allBranches.length ? `
         <div class="table-wrap"><table class="table table-compact">
           <thead><tr>
@@ -3867,33 +3947,37 @@ router.register('branch-managers', () => {
             <th>เบอร์สาขา</th>
             <th>Email สาขา</th>
           </tr></thead>
-          <tbody>
-            ${allBranches.map(b => {
-              const mgr = DB.getBranchManager(b.id);
-              const pos = mgr ? (DB.getPosition(mgr.position) || {}) : {};
-              const mgrName = mgr ? `${(mgr.title || '') + mgr.firstName} ${mgr.lastName || ''}`.trim() : '';
-              const mgrPos = mgr ? (mgr.positionTitle || pos.name || '') : '';
-              const levelBadge = pos.level ? ` <span class="badge badge-info" style="font-size:10px;margin-left:4px">ระดับ ${pos.level}</span>` : '';
-              const isMyBranch = b.id === myBranch;
-              return `<tr ${isMyBranch ? 'style="background:rgba(78,112,176,0.06)"' : ''}>
-                <td>
-                  <code style="font-size:12px;font-weight:700">${escapeHtml(b.id)}</code>
-                  ${isMyBranch ? '<span class="badge badge-success" style="font-size:10px;margin-left:6px">สาขาของฉัน</span>' : ''}
-                </td>
-                <td>${mgr
-                  ? `<strong>${escapeHtml(mgrName)}</strong>${mgr.nickname ? `<span class="muted-2" style="margin-left:6px">· ${escapeHtml(mgr.nickname)}</span>` : ''}`
-                  : '<span class="muted-2">—</span>'}</td>
-                <td class="sw-cell-meta">${escapeHtml(mgrPos)}${levelBadge}</td>
-                <td>${mgr?.phone ? `<a href="tel:${escapeHtml(mgr.phone)}" style="color:var(--primary);text-decoration:none">${escapeHtml(mgr.phone)}</a>` : '<span class="muted-2">—</span>'}</td>
-                <td>${b.phone ? `<a href="tel:${escapeHtml(b.phone)}" style="color:var(--primary);text-decoration:none">${escapeHtml(b.phone)}</a>` : '<span class="muted-2">—</span>'}</td>
-                <td>${b.email ? `<a href="mailto:${escapeHtml(b.email)}" style="color:var(--primary);text-decoration:none">${escapeHtml(b.email)}</a>` : '<span class="muted-2">—</span>'}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
+          <tbody>${allBranches.map(renderBranchRow).join('')}</tbody>
         </table></div>
-      ` : `<div class="empty-state" style="padding:60px 20px">
-        <div style="font-size:42px;margin-bottom:12px;opacity:0.35">🏢</div>
+      ` : `<div class="empty-state" style="padding:40px 20px">
+        <div style="font-size:36px;margin-bottom:10px;opacity:0.35">🏢</div>
         <div class="title">ไม่มีข้อมูลสาขา</div>
+      </div>`}
+    </div>
+
+    <div class="sw-chart-card" style="margin-top:24px">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">ผู้บังคับบัญชาฝ่ายสำนักงาน <span class="sw-chart-count">${fmt.num(officeDepts.length)}</span></div>
+          <div class="sw-chart-sub">${hasOfficeScope ? 'หัวหน้าของแต่ละฝ่ายสายสำนักงาน' : 'หัวหน้าของแต่ละฝ่าย'} · หัวหน้าที่กำหนดเองมาก่อน, ไม่ได้กำหนด → ใช้ตำแหน่งสูงสุดในฝ่าย (auto-detect)${DB.isHR ? ' · ตั้งหัวหน้าได้ที่เมนู "ฝ่าย"' : ''}</div>
+        </div>
+      </div>
+      ${officeDepts.length ? `
+        <div class="table-wrap"><table class="table table-compact">
+          <thead><tr>
+            <th style="width:80px">รหัสฝ่าย</th>
+            <th>ชื่อฝ่าย</th>
+            <th>หัวหน้าฝ่าย</th>
+            <th>ตำแหน่ง</th>
+            <th>เบอร์มือถือ</th>
+            <th>Email</th>
+          </tr></thead>
+          <tbody>${officeDepts.map(renderDeptRow).join('')}</tbody>
+        </table></div>
+      ` : `<div class="empty-state" style="padding:40px 20px">
+        <div style="font-size:36px;margin-bottom:10px;opacity:0.35">🗂</div>
+        <div class="title">ยังไม่มีฝ่ายสำนักงาน</div>
+        ${DB.isHR ? '<div class="hint" style="margin-top:6px">เพิ่มฝ่ายและตั้ง scope = office ที่เมนู "ฝ่าย"</div>' : ''}
       </div>`}
     </div>
   `;
