@@ -8357,17 +8357,21 @@ async function deleteCalRec(id) {
 // ═══════════════════════════════════════════════════════
 //  PAGE: ANNOUNCEMENTS — ประกาศบริษัท + คำสั่งบริษัท
 // ═══════════════════════════════════════════════════════
-const _annState = { tab: 'all', search: '', year: '' };
+const _annState = { tab: 'all', search: '', year: '', docNumber: '', titleId: '' };
 function setAnnFilter(k, v) {
   const newVal = (v ?? '').trim();
   if (_annState[k] === newVal) return;
   _annState[k] = newVal;
+  // เปลี่ยน tab → reset docNumber/titleId เพราะรายการอาจไม่มีแล้ว
+  if (k === 'tab') { _annState.docNumber = ''; _annState.titleId = ''; }
   router.go('announcements');
 }
 function clearAnnFilters() {
   _annState.tab = 'all';
   _annState.search = '';
   _annState.year = '';
+  _annState.docNumber = '';
+  _annState.titleId = '';
   router.go('announcements');
 }
 
@@ -8380,10 +8384,12 @@ router.register('announcements', () => {
   const all = DB.getAnnouncements();
   const todayYear = new Date().getFullYear();
 
-  // Filter
+  // ─── Filter (apply ทีละขั้น) ───
   let filtered = all;
   if (_annState.tab !== 'all') filtered = filtered.filter(a => a.type === _annState.tab);
   if (_annState.year) filtered = filtered.filter(a => String(a.createdAt || '').startsWith(_annState.year));
+  if (_annState.docNumber) filtered = filtered.filter(a => (a.docNumber || '') === _annState.docNumber);
+  if (_annState.titleId) filtered = filtered.filter(a => a.id === _annState.titleId);
   if (_annState.search) {
     const s = _annState.search.toLowerCase();
     filtered = filtered.filter(a => (a.title || '').toLowerCase().includes(s) || (a.body || '').toLowerCase().includes(s));
@@ -8397,7 +8403,21 @@ router.register('announcements', () => {
   const yearsSet = new Set(all.map(a => String(a.createdAt || '').slice(0, 4)).filter(Boolean));
   for (let y = todayYear - 2; y <= todayYear; y++) yearsSet.add(String(y));
   const yearOptions = Array.from(yearsSet).filter(Boolean).sort((a, b) => Number(b) - Number(a));
-  const hasFilters = !!(_annState.search || _annState.year || _annState.tab !== 'all');
+
+  // เลขที่ + หัวข้อ dropdown — ปรับตาม tab + ปี ที่เลือกอยู่ (filter ขั้นก่อนหน้า)
+  const scopeForDropdowns = all.filter(a => {
+    if (_annState.tab !== 'all' && a.type !== _annState.tab) return false;
+    if (_annState.year && !String(a.createdAt || '').startsWith(_annState.year)) return false;
+    return true;
+  });
+  const docNumberOptions = [...new Set(scopeForDropdowns.map(a => a.docNumber).filter(Boolean))]
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  const titleOptions = scopeForDropdowns
+    .filter(a => a.title)
+    .map(a => ({ id: a.id, title: a.title, type: a.type, docNumber: a.docNumber || '' }))
+    .sort((a, b) => a.title.localeCompare(b.title, 'th'));
+
+  const hasFilters = !!(_annState.search || _annState.year || _annState.docNumber || _annState.titleId || _annState.tab !== 'all');
 
   // ผู้ที่ไม่ใช่ admin/HR เท่านั้นที่เห็นป้าย "ยังไม่อ่าน" (admin/HR ไม่นับเป็นผู้รับ)
   const showUnread = !DB.isHR && !!DB.profile?.employee_id;
@@ -8453,6 +8473,20 @@ router.register('announcements', () => {
       <select class="sw-filter-select" onchange="setAnnFilter('year', this.value)">
         <option value="">— ทุกปี —</option>
         ${yearOptions.map(y => `<option value="${y}" ${_annState.year === y ? 'selected' : ''}>ปี ${Number(y) + 543}${Number(y) === todayYear ? ' (ปัจจุบัน)' : ''}</option>`).join('')}
+      </select>
+      <select class="sw-filter-select" onchange="setAnnFilter('docNumber', this.value)" title="กรองตามเลขที่เอกสาร">
+        <option value="">${_annState.tab === 'order' ? '— ทุกเลขที่คำสั่ง —' : _annState.tab === 'announcement' ? '— ทุกเลขที่ประกาศ —' : '— ทุกเลขที่ —'}</option>
+        ${docNumberOptions.map(n => `<option value="${escapeHtml(n)}" ${_annState.docNumber === n ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('')}
+      </select>
+      <select class="sw-filter-select" onchange="setAnnFilter('titleId', this.value)" title="กรองตามหัวข้อ" style="max-width:280px">
+        <option value="">${_annState.tab === 'order' ? '— ทุกหัวข้อคำสั่ง —' : _annState.tab === 'announcement' ? '— ทุกหัวข้อประกาศ —' : '— ทุกหัวข้อ —'}</option>
+        ${titleOptions.map(o => {
+          const typeLabel = o.type === 'order' ? '[คำสั่ง]' : '[ประกาศ]';
+          const docPrefix = o.docNumber ? `${o.docNumber} · ` : '';
+          const display = (o.title.length > 50 ? o.title.slice(0, 50) + '…' : o.title);
+          const fullLabel = `${_annState.tab === 'all' ? typeLabel + ' ' : ''}${docPrefix}${display}`;
+          return `<option value="${escapeHtml(o.id)}" ${_annState.titleId === o.id ? 'selected' : ''} title="${escapeHtml(o.title)}">${escapeHtml(fullLabel)}</option>`;
+        }).join('')}
       </select>
       ${hasFilters ? `<button class="btn btn-ghost btn-sm sw-filter-clear" onclick="clearAnnFilters()">✕ ล้างตัวกรอง</button>` : ''}
     </div>
