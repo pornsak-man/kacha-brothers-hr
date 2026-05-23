@@ -16,6 +16,7 @@ const DB = {
     company: { name: 'บริษัท คชา บราเธอร์ส จำกัด', nameEn: 'Kacha Brothers Co., Ltd.', taxId: '', address: '', phone: '', email: '' },
     departments: [],
     positionLevels: [],
+    positionScopes: [],
     employees: [],
     salaryHistory: [],
     loans: [],
@@ -322,12 +323,14 @@ const DB = {
       this._fetchAllPages('holiday_swap_requests', 'requested_at', false).catch(() => []),
       this.client.from('user_profiles').select('*').then(r => r.data || [], () => []),
       this._fetchAllPages('company_announcements', 'created_at', false).catch(() => []),
-      fetchMyAnnReads().catch(() => [])
+      fetchMyAnnReads().catch(() => []),
+      this._fetchAllPages('position_scopes', 'sort_order', true).catch(() => [])
     ]);
-    const [deps, pos, cal, comp, emps, branchRows, leaves, lvTypes, swapReqs, ups, anns, myReads] = critical;
+    const [deps, pos, cal, comp, emps, branchRows, leaves, lvTypes, swapReqs, ups, anns, myReads, scopes] = critical;
 
     this.data.departments = (deps.data || []).map(this._depFromDB);
     this.data.positionLevels = (pos.data || []).map(this._posFromDB);
+    this.data.positionScopes = (scopes || []).map(this._scopeFromDB);
     this.data.calendar = (cal.data || []).map(this._calFromDB);
     if (comp.data) this.data.company = this._compFromDB(comp.data);
     this.data.employees = emps.map(this._empFromDB);
@@ -438,6 +441,7 @@ const DB = {
       employees: { list: 'employees', from: this._empFromDB },
       departments: { list: 'departments', from: this._depFromDB },
       position_levels: { list: 'positionLevels', from: this._posFromDB },
+      position_scopes: { list: 'positionScopes', from: this._scopeFromDB },
       loans: { list: 'loans', from: this._loanFromDB },
       advances: { list: 'advances', from: this._advFromDB },
       allowances: { list: 'allowances', from: this._allowFromDB },
@@ -1202,6 +1206,66 @@ const DB = {
     const nums = this.data.departments.map(d => parseInt(String(d.id).replace(/\D/g, ''), 10)).filter(n => !isNaN(n));
     const max = nums.length ? Math.max(...nums) : 0;
     return 'D' + String(max + 1).padStart(3, '0');
+  },
+
+  // ─── POSITION SCOPES (สายงาน) — Master ที่ admin/HR จัดการเองได้ ───
+  _scopeFromDB: (r) => ({
+    id: r.id,
+    label: r.label,
+    badgeBg: r.badge_bg || 'rgba(148,163,184,0.15)',
+    badgeColor: r.badge_color || '#475569',
+    sortOrder: Number(r.sort_order || 100),
+    active: r.active !== false,
+    note: r.note || ''
+  }),
+  _scopeToDB(s) {
+    return {
+      id: s.id,
+      label: s.label,
+      badge_bg: s.badgeBg || 'rgba(148,163,184,0.15)',
+      badge_color: s.badgeColor || '#475569',
+      sort_order: Number(s.sortOrder || 100),
+      active: s.active !== false,
+      note: s.note || null
+    };
+  },
+  getScopes(includeInactive = false) {
+    const list = (this.data.positionScopes || []).slice().sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
+    return includeInactive ? list : list.filter(s => s.active);
+  },
+  getScope(id) { return (this.data.positionScopes || []).find(s => s.id === id); },
+  async saveScope(scope) {
+    if (!this.isHR) throw new Error('ต้องเป็น admin หรือ HR');
+    const id = (scope.id || '').trim().toLowerCase();
+    const label = (scope.label || '').trim();
+    if (!id) throw new Error('ต้องระบุรหัส (id) ของสายงาน');
+    if (!/^[a-z0-9_-]+$/i.test(id)) throw new Error('รหัสต้องเป็น a-z, 0-9, _, - เท่านั้น');
+    if (!label) throw new Error('ต้องระบุชื่อสายงาน');
+    // ห้ามชื่อซ้ำ (case-insensitive)
+    const labelLc = label.toLowerCase();
+    const dup = this.data.positionScopes.find(s => s.id !== id && (s.label || '').trim().toLowerCase() === labelLc);
+    if (dup) throw new Error(`ชื่อสายงาน "${label}" ซ้ำกับรหัส ${dup.id}`);
+    const row = this._scopeToDB({ ...scope, id });
+    const { data, error } = await this.client.from('position_scopes').upsert(row).select().single();
+    if (error) throw error;
+    const mapped = this._scopeFromDB(data);
+    const idx = this.data.positionScopes.findIndex(s => s.id === mapped.id);
+    if (idx >= 0) this.data.positionScopes[idx] = mapped;
+    else this.data.positionScopes.push(mapped);
+    return mapped;
+  },
+  async deleteScope(id) {
+    if (!this.isHR) throw new Error('ต้องเป็น admin หรือ HR');
+    // ตรวจ FK: ห้ามลบถ้ามี positions/departments ใช้
+    const usedByPos = this.data.positionLevels.some(p => p.scope === id);
+    const usedByDept = this.data.departments.some(d => d.scope === id);
+    if (usedByPos || usedByDept) {
+      const where = [usedByPos && 'ตำแหน่ง', usedByDept && 'ฝ่าย'].filter(Boolean).join(' + ');
+      throw new Error(`ลบไม่ได้ — มี ${where} ใช้สายงานนี้อยู่ · ย้ายไปสายอื่นก่อน หรือ soft-delete (ปิด active) แทน`);
+    }
+    const { error } = await this.client.from('position_scopes').delete().eq('id', id);
+    if (error) throw error;
+    this.data.positionScopes = this.data.positionScopes.filter(s => s.id !== id);
   },
 
   // ─── POSITIONS ───
