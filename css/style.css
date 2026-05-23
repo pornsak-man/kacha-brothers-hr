@@ -4,51 +4,51 @@
    ═══════════════════════════════════════════════════════════ */
 
 :root {
-  /* ─── Brand — Deep Corporate Navy (Safari World — Bloomberg/Goldman feel) ─── */
-  --navy-50:  #EEF2F7;
-  --navy-100: #DBE3ED;
-  --navy-200: #B6C5D6;
-  --navy-300: #8AA0BC;
-  --navy-400: #4F6B8E;
-  --navy-500: #1A2E50;   /* Primary — deep corporate navy */
-  --navy-600: #142440;
-  --navy-700: #0D1E35;
-  --navy-800: #0A1628;
-  --navy-900: #060B14;
+  /* ─── Brand — Slate Royal (cleaner, more modern than navy) ─── */
+  --navy-50:  #F1F5F9;
+  --navy-100: #E2E8F0;
+  --navy-200: #CBD5E1;
+  --navy-300: #94A3B8;
+  --navy-400: #475569;
+  --navy-500: #1E293B;   /* Primary — slate-800 royal (modern, clean) */
+  --navy-600: #0F172A;
+  --navy-700: #0B1220;
+  --navy-800: #050810;
+  --navy-900: #020409;
 
   --primary:       var(--navy-500);
   --primary-hover: var(--navy-600);
   --primary-soft:  var(--navy-50);
   --primary-text:  var(--navy-700);
 
-  /* ─── Premium accent — Brushed Steel / Slate (cool corporate metal) ─── */
-  --gold:        #455A64;    /* slate steel — main accent */
-  --gold-soft:   #ECEFF1;    /* pale steel */
-  --gold-text:   #2F3E45;
-  --gold-dark:   #37474F;
-  --gold-light:  #78909C;
-  /* Backward-compat aliases (.badge-sage usage still maps to steel accent) */
+  /* ─── Premium accent — Brushed Silver (pure cool, NO GOLD) ─── */
+  --gold:        #64748B;    /* slate-500 brushed silver */
+  --gold-soft:   #F1F5F9;
+  --gold-text:   #334155;
+  --gold-dark:   #475569;
+  --gold-light:  #94A3B8;
+  /* Backward-compat aliases (.badge-sage usage maps to brushed silver) */
   --sage:        var(--gold);
   --sage-soft:   var(--gold-soft);
   --sage-text:   var(--gold-text);
   --sage-dark:   var(--gold-dark);
   --sage-light:  var(--gold-light);
 
-  /* ─── Neutrals — Cool gray-blue tint (corporate clean) ─── */
+  /* ─── Neutrals — Pure cool white (slate-50 series) ─── */
   --neutral-0:   #FFFFFF;
-  --neutral-25:  #F8FAFC;   /* surface-2 cool */
-  --neutral-50:  #EEF2F7;   /* main page bg — cool blue-gray */
-  --neutral-100: #E2E8F0;
-  --neutral-150: #CBD5E1;
-  --neutral-200: #94A3B8;
-  --neutral-300: #64748B;
-  --neutral-400: #8A9BB0;
-  --neutral-500: #4A5568;
-  --neutral-600: #2D3748;
-  --neutral-700: #1A2332;
-  --neutral-800: #0F1A2A;
-  --neutral-900: #0A1628;
-  --neutral-950: #060B14;
+  --neutral-25:  #FAFBFC;
+  --neutral-50:  #F8FAFC;   /* main page bg — pure cool white */
+  --neutral-100: #F1F5F9;
+  --neutral-150: #E2E8F0;
+  --neutral-200: #CBD5E1;
+  --neutral-300: #94A3B8;
+  --neutral-400: #64748B;
+  --neutral-500: #475569;
+  --neutral-600: #334155;
+  --neutral-700: #1E293B;
+  --neutral-800: #0F172A;
+  --neutral-900: #020617;
+  --neutral-950: #010204;
 
   /* Semantic */
   --bg:           var(--neutral-50);
@@ -57,30 +57,30 @@
   --surface-hover: var(--neutral-100);
   --border:       #E2E8F0;
   --border-strong: #CBD5E1;
-  --text:         #1A2332;
-  --text-2:       #4A5568;
-  --text-3:       #8A9BB0;
+  --text:         #0F172A;
+  --text-2:       #475569;
+  --text-3:       #94A3B8;
 
-  /* ─── Sidebar — Deep navy (Safari World hero color) ─── */
-  --sidebar-bg:    #0A1628;
-  --sidebar-bg-2:  #0D1E35;
-  --sidebar-text:  #CBD5E1;
-  --sidebar-text-2: #8A9BB0;
-  --sidebar-hover: rgba(120, 144, 156, 0.10);   /* steel slate hint */
+  /* ─── Sidebar — True ink (slate-950, dramatic dark without warm undertone) ─── */
+  --sidebar-bg:    #020617;
+  --sidebar-bg-2:  #0B1120;
+  --sidebar-text:  #E2E8F0;
+  --sidebar-text-2: #94A3B8;
+  --sidebar-hover: rgba(148, 163, 184, 0.12);   /* slate-400 tint (cool, no warm) */
 
-  /* ─── Status — Tailwind-aligned (Safari World palette) ─── */
+  /* ─── Status — Modern palette, ZERO GOLD/AMBER ─── */
   --success:        #10B981;   /* emerald */
   --success-soft:   #D1FAE5;
   --success-text:   #047857;
   --danger:         #EF4444;   /* clear red */
   --danger-soft:    #FEE2E2;
   --danger-text:    #B91C1C;
-  --warning:        #F59E0B;   /* amber */
-  --warning-soft:   #FEF3C7;
-  --warning-text:   #B45309;
-  --info:           #3B82F6;   /* corporate blue */
-  --info-soft:      #DBEAFE;
-  --info-text:      #1D4ED8;
+  --warning:        #F97316;   /* orange — replaces amber to avoid gold tone */
+  --warning-soft:   #FFEDD5;
+  --warning-text:   #C2410C;
+  --info:           #6366F1;   /* indigo — modern, replaces blue */
+  --info-soft:      #E0E7FF;
+  --info-text:      #4338CA;
 
   /* Shadows */
   --shadow-xs: 0 1px 2px rgba(20, 20, 15, 0.04);
@@ -108,31 +108,31 @@
 }
 
 [data-theme="dark"] {
-  /* Safari World dark — GitHub-like surfaces with navy hero + sky-blue accent */
-  --bg:           #0D1117;
-  --surface:      #161B22;
-  --surface-2:    #1C2128;
-  --surface-hover: #22272E;
-  --border:       #30363D;
-  --border-strong: #444C56;
-  --text:         #E6EDF3;
-  --text-2:       #B1BAC4;
-  --text-3:       #7D8590;
-  --sidebar-bg:   #060B14;
-  --sidebar-bg-2: #0A1220;
-  --sidebar-text: #CBD5E1;
-  --sidebar-text-2: #7D8590;
-  /* Accent shift in dark: steel slate → sky blue (เหมือน safari-world-hr) */
-  --gold:         #38BDF8;
-  --gold-light:   #7DD3FC;
-  --gold-dark:    #0EA5E9;
-  --gold-soft:    rgba(56, 189, 248, 0.12);
-  --gold-text:    #7DD3FC;
+  /* Onyx & Silver dark — pure slate (no warm undertone) + indigo accent shift */
+  --bg:           #0F172A;     /* slate-900 */
+  --surface:      #1E293B;     /* slate-800 */
+  --surface-2:    #1E293B;
+  --surface-hover: #334155;    /* slate-700 */
+  --border:       #334155;
+  --border-strong: #475569;
+  --text:         #F1F5F9;
+  --text-2:       #CBD5E1;
+  --text-3:       #94A3B8;
+  --sidebar-bg:   #020617;     /* slate-950 deepest */
+  --sidebar-bg-2: #0B1120;
+  --sidebar-text: #E2E8F0;
+  --sidebar-text-2: #94A3B8;
+  /* Accent shift in dark: brushed silver → indigo glow (modern luxe) */
+  --gold:         #818CF8;     /* indigo-400 */
+  --gold-light:   #A5B4FC;     /* indigo-300 */
+  --gold-dark:    #6366F1;     /* indigo-500 */
+  --gold-soft:    rgba(129, 140, 248, 0.12);
+  --gold-text:    #A5B4FC;
   --sage:         var(--gold);
   --sage-light:   var(--gold-light);
   --sage-soft:    var(--gold-soft);
   --sage-text:    var(--gold-text);
-  --primary-soft: rgba(56, 109, 182, 0.16);
+  --primary-soft: rgba(99, 102, 241, 0.14);
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.30);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.40), 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -180,7 +180,7 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   position: fixed; inset: 0;
   background:
     radial-gradient(ellipse 80% 60% at 15% 20%, rgba(78, 112, 176, 0.35), transparent 55%),
-    radial-gradient(ellipse 70% 50% at 85% 80%, rgba(69, 90, 100, 0.18), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 85% 80%, rgba(100, 116, 139, 0.18), transparent 55%),
     radial-gradient(ellipse 100% 80% at 50% 100%, rgba(30, 58, 138, 0.25), transparent 60%),
     linear-gradient(135deg, #0a0e1a 0%, #141a2e 40%, #0d1424 100%);
   display: flex; align-items: center; justify-content: center;
@@ -193,7 +193,7 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   content: ''; position: absolute; inset: -15%;
   background:
     radial-gradient(circle at 30% 40%, rgba(78, 112, 176, 0.18), transparent 38%),
-    radial-gradient(circle at 70% 60%, rgba(69, 90, 100, 0.10), transparent 38%);
+    radial-gradient(circle at 70% 60%, rgba(100, 116, 139, 0.10), transparent 38%);
   animation: meshDrift 25s ease-in-out infinite alternate;
   pointer-events: none;
   filter: blur(40px);
@@ -214,7 +214,7 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 [data-theme="dark"] .login-screen {
   background:
     radial-gradient(ellipse 80% 60% at 15% 20%, rgba(78, 112, 176, 0.40), transparent 55%),
-    radial-gradient(ellipse 70% 50% at 85% 80%, rgba(69, 90, 100, 0.20), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 85% 80%, rgba(100, 116, 139, 0.20), transparent 55%),
     #03060e;
 }
 
@@ -256,7 +256,7 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 .login-card::after {
   content: ''; position: absolute; top: 0; left: 28%; right: 28%;
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(78, 112, 176, 0.6), rgba(120, 144, 156, 0.55), transparent);
+  background: linear-gradient(90deg, transparent, rgba(78, 112, 176, 0.6), rgba(148, 163, 184, 0.55), transparent);
   border-radius: 0 0 99px 99px;
 }
 
@@ -428,21 +428,21 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
 /* PRIMARY — Deep navy gradient with subtle gloss */
 .btn-primary {
-  /* Polished navy — สว่างที่หัวกระดิ่งกว่าเดิม ไม่ดูดำสนิท */
+  /* Polished slate royal — modern luxe with reflection highlight */
   background:
     linear-gradient(180deg,
       rgba(255, 255, 255, 0.10) 0%,
       rgba(255, 255, 255, 0) 50%
     ),
-    linear-gradient(180deg, #2c4280 0%, #1A2E50 55%, #14213d 100%);
+    linear-gradient(180deg, #334155 0%, #1E293B 55%, #0F172A 100%);
   color: #fff;
-  border-color: rgba(20, 33, 64, 0.5);
+  border-color: rgba(15, 23, 42, 0.5);
   letter-spacing: 0.01em;
   font-weight: 600;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.18) inset,
     0 -1px 0 rgba(0, 0, 0, 0.18) inset,
-    0 2px 4px rgba(20, 33, 64, 0.18),
+    0 2px 4px rgba(15, 23, 42, 0.18),
     0 0 0 1px rgba(255, 255, 255, 0.04) inset;
 }
 .btn-primary:hover:not(:disabled) {
@@ -451,13 +451,13 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
       rgba(255, 255, 255, 0.14) 0%,
       rgba(255, 255, 255, 0) 50%
     ),
-    linear-gradient(180deg, #3a528f 0%, #1f3458 55%, #14213d 100%);
-  border-color: rgba(13, 30, 53, 0.6);
+    linear-gradient(180deg, #475569 0%, #25324A 55%, #0F172A 100%);
+  border-color: rgba(11, 18, 32, 0.6);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.24) inset,
     0 -1px 0 rgba(0, 0, 0, 0.20) inset,
-    0 8px 22px rgba(26, 46, 80, 0.30),
-    0 2px 6px rgba(20, 33, 64, 0.20);
+    0 8px 22px rgba(30, 41, 59, 0.30),
+    0 2px 6px rgba(15, 23, 42, 0.20);
   transform: translateY(-1px);
 }
 .btn-primary:active:not(:disabled) {
@@ -465,7 +465,7 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.10) inset,
     0 -1px 0 rgba(0, 0, 0, 0.22) inset,
-    0 1px 2px rgba(20, 33, 64, 0.20);
+    0 1px 2px rgba(15, 23, 42, 0.20);
 }
 
 /* SECONDARY — Outlined with refined hover lift */
@@ -688,7 +688,7 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   background: var(--sidebar-bg);
   background-image:
     radial-gradient(ellipse at 50% 0%, rgba(78, 112, 176, 0.10), transparent 55%),
-    radial-gradient(ellipse at 0% 100%, rgba(69, 90, 100, 0.04), transparent 50%),
+    radial-gradient(ellipse at 0% 100%, rgba(100, 116, 139, 0.04), transparent 50%),
     linear-gradient(180deg, var(--sidebar-bg-2) 0%, var(--sidebar-bg) 100%);
   color: var(--sidebar-text);
   display: flex; flex-direction: column;
@@ -1610,14 +1610,14 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 .badge-danger  { background: var(--danger-soft);  color: var(--danger-text);  border-color: rgba(215, 38, 38, 0.22); }
 .badge-info    { background: var(--info-soft);    color: var(--info-text);    border-color: rgba(30, 127, 196, 0.22); }
 .badge-neutral { background: var(--surface-2);    color: var(--text-2);       border-color: var(--border); }
-.badge-sage    { background: var(--gold-soft);    color: var(--gold-text);    border-color: rgba(69, 90, 100, 0.28); }
-.badge-gold    { background: var(--gold-soft);    color: var(--gold-text);    border-color: rgba(69, 90, 100, 0.28); }
+.badge-sage    { background: var(--gold-soft);    color: var(--gold-text);    border-color: rgba(100, 116, 139, 0.28); }
+.badge-gold    { background: var(--gold-soft);    color: var(--gold-text);    border-color: rgba(100, 116, 139, 0.28); }
 [data-theme="dark"] .badge-success { background: rgba(21, 146, 63, 0.16); color: #86efac; border-color: rgba(21, 146, 63, 0.30); }
 [data-theme="dark"] .badge-warning { background: rgba(201, 119, 6, 0.16); color: #fcd34d; border-color: rgba(201, 119, 6, 0.30); }
 [data-theme="dark"] .badge-danger  { background: rgba(215, 38, 38, 0.16); color: #fca5a5; border-color: rgba(215, 38, 38, 0.30); }
 [data-theme="dark"] .badge-info    { background: rgba(30, 127, 196, 0.16); color: #93c5fd; border-color: rgba(30, 127, 196, 0.30); }
-[data-theme="dark"] .badge-sage    { background: rgba(56, 189, 248, 0.16); color: #e3d2a8; border-color: rgba(69, 90, 100, 0.28); }
-[data-theme="dark"] .badge-gold    { background: rgba(56, 189, 248, 0.16); color: #e3d2a8; border-color: rgba(69, 90, 100, 0.28); }
+[data-theme="dark"] .badge-sage    { background: rgba(129, 140, 248, 0.16); color: #A5B4FC; border-color: rgba(129, 140, 248, 0.28); }
+[data-theme="dark"] .badge-gold    { background: rgba(129, 140, 248, 0.16); color: #A5B4FC; border-color: rgba(129, 140, 248, 0.28); }
 
 /* ═════════════ FORMS ═════════════ */
 .form-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
@@ -2256,13 +2256,13 @@ html { scroll-behavior: smooth; }
 body {
   background-image:
     radial-gradient(ellipse 70% 50% at 50% -8%, rgba(29, 63, 143, 0.030), transparent 65%),
-    radial-gradient(ellipse 90% 70% at 50% 110%, rgba(69, 90, 100, 0.025), transparent 55%);
+    radial-gradient(ellipse 90% 70% at 50% 110%, rgba(100, 116, 139, 0.025), transparent 55%);
   background-attachment: fixed;
 }
 [data-theme="dark"] body {
   background-image:
     radial-gradient(ellipse 75% 55% at 50% -10%, rgba(78, 112, 176, 0.14), transparent 60%),
-    radial-gradient(ellipse 90% 70% at 50% 110%, rgba(69, 90, 100, 0.04), transparent 55%);
+    radial-gradient(ellipse 90% 70% at 50% 110%, rgba(100, 116, 139, 0.04), transparent 55%);
 }
 
 /* Refined card surfaces — subtle warmth via faint inner-top highlight */

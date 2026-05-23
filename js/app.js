@@ -1011,7 +1011,7 @@ router.register('dashboard', () => {
         const prColor = pr === null ? 'var(--text-3)' : pr >= 80 ? 'var(--success)' : pr >= 60 ? 'var(--warning)' : 'var(--danger)';
         const prLabel = pr === null ? '—' : pr >= 80 ? 'ดีมาก' : pr >= 60 ? 'ปานกลาง' : 'ต่ำ';
         return `<div class="sw-stat-card" style="border-left:4px solid ${prColor}">
-        <div class="sw-stat-icon" style="background:rgba(69,90,100,0.12);color:var(--gold,#455A64)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+        <div class="sw-stat-icon" style="background:rgba(100,116,139,0.12);color:var(--gold,#64748B)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
         <div class="sw-stat-label">อัตราผ่านทดลองงาน</div>
         <div class="sw-stat-value" style="color:${prColor}">${pr === null ? '—' : pr.toFixed(1) + '%'}</div>
         <div class="sw-stat-change">${pr === null ? 'ยังไม่มี ปจ. ครบ 120 วัน' : `${prLabel} · เฉพาะ ปจ. · ${fmt.num(kpi.probationPassed)}/${fmt.num(kpi.probationCohortSize)} คน${kpi.inProbation ? ' · กำลังทดลอง ' + fmt.num(kpi.inProbation) : ''}`}</div>
@@ -1123,7 +1123,7 @@ router.register('dashboard', () => {
     <div class="sw-chart-card">
       <div class="sw-chart-title">อัตราผ่านทดลองงาน 120 วัน — แยกตามสาขา
         <span class="badge badge-success" style="margin-left:10px;font-size:11px">${withCohort.length} สาขามีข้อมูล</span>
-        ${overallRate !== null ? `<span class="badge" style="margin-left:6px;font-size:11px;background:rgba(69,90,100,0.16);color:var(--gold,#37474F)">รวม ${overallRate.toFixed(1)}%</span>` : ''}
+        ${overallRate !== null ? `<span class="badge" style="margin-left:6px;font-size:11px;background:rgba(100,116,139,0.16);color:var(--gold,#334155)">รวม ${overallRate.toFixed(1)}%</span>` : ''}
       </div>
       <div class="sw-chart-sub">เฉพาะพนักงานประจำ (Full-time) · จ้างใน 12 เดือนล่าสุด + ครบ 120 วันแล้ว (เกณฑ์เดียวกับ KPI ด้านบน)</div>
       <div style="max-height:540px;overflow-y:auto;padding-right:6px;margin-top:10px">
@@ -1260,13 +1260,13 @@ function destroyAllCharts() {
 // ─── Premium Chart Palette ─────────────────────────────────
 // Cohesive editorial palette — navy + sage green accent + refined semantics
 const CHART_PALETTE = {
-  primary:   '#1A2E50',  primaryHover:   '#142440',  primaryLight:   'rgba(26, 46, 80, 0.10)',
+  primary:   '#1E293B',  primaryHover:   '#0F172A',  primaryLight:   'rgba(30, 41, 59, 0.10)',
   emerald:   '#10B981',  emeraldHover:   '#059669',  emeraldLight:   'rgba(16, 185, 129, 0.10)',
   crimson:   '#EF4444',  crimsonHover:   '#DC2626',  crimsonLight:   'rgba(239, 68, 68, 0.10)',
-  amber:     '#F59E0B',  amberHover:     '#D97706',  amberLight:     'rgba(245, 158, 11, 0.10)',
-  gold:      '#455A64',  goldHover:      '#37474F',  goldLight:      'rgba(69, 90, 100, 0.14)',
-  // Backward-compat aliases (some callers may still use .sage — maps to steel slate now)
-  sage:      '#455A64',  sageHover:      '#37474F',  sageLight:      'rgba(69, 90, 100, 0.14)',
+  amber:     '#F97316',  amberHover:     '#EA580C',  amberLight:     'rgba(249, 115, 22, 0.10)',
+  gold:      '#64748B',  goldHover:      '#475569',  goldLight:      'rgba(100, 116, 139, 0.14)',
+  // Backward-compat aliases (.sage → brushed silver now, NO gold tone)
+  sage:      '#64748B',  sageHover:      '#475569',  sageLight:      'rgba(100, 116, 139, 0.14)',
   // Slate ramp — older = darker (intuitive for age)
   slateRamp: ['#cbd5e1', '#94a3b8', '#64748b', '#475569', '#334155', '#1e293b'],
   slateRampDark: ['#475569', '#64748b', '#94a3b8', '#cbd5e1', '#e2e8f0', '#f1f5f9'],
@@ -2699,7 +2699,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
       body.innerHTML = `
         <div class="form-grid">
           <div class="form-group span-2">
-            <div style="padding:10px 12px;background:var(--warning-bg, rgba(245,158,11,0.08));border:1px solid var(--warning, #f59e0b);border-radius:6px">
+            <div style="padding:10px 12px;background:var(--warning-soft, rgba(249,115,22,0.08));border:1px solid var(--warning, #F97316);border-radius:6px">
               <strong>⚠️ พนักงานคนนี้ยังไม่มีบัญชีใช้งานระบบ</strong>
               <div class="muted-2" style="margin-top:4px;font-size:12.5px">สร้างบัญชีให้พนักงานก่อนถึงจะกำหนด Role ได้ — ไปที่ "ตั้งค่าระบบ → บัญชีผู้ใช้" เพื่อสร้างบัญชี</div>
             </div>
@@ -10827,8 +10827,8 @@ async function openRoleMatrixEditor() {
        .mtx-warning {
          display: flex; align-items: flex-start; gap: 12px;
          padding: 14px 16px; margin-bottom: 18px;
-         background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(245, 158, 11, 0.03));
-         border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 10px;
+         background: linear-gradient(135deg, rgba(249, 115, 22, 0.08), rgba(249, 115, 22, 0.03));
+         border: 1px solid rgba(249, 115, 22, 0.25); border-radius: 10px;
          font-size: 12.5px; line-height: 1.6; color: var(--text-2);
        }
        .mtx-warning-icon {
