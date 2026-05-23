@@ -264,7 +264,9 @@ const DB = {
       const all = [];
       let from = 0;
       while (true) {
-        const { data, error } = await this.client.from('employees')
+        // [Security M1] อ่านผ่าน employees_view ที่ mask sensitive cols (salary, ปชช, bank, ฯลฯ)
+        // สำหรับ non-HR → DB คืน NULL, HR คืนค่าจริง (CASE ใน view)
+        const { data, error } = await this.client.from('employees_view')
           .select('*').order('id', { ascending: true })
           .or(`termination_date.is.null,termination_date.gte.${oneYearAgo}`)
           .range(from, from + PAGE - 1);
@@ -327,7 +329,8 @@ const DB = {
       const all = [];
       let from = 0;
       while (true) {
-        const { data, error } = await this.client.from('employees')
+        // [Security M1] ผ่าน view เช่นเดียวกับ active fetch
+        const { data, error } = await this.client.from('employees_view')
           .select('*').order('id', { ascending: true })
           .not('termination_date', 'is', null)
           .lt('termination_date', oneYearAgo)
@@ -447,38 +450,49 @@ const DB = {
   },
 
   // ─── ROW MAPPERS (DB ↔ JS) ───
-  _empFromDB: (r) => ({
-    id: r.id, title: r.title || '', firstName: r.first_name, lastName: r.last_name,
-    nickname: r.nickname || '', nationalId: r.national_id || '',
-    dob: r.dob || '', gender: r.gender || '',
-    nationality: r.nationality || 'ไทย', religion: r.religion || '',
-    education: r.education || '',
-    phone: r.phone || '', email: r.email || '', address: r.address || '',
-    subDistrict: r.sub_district || '', district: r.district || '',
-    province: r.province || '', postalCode: r.postal_code || '',
-    department: r.department || '', branch: r.branch || '',
-    position: r.position || '', positionTitle: r.position_title || '',
-    employeeType: r.employee_type || '',
-    hireDate: r.hire_date || '', salary: Number(r.salary || 0),
-    allowancePosition: Number(r.allowance_position || 0),
-    allowanceTravel: Number(r.allowance_travel || 0),
-    allowanceFood: Number(r.allowance_food || 0),
-    allowancePerDiem: Number(r.allowance_per_diem || 0),
-    allowanceLanguage: Number(r.allowance_language || 0),
-    allowanceOther: Number(r.allowance_other || 0),
-    bank: r.bank || '', bankAccount: r.bank_account || '',
-    passportNumber: r.passport_number || '',
-    workPermitNumber: r.work_permit_number || '',
-    photoUrl: r.photo_url || '',
-    terminationDate: r.termination_date || '',
-    terminationReason: r.termination_reason || '',
-    terminationNote: r.termination_note || '',
-    ssoNo: r.sso_no || '',
-    ssoEnrolledDate: r.sso_enrolled_date || '',
-    ssoTerminatedDate: r.sso_terminated_date || '',
-    ssoHospital: r.sso_hospital || '',
-    status: r.status || 'active', note: r.note || ''
-  }),
+  // [Security M1] Defense-in-depth ฝั่ง JS — mask sensitive cols ถ้า caller ไม่ใช่ HR/admin
+  //   - Initial fetch มาจาก employees_view (DB mask อยู่แล้ว) → ค่าเข้ามาเป็น NULL อยู่แล้ว
+  //   - Realtime payload มาจากตาราง employees (RAW) → ต้อง mask ใน mapper เพื่อกัน leak
+  //   - HR/admin → ส่งค่าจริงตามที่ได้จาก DB
+  _empFromDB: (r) => {
+    // Reference DB via top-level const (resolved at call time, not literal time)
+    const hr = typeof DB !== 'undefined' && DB.isHR;
+    return {
+      id: r.id, title: r.title || '', firstName: r.first_name, lastName: r.last_name,
+      nickname: r.nickname || '',
+      nationalId: hr ? (r.national_id || '') : '',
+      dob: r.dob || '', gender: r.gender || '',
+      nationality: r.nationality || 'ไทย', religion: r.religion || '',
+      education: r.education || '',
+      phone: r.phone || '', email: r.email || '', address: r.address || '',
+      subDistrict: r.sub_district || '', district: r.district || '',
+      province: r.province || '', postalCode: r.postal_code || '',
+      department: r.department || '', branch: r.branch || '',
+      position: r.position || '', positionTitle: r.position_title || '',
+      employeeType: r.employee_type || '',
+      hireDate: r.hire_date || '',
+      salary: hr ? Number(r.salary || 0) : 0,
+      allowancePosition: hr ? Number(r.allowance_position || 0) : 0,
+      allowanceTravel:   hr ? Number(r.allowance_travel   || 0) : 0,
+      allowanceFood:     hr ? Number(r.allowance_food     || 0) : 0,
+      allowancePerDiem:  hr ? Number(r.allowance_per_diem || 0) : 0,
+      allowanceLanguage: hr ? Number(r.allowance_language || 0) : 0,
+      allowanceOther:    hr ? Number(r.allowance_other    || 0) : 0,
+      bank: hr ? (r.bank || '') : '',
+      bankAccount: hr ? (r.bank_account || '') : '',
+      passportNumber: hr ? (r.passport_number || '') : '',
+      workPermitNumber: hr ? (r.work_permit_number || '') : '',
+      photoUrl: r.photo_url || '',
+      terminationDate: r.termination_date || '',
+      terminationReason: r.termination_reason || '',
+      terminationNote: r.termination_note || '',
+      ssoNo: hr ? (r.sso_no || '') : '',
+      ssoEnrolledDate: hr ? (r.sso_enrolled_date || '') : '',
+      ssoTerminatedDate: hr ? (r.sso_terminated_date || '') : '',
+      ssoHospital: hr ? (r.sso_hospital || '') : '',
+      status: r.status || 'active', note: r.note || ''
+    };
+  },
   _empToDB: (e) => ({
     id: e.id, title: e.title, first_name: e.firstName, last_name: e.lastName,
     nickname: e.nickname, national_id: e.nationalId,

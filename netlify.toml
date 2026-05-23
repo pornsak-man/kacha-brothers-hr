@@ -38,10 +38,11 @@
     Permissions-Policy = "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=()"
 
     # CSP — จำกัด source ของ resource ทุกประเภท
-    # script-src: เฉพาะ self + jsdelivr (มี SRI ป้องกัน tamper) + 'unsafe-inline' สำหรับ onclick (legacy)
-    # connect-src: Supabase REST + Realtime (wss)
-    # frame-ancestors: ห้าม embed ในเว็บอื่น
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co https://*.supabase.in; connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co wss://*.supabase.in; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+    # script-src: self + jsdelivr (SRI) + hcaptcha (login captcha) + unsafe-inline (legacy onclick)
+    # frame-src: hcaptcha (challenge iframe)
+    # connect-src: Supabase REST/Realtime + hcaptcha verify
+    # style-src: + hcaptcha widget styles
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://hcaptcha.com https://*.hcaptcha.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://hcaptcha.com https://*.hcaptcha.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.supabase.co https://*.supabase.in; connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co wss://*.supabase.in https://hcaptcha.com https://*.hcaptcha.com; frame-src https://hcaptcha.com https://*.hcaptcha.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 
     # ป้องกัน cross-origin isolation issues
     Cross-Origin-Opener-Policy = "same-origin"
