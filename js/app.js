@@ -498,6 +498,15 @@ const router = {
   register(name, fn) { this.pages[name] = fn; },
   go(name) {
     const isNavigation = this.current !== name;
+    // ใช้ View Transitions API (Chrome 111+, Edge, Safari 18+) เพื่อ smooth animate
+    // ตอน re-render หน้า (filter/realtime) — ลด flicker เห็นชัด
+    // Fallback: เบราว์เซอร์เก่าจะ render ทันทีเหมือนเดิม (graceful degradation)
+    if (document.startViewTransition && !isNavigation) {
+      return document.startViewTransition(() => this._doRender(name, isNavigation));
+    }
+    return this._doRender(name, isNavigation);
+  },
+  _doRender(name, isNavigation) {
     this.current = name;
     // destroy charts ก่อนเปลี่ยนหน้า — canvas เก่าจะถูกทิ้ง, ป้องกัน memory leak + ghost tooltips
     if (typeof destroyAllCharts === 'function') destroyAllCharts();

@@ -2929,3 +2929,182 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 [data-theme="dark"] .sw-leave-bal-card:hover {
   background: rgba(255,255,255,0.04);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   PREMIUM POLISH v3 — Phase 1
+   Modern · Premium · Smooth · International · Performant
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── View Transitions API — silky page changes ──────────────
+   ทำงานใน Chrome 111+, Edge, Safari 18+ (graceful fallback)
+   ใช้กับ filter/realtime re-render เพื่อกำจัด flicker
+   pageEnter (sw-anim-enter) สำหรับ navigation ปกติยังคงทำงาน */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.22s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+::view-transition-old(root) {
+  animation-name: vtOut;
+}
+::view-transition-new(root) {
+  animation-name: vtIn;
+}
+@keyframes vtOut {
+  to { opacity: 0; }
+}
+@keyframes vtIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* Sidebar/topbar ไม่เปลี่ยน → ไม่ต้อง animate (ลด jank) */
+.sidebar, .topbar {
+  view-transition-name: shell;
+}
+::view-transition-old(shell),
+::view-transition-new(shell) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* ─── Premium focus rings — accessibility + luxe feel ─── */
+:focus-visible {
+  outline-color: var(--primary);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.btn:focus-visible,
+.btn-icon:focus-visible {
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(29, 63, 143, 0.12);
+}
+.nav-item:focus-visible {
+  outline-offset: -2px;
+  outline-color: rgba(255,255,255,0.4);
+}
+
+/* ─── Refined scrollbar — subtler default, smoother hover ─── */
+::-webkit-scrollbar-thumb {
+  background: rgba(20, 20, 15, 0.14);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.18s var(--ease-out);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 20, 15, 0.28);
+  background-clip: padding-box;
+}
+* { scrollbar-width: thin; scrollbar-color: rgba(20, 20, 15, 0.18) transparent; }
+.sidebar { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.10) transparent; }
+.sidebar ::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.10);
+  background-clip: padding-box;
+}
+.sidebar ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.20);
+  background-clip: padding-box;
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12);
+  background-clip: padding-box;
+}
+
+/* ─── Body — extra refinement for premium typography ─── */
+body {
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* ─── Numeric typography — tabular for stat values + tables ─── */
+.sw-stat-value,
+.sw-chart-count,
+.num,
+.table td.num,
+code,
+.fmt-money {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'lnum' 1;
+}
+
+/* ─── GPU hints — prevent layout jank on common interactive elements ─── */
+.sw-stat-card,
+.sw-chart-card,
+.modal,
+.btn,
+.nav-item,
+.sw-recent-item {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+/* ─── Smoother stat card hover — gentle lift ─── */
+.sw-stat-card {
+  transition: transform 0.22s var(--ease-out),
+              box-shadow 0.22s var(--ease-out),
+              border-color 0.22s var(--ease-out);
+}
+.sw-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ─── Chart card subtle hover (only where it makes sense) ─── */
+.sw-chart-card {
+  transition: box-shadow 0.22s var(--ease-out);
+}
+
+/* ─── Tap highlight (mobile) ─── */
+.btn, button, .nav-item, .badge, .sw-recent-item, a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ─── Form controls — refined consistent feel ─── */
+select {
+  cursor: pointer;
+}
+input[type="search"]::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+/* ─── Disabled state — clear semantic ─── */
+.btn:disabled,
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ─── Skeleton shimmer (ready for future skeleton loaders) ─── */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-hover) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.4s linear infinite;
+  border-radius: var(--radius-sm);
+}
+@keyframes skeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ─── Improved badge typography (used in scope/status labels) ─── */
+.badge {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.005em;
+}
+
+/* ─── Container queries support — chart cards adapt better at narrow widths ─── */
+@supports (container-type: inline-size) {
+  .sw-chart-card { container-type: inline-size; }
+}
+
+/* ─── Print — clean export look ─── */
+@media print {
+  .sidebar, .topbar, .sw-page-actions, .actions, .btn-icon { display: none !important; }
+  .main { display: block; }
+  body { background: #fff; color: #000; }
+}
