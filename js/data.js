@@ -895,23 +895,15 @@ const DB = {
     if (filter.branch) list = list.filter(e => e.branch === filter.branch);
     if (filter.position) {
       // dropdown ส่ง position.id มา — แต่บางแถว (legacy import) มี e.position เป็น "" / ชื่อตำแหน่ง / id เก่า
-      // หรือ positionTitle อาจเขียนเป็น "Restaurant Manager (RM)" / "Sr. RM" / "RM-BKK" ที่ exact match ไม่เจอ
-      // → ใช้ word-boundary regex บน positionTitle (รองรับทั้ง Latin และ Thai) เพื่อให้ครอบคลุมเท่ากับ search box
+      // เปรียบเทียบทั้ง FK + ชื่อตำแหน่ง (positionTitle) แบบ exact (ตำแหน่งเก็บเป็นชื่อเต็มตามที่ admin ตั้ง ไม่มี free-form suffix)
+      // หมายเหตุ: ใช้ exact match ไม่ใช้ contains/word-boundary เพราะตำแหน่งเช่น "RM" กับ "Act.RM" หรือ "Service" กับ "Service (PT)" เป็นคนละตัวกัน
       const pos = this.getPosition(filter.position);
       const posName = (pos?.name || '').trim();
       const posNameLc = posName.toLowerCase();
-      // escape regex meta-chars (เช่น "Act.RM" มี '.') + boundary = ตัวอักษร/ตัวเลข/ไทย/จุด
-      // รวม '.' เป็นส่วนของคำ เพราะตัวย่อตำแหน่งใช้ '.' เชื่อมคำเดียวกัน เช่น "Act.RM" = Acting RM
-      // (เป็นตำแหน่งคนละตัวกับ "RM") — ถ้าไม่รวม จะทำให้กรอง "RM" แล้ว match "Act.RM" ผิด
-      const escaped = posName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const reTitle = posName ? new RegExp(`(^|[^A-Za-z0-9ก-๙.])${escaped}($|[^A-Za-z0-9ก-๙.])`, 'i') : null;
       list = list.filter(e => {
         if (e.position === filter.position) return true;          // FK match ปกติ
         if (posName && e.position === posName) return true;         // legacy: position เก็บเป็นชื่อ
-        const title = (e.positionTitle || '').trim();
-        if (!title) return false;
-        if (title.toLowerCase() === posNameLc) return true;         // เทียบ snapshot title ตรงๆ
-        if (reTitle && reTitle.test(title)) return true;            // word-boundary match เช่น "Sr. RM" / "RM (BKK)"
+        if (posNameLc && (e.positionTitle || '').trim().toLowerCase() === posNameLc) return true; // เทียบ snapshot title
         return false;
       });
     }
