@@ -2761,6 +2761,36 @@ const DB = {
       .sort((a, b) => b.count - a.count);
   },
 
+  // ─── สถิติพนักงานตามสายงาน (scope) — ใช้ใน dashboard ───
+  // หา scope ผ่าน position FK: employee.position → positionLevels.scope → positionScopes.id
+  // คนที่ไม่มี position หรือ position ไม่มี scope → จัดเป็น "ไม่ระบุ"
+  getScopeStats() {
+    const counts = new Map();
+    for (const e of this.data.employees) {
+      if (this.empStatus(e) === 'resigned') continue;
+      const pos = e.position ? this.getPosition(e.position) : null;
+      const scopeId = pos?.scope || null;
+      const key = scopeId || '__none__';
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    const result = [];
+    for (const [id, count] of counts.entries()) {
+      if (id === '__none__') {
+        result.push({ id: null, label: 'ไม่ระบุสาย', badgeBg: 'rgba(148,163,184,0.15)', badgeColor: '#475569', count });
+      } else {
+        const sc = this.getScope(id);
+        result.push({
+          id,
+          label: sc?.label || id,
+          badgeBg: sc?.badgeBg || 'rgba(148,163,184,0.15)',
+          badgeColor: sc?.badgeColor || '#475569',
+          count
+        });
+      }
+    }
+    return result.sort((a, b) => b.count - a.count);
+  },
+
   // ─── อัตราผ่านทดลองงาน (120 วัน) แยกตามสาขา — เฉพาะพนักงานประจำ (Full-time) ───
   // ใช้เกณฑ์เดียวกับ getDashboardKPI(): cohort = ปจ. ที่จ้างใน 12 เดือนล่าสุด + ครบ 120 วันแล้ว
   // Passed = ยังทำงานอยู่ หรือลาออกหลังวันจ้าง+120 / Failed = ลาออกภายใน 120 วันแรก

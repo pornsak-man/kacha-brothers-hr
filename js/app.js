@@ -849,6 +849,7 @@ router.register('dashboard', () => {
   const monthly = yearly.months;
   const trailing12 = DB.getMonthlyHireExit(12);
   const branchStats = DB.getBranchStats();
+  const scopeStats = DB.getScopeStats();
   const recentEmps = DB.getEmployees()
     .filter(e => DB.empStatus(e) !== 'resigned')
     .sort((a, b) => (b.hireDate || '').localeCompare(a.hireDate || ''))
@@ -1087,6 +1088,29 @@ router.register('dashboard', () => {
         </div>
       </div>
     </div>
+
+    ${scopeStats.length ? (() => {
+      const totalScopeEmps = scopeStats.reduce((sum, s) => sum + s.count, 0);
+      const maxScope = scopeStats[0]?.count || 1;
+      return `
+    <div class="sw-chart-card" style="margin-top:18px">
+      <div class="sw-chart-title">พนักงานตามสายงาน</div>
+      <div class="sw-chart-sub">${scopeStats.length} สาย · ${fmt.num(totalScopeEmps)} คน · คำนวณจาก ตำแหน่ง → สาย</div>
+      <div style="display:flex;flex-direction:column;gap:14px;margin-top:14px">
+        ${scopeStats.map(s => {
+          const pct = (s.count / maxScope * 100).toFixed(1);
+          const pctOfTotal = totalScopeEmps ? (s.count / totalScopeEmps * 100).toFixed(1) : '0.0';
+          return `<div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;gap:8px;flex-wrap:wrap">
+              <span class="badge" style="background:${escapeHtml(s.badgeBg)};color:${escapeHtml(s.badgeColor)};font-size:11.5px;padding:3px 10px;font-weight:600">${escapeHtml(s.label)}</span>
+              <div style="font-size:13.5px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums">${fmt.num(s.count)} <span style="font-size:11px;font-weight:500;color:var(--text-3)">คน · ${pctOfTotal}%</span></div>
+            </div>
+            <div class="sw-bar-bg"><div class="sw-bar-fill" style="width:${pct}%;background:${escapeHtml(s.badgeColor)}"></div></div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+    })() : ''}
 
     <div class="sw-section-label">การวิเคราะห์</div>
     <div class="sw-chart-card">
