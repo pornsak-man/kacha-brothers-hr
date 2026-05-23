@@ -545,6 +545,7 @@ const router = {
     }
     if (window.afterRender) { window.afterRender(); window.afterRender = null; }
     if (name === 'employees') wireEmployeePage();
+    if (name === 'positions') wirePositionsPage();
     if (name === 'recruit') wireRecruitPage();
     if (name === 'settings' && typeof renderEmpAccounts === 'function') renderEmpAccounts();
     if (name === 'user-roles' && typeof renderEmpAccounts === 'function') renderEmpAccounts();
@@ -4010,31 +4011,70 @@ async function deleteDept(id) {
 // ═══════════════════════════════════════════════════════
 //  PAGE: POSITIONS
 // ═══════════════════════════════════════════════════════
+const posState = { search: '', scope: '', hasEmps: '' };
+let _posSearchTimer;
+
 router.register('positions', () => {
   // เรียงตาม level desc แล้ว name asc — ระดับสูงอยู่บน
-  const ps = DB.getPositions().slice().sort((a, b) => (b.level || 0) - (a.level || 0) || a.name.localeCompare(b.name));
+  const allPs = DB.getPositions().slice().sort((a, b) => (b.level || 0) - (a.level || 0) || a.name.localeCompare(b.name));
   const emps = DB.getEmployees({ status: 'active' });
+  // นับพนักงานต่อตำแหน่ง — ใช้ทั้งใน filter (hasEmps) และแสดงในตาราง
+  const empCount = new Map();
+  for (const e of emps) empCount.set(e.position, (empCount.get(e.position) || 0) + 1);
+
+  // ── apply filter ──
+  const sLc = (posState.search || '').toLowerCase().trim();
+  const ps = allPs.filter(p => {
+    if (posState.scope && p.scope !== posState.scope) return false;
+    if (posState.hasEmps === 'with'    && (empCount.get(p.id) || 0) === 0) return false;
+    if (posState.hasEmps === 'without' && (empCount.get(p.id) || 0)  >  0) return false;
+    if (sLc) {
+      const hay = (p.id + ' ' + (p.name || '')).toLowerCase();
+      if (!hay.includes(sLc)) return false;
+    }
+    return true;
+  });
+
+  const filtered = posState.search || posState.scope || posState.hasEmps;
+  const countLabel = filtered
+    ? `<span class="sw-chart-count">${fmt.num(ps.length)} / ${fmt.num(allPs.length)}</span>`
+    : `<span class="sw-chart-count">${fmt.num(allPs.length)}</span>`;
+
   return `
     <div class="sw-page-header">
       <div>
         <div class="sw-page-title">ระดับตำแหน่ง</div>
-        <div class="sw-page-subtitle">โครงสร้างตำแหน่งและช่วงเงินเดือน · เรียงจากระดับสูงสุดลงต่ำสุด · ${fmt.num(ps.length)} ตำแหน่ง</div>
+        <div class="sw-page-subtitle">โครงสร้างตำแหน่งและช่วงเงินเดือน · เรียงจากระดับสูงสุดลงต่ำสุด · ${fmt.num(allPs.length)} ตำแหน่ง</div>
       </div>
       <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openPositionForm()">+ เพิ่มตำแหน่ง</button>' : ''}</div>
     </div>
     <div class="sw-chart-card">
       <div class="sw-chart-header">
         <div>
-          <div class="sw-chart-title">รายการตำแหน่ง <span class="sw-chart-count">${fmt.num(ps.length)}</span></div>
+          <div class="sw-chart-title">รายการตำแหน่ง ${countLabel}</div>
           <div class="sw-chart-sub">ใช้ระดับเพื่อคำนวณ "ผู้อนุมัติการลา" ของแต่ละสาขา — ระดับสูงสุดในสาขา = หัวหน้าสาขา</div>
         </div>
+      </div>
+      <div class="sw-filter-bar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border)">
+        <input id="posSearch" class="sw-filter-input" type="search" placeholder="🔍 ค้นชื่อ / รหัส" value="${escapeHtml(posState.search)}" style="flex:1;min-width:200px"/>
+        <select class="sw-filter-select" id="posScope">
+          <option value="">— ทุกสาย —</option>
+          <option value="operation" ${posState.scope === 'operation' ? 'selected' : ''}>ปฏิบัติการ (Operation)</option>
+          <option value="office"    ${posState.scope === 'office'    ? 'selected' : ''}>สำนักงาน (Office)</option>
+        </select>
+        <select class="sw-filter-select" id="posHasEmps">
+          <option value="">— ทุกตำแหน่ง —</option>
+          <option value="with"    ${posState.hasEmps === 'with'    ? 'selected' : ''}>มีพนักงาน</option>
+          <option value="without" ${posState.hasEmps === 'without' ? 'selected' : ''}>ไม่มีพนักงาน</option>
+        </select>
+        <button id="posClearFilter" class="btn btn-ghost btn-sm sw-filter-clear" onclick="clearPosFilters()" style="${filtered ? '' : 'display:none'}">✕ ล้างตัวกรอง</button>
       </div>
       ${ps.length ? `
       <div class="table-wrap"><table class="table table-compact sw-emp-table">
         <thead><tr><th>รหัส</th><th>ชื่อตำแหน่ง</th><th>สาย</th><th class="num">ระดับ</th><th class="num">เงินเดือนต่ำสุด</th><th class="num">เงินเดือนสูงสุด</th><th class="num">พนักงาน</th><th></th></tr></thead>
         <tbody>
           ${ps.map(p => {
-            const count = emps.filter(e => e.position === p.id).length;
+            const count = empCount.get(p.id) || 0;
             const lvBadge = p.level >= 7 ? 'badge-success' : p.level >= 4 ? 'badge-info' : 'badge';
             const scopeBadge = p.scope === 'operation' ? '<span class="badge" style="background:rgba(245,158,11,0.15);color:#b45309;font-size:10.5px">ปฏิบัติการ (Operation)</span>'
               : p.scope === 'office' ? '<span class="badge" style="background:rgba(30,136,229,0.15);color:#1565c0;font-size:10.5px">สำนักงาน (Office)</span>'
@@ -4051,13 +4091,32 @@ router.register('positions', () => {
             </tr>`;
           }).join('')}
         </tbody>
-      </table></div>` : `<div class="empty-state" style="padding:60px 20px">
-        <div style="font-size:42px;margin-bottom:12px;opacity:0.35">🎖️</div>
-        <div class="title" style="font-size:16px;font-weight:600">ยังไม่มีระดับตำแหน่ง</div>
-        <div class="hint" style="margin-top:6px">กดปุ่ม + เพิ่มตำแหน่ง เพื่อเริ่ม</div>
+      </table></div>` : `<div class="empty-state" style="padding:40px 20px">
+        <div style="font-size:32px;margin-bottom:8px;opacity:0.3">${filtered ? '🔍' : '🎖️'}</div>
+        <div class="title" style="font-size:14px;font-weight:600">${filtered ? 'ไม่พบตำแหน่งที่ตรงกับตัวกรอง' : 'ยังไม่มีระดับตำแหน่ง'}</div>
+        <div class="hint" style="margin-top:4px">${filtered ? 'ลองล้างตัวกรองเพื่อดูทั้งหมด' : 'กดปุ่ม + เพิ่มตำแหน่ง เพื่อเริ่ม'}</div>
       </div>`}
     </div>`;
 });
+
+function wirePositionsPage() {
+  $('#posSearch')?.addEventListener('input', (e) => {
+    clearTimeout(_posSearchTimer);
+    _posSearchTimer = setTimeout(() => {
+      posState.search = e.target.value;
+      router.go('positions');
+    }, 200);
+  });
+  $('#posScope')?.addEventListener('change', (e)   => { posState.scope = e.target.value;   router.go('positions'); });
+  $('#posHasEmps')?.addEventListener('change', (e) => { posState.hasEmps = e.target.value; router.go('positions'); });
+}
+
+function clearPosFilters() {
+  posState.search = '';
+  posState.scope = '';
+  posState.hasEmps = '';
+  router.go('positions');
+}
 
 function openPositionForm(id = null) {
   if (!requireHR()) return;
