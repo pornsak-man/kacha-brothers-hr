@@ -974,7 +974,11 @@ const DB = {
   },
 
   async uploadEmployeePhoto(blob, employeeId) {
-    const path = `${employeeId}-${Date.now()}.jpg`;
+    // [Security H1] ใช้ UUID แทน ${id}-${ts}.jpg ที่เดาได้
+    // ป้องกันการเดา URL → enumerate รูปพนักงานคนอื่น (bucket ยังเป็น public read)
+    // เก็บใน folder ตาม employeeId เพื่อจัดระเบียบ
+    const uuid = (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const path = `${employeeId}/${uuid}.jpg`;
     const { error: uploadError } = await this.client.storage
       .from('employee-photos')
       .upload(path, blob, { cacheControl: '3600', upsert: true, contentType: 'image/jpeg' });
@@ -1722,15 +1726,17 @@ const DB = {
   },
 
   // คำนวณรหัสผ่านเริ่มต้นจากข้อมูลพนักงาน (hybrid logic)
-  //  1) เลข ปชช (>= 6 หลัก, strip non-digit) → ใช้
-  //  2) Passport number (>= 6 ตัว) → ใช้
-  //  3) Fallback → "kacha{employee_id}"
+  // [Security C4] รหัสผ่านเริ่มต้น = สุ่ม 12 ตัว — ไม่ใช้ข้อมูลที่เพื่อนร่วมงานเดาได้
+  // เดิม: ใช้เลข ปชช หรือ passport เป็นรหัสผ่าน → ใครรู้เลข ปชช เพื่อนร่วมงานก็ login ได้
+  // ใหม่: สุ่ม a-z + 0-9 (ไม่ใส่ I, l, 1, O, 0 เพื่อกันสับสน) 12 ตัว
+  //       HR เห็นรหัสผ่าน 1 ครั้งตอนสร้างบัญชี → แจ้งพนักงาน → ควรเปลี่ยนทันที
   _computeInitialPassword(emp) {
-    const nat = String(emp.nationalId || '').replace(/\D/g, '');
-    if (nat.length >= 6) return { password: nat, source: 'เลขประชาชน' };
-    const pp = String(emp.passportNumber || '').trim();
-    if (pp.length >= 6) return { password: pp, source: 'passport' };
-    return { password: `kacha${emp.id}`, source: 'kacha+รหัส' };
+    const chars = 'abcdefghjkmnpqrstuvwxyz23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+    let password = '';
+    const arr = new Uint32Array(12);
+    crypto.getRandomValues(arr);
+    for (let i = 0; i < 12; i++) password += chars[arr[i] % chars.length];
+    return { password, source: 'สุ่มอัตโนมัติ' };
   },
 
   // สร้างบัญชี 1 คนด้วย Supabase signUp — เก็บ admin session ไว้ก่อน, signUp, แล้ว restore กลับ
@@ -1803,6 +1809,14 @@ const DB = {
   async setEmployeeRole(employeeId, role, branches = null) {
     // Guard ฝั่ง client: admin หรือ hr — RPC ตรวจซ้ำที่ฝั่ง DB อยู่ดี (defense in depth)
     if (!this.isHR) throw new Error('ต้องเป็น admin หรือ HR');
+    // [Security M6] HR ตั้ง role ระดับสูง (admin/hr/operation_manager) ไม่ได้ — เฉพาะ admin
+    // ป้องกัน HR สร้าง user proxy ที่เห็นข้อมูลทั่วบริษัทผ่าน operation_manager
+    if (!this.isAdmin) {
+      const HR_ALLOWED = ['area_manager', 'branch_manager', 'branch_staff', 'viewer'];
+      if (!HR_ALLOWED.includes(role)) {
+        throw new Error('HR ตั้ง role นี้ไม่ได้ — admin เท่านั้น (เช่น hr, operation_manager)');
+      }
+    }
     const { data, error } = await this.client.rpc('set_employee_role', {
       p_employee_id: employeeId,
       p_role: role,
@@ -1826,8 +1840,12 @@ const DB = {
     if (to) q = q.lte('ts', to);
     if (search) {
       // search ใน user_email หรือ record_id — strip chars ที่ break PostgREST .or() syntax
+      // [Security M5] escape LIKE wildcards (% _ \) เพื่อไม่ให้ user ใส่ _ แล้ว match ทุกตัว
       const s = String(search).replace(/[,()]/g, ' ').trim();
-      if (s) q = q.or(`user_email.ilike.%${s}%,record_id.ilike.%${s}%`);
+      if (s) {
+        const escaped = s.replace(/[\\%_]/g, '\\$&');
+        q = q.or(`user_email.ilike.%${escaped}%,record_id.ilike.%${escaped}%`);
+      }
     }
     q = q.order('ts', { ascending: false }).range(offset, offset + limit - 1);
     const { data, count, error } = await q;
@@ -2387,9 +2405,10 @@ const DB = {
     if (!this.isHR) throw new Error('เฉพาะ admin / HR เท่านั้น');
     if (!file) throw new Error('ไม่พบไฟล์');
     if (file.size > 5 * 1024 * 1024) throw new Error('ไฟล์ใหญ่เกิน 5 MB');
-    // สร้างชื่อไฟล์ unique
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-    const path = `ann-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    // [Security H1] สร้างชื่อไฟล์ UUID — ป้องกันการเดา URL
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const uuid = (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const path = `${uuid}.${ext || 'jpg'}`;
     const { error: uploadError } = await this.client.storage
       .from('announcement-images')
       .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type || 'image/jpeg' });
