@@ -1239,6 +1239,12 @@ const DB = {
     if (duplicate) {
       throw new Error(`ชื่อตำแหน่ง "${name}" ซ้ำกับรหัส ${duplicate.id} — กรุณาใช้ชื่ออื่น หรือแก้ไขตำแหน่งเดิมแทน`);
     }
+
+    // จับชื่อเดิมก่อน upsert — ถ้าเปลี่ยน (rename) ต้อง cascade ไป positionTitle ของพนักงาน
+    const existing = pos.id ? this.getPosition(pos.id) : null;
+    const oldName = existing ? (existing.name || '').trim() : '';
+    const isRename = existing && oldName !== name;
+
     const { data, error } = await this.client.from('position_levels').upsert(this._posToDB(pos)).select().single();
     if (error) throw error;
     const mapped = this._posFromDB(data);
@@ -1246,7 +1252,44 @@ const DB = {
     if (idx >= 0) this.data.positionLevels[idx] = mapped;
     else this.data.positionLevels.push(mapped);
     this._invalidateIndex('position_levels');
+
+    // Cascade sync: ถ้า rename → อัปเดต positionTitle ของพนักงานทั้งหมดที่ link FK กับตำแหน่งนี้
+    // (มิฉะนั้น dropdown filter ใหม่จะหาพนักงานเดิมไม่เจอ — เพราะ snapshot title ยังเป็นชื่อเก่า)
+    mapped._syncedCount = 0;
+    if (isRename) {
+      mapped._syncedCount = await this._syncEmployeePositionTitle(mapped.id, mapped.name);
+    }
     return mapped;
+  },
+
+  // Bulk update employees.positionTitle ของพนักงานที่ position FK = positionId
+  // ใช้ตอน rename ตำแหน่ง (auto) หรือ HR กดปุ่ม "ซิงค์ snapshot" (manual)
+  // คืนจำนวนพนักงานที่ถูกอัปเดตจริง
+  async _syncEmployeePositionTitle(positionId, newName) {
+    if (!positionId) return 0;
+    const affected = this.data.employees
+      .filter(e => e.position === positionId && (e.positionTitle || '') !== newName);
+    if (!affected.length) return 0;
+    const ids = affected.map(e => e.id);
+    const { error } = await this.client.from('employees')
+      .update({ position_title: newName })
+      .in('id', ids);
+    if (error) throw error;
+    // อัปเดต local cache ทันที (ไม่รอ realtime) — UI จะเห็นการเปลี่ยนแปลงทันใจ
+    for (const e of affected) e.positionTitle = newName;
+    return affected.length;
+  },
+
+  // Manual full-sync — เรียกจากปุ่ม UI ในหน้าตั้งค่าตำแหน่ง
+  // loop ทุก position แล้ว sync employees ที่มี FK link ให้ตรงกับ name ปัจจุบัน
+  // ใช้สำหรับซ่อม legacy data ที่ snapshot หลุดจาก master (เช่น import เก่าๆ)
+  async syncAllPositionTitles() {
+    if (!this.isHR) throw new Error('ต้องเป็น admin หรือ HR');
+    let total = 0;
+    for (const p of this.data.positionLevels) {
+      total += await this._syncEmployeePositionTitle(p.id, (p.name || '').trim());
+    }
+    return total;
   },
   async deletePosition(id) {
     if (this.data.employees.some(e => e.position === id)) return false;

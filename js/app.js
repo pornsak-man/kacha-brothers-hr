@@ -4020,7 +4020,7 @@ router.register('positions', () => {
         <div class="sw-page-title">ระดับตำแหน่ง</div>
         <div class="sw-page-subtitle">โครงสร้างตำแหน่งและช่วงเงินเดือน · เรียงจากระดับสูงสุดลงต่ำสุด · ${fmt.num(ps.length)} ตำแหน่ง</div>
       </div>
-      <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-primary" onclick="openPositionForm()">+ เพิ่มตำแหน่ง</button>' : ''}</div>
+      <div class="sw-page-actions">${DB.isHR ? '<button class="btn btn-ghost" onclick="syncAllPositionTitles()" title="ซิงค์ชื่อตำแหน่ง (positionTitle) ของพนักงานทุกคนให้ตรงกับชื่อปัจจุบันใน master — ใช้ซ่อมข้อมูลเก่าที่ snapshot หลุด">🔄 ซิงค์ snapshot</button> <button class="btn btn-primary" onclick="openPositionForm()">+ เพิ่มตำแหน่ง</button>' : ''}</div>
     </div>
     <div class="sw-chart-card">
       <div class="sw-chart-header">
@@ -4088,12 +4088,25 @@ function openPositionForm(id = null) {
     try {
       const data = Object.fromEntries(new FormData(e.target).entries());
       data.level = Number(data.level); data.minSalary = Number(data.minSalary); data.maxSalary = Number(data.maxSalary);
-      await DB.savePosition(data);
+      const saved = await DB.savePosition(data);
       modal.close();
-      toast('บันทึกแล้ว', 'success');
+      // ถ้า rename แล้ว cascade sync — แจ้งจำนวนพนักงานที่ตามมาด้วย
+      const synced = saved?._syncedCount || 0;
+      toast(synced ? `บันทึกแล้ว · ซิงค์ตำแหน่งของพนักงาน ${synced} คนให้ตรงกับชื่อใหม่` : 'บันทึกแล้ว', 'success');
       router.go('positions');
     } catch (ex) { toast('บันทึกไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
   });
+}
+
+async function syncAllPositionTitles() {
+  if (!requireHR()) return;
+  if (!await modal.confirm('ซิงค์ snapshot',
+    'อัปเดตชื่อตำแหน่ง (positionTitle) ของพนักงานทุกคนให้ตรงกับชื่อปัจจุบันใน master · ใช้ซ่อมข้อมูลเก่าที่ snapshot หลุดจากกัน')) return;
+  try {
+    const n = await DB.syncAllPositionTitles();
+    toast(n ? `ซิงค์เรียบร้อย · อัปเดตพนักงาน ${n} คน` : 'ทุกอย่างตรงกันอยู่แล้ว — ไม่มีอะไรต้องซิงค์', 'success');
+    router.go('positions');
+  } catch (ex) { toast('ซิงค์ไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
 }
 
 async function deletePosition(id) {
