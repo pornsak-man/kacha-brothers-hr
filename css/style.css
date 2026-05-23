@@ -426,207 +426,218 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 }
 .btn svg { width: 16px; height: 16px; flex-shrink: 0; }
 
-/* PRIMARY — Deep navy gradient with subtle gloss */
-/* ─── PRIMARY — Blue #3B82F6 (per spec) ─── */
+/* ═══════════════════════════════════════════════════════════
+   Refined Button System v8 — Apple/Linear-inspired minimal
+   • Flat solid colors (no heavy gradients)
+   • Single soft pillow shadow with color halo
+   • Inset 1px highlight for subtle gloss
+   • Hover: deeper shade + larger halo + lift -1px
+   • Active: scale 0.985 + smaller halo (iOS spring feel)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── PRIMARY — Refined Blue #3B82F6 ─── */
 .btn-primary {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #60A5FA 0%, #3B82F6 55%, #2563EB 100%);
+  background: #3B82F6;
   color: #fff;
-  border-color: rgba(37, 99, 235, 0.55);
-  letter-spacing: 0.01em;
-  font-weight: 600;
+  border-color: transparent;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.24) inset,
-    0 -1px 0 rgba(0,0,0,0.14) inset,
-    0 4px 10px rgba(59, 130, 246, 0.30),
-    0 0 0 1px rgba(255,255,255,0.06) inset;
+    0 1px 2px rgba(37, 99, 235, 0.18),
+    0 0 0 1px rgba(37, 99, 235, 0.10) inset,
+    0 1px 0 rgba(255,255,255,0.22) inset;
 }
 .btn-primary:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #93C5FD 0%, #60A5FA 55%, #2563EB 100%);
-  border-color: rgba(29, 78, 216, 0.65);
+  background: #2563EB;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.30) inset,
-    0 -1px 0 rgba(0,0,0,0.16) inset,
-    0 10px 26px rgba(59, 130, 246, 0.40),
-    0 2px 6px rgba(37, 99, 235, 0.22);
+    0 6px 16px rgba(59, 130, 246, 0.30),
+    0 1px 3px rgba(37, 99, 235, 0.20),
+    0 0 0 1px rgba(29, 78, 216, 0.12) inset,
+    0 1px 0 rgba(255,255,255,0.24) inset;
   transform: translateY(-1px);
 }
 .btn-primary:active:not(:disabled) {
-  transform: translateY(0);
+  background: #1D4ED8;
+  transform: scale(0.985);
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.14) inset,
-    0 -1px 0 rgba(0,0,0,0.22) inset,
-    0 1px 2px rgba(59, 130, 246, 0.28);
+    0 1px 2px rgba(29, 78, 216, 0.22),
+    0 0 0 1px rgba(29, 78, 216, 0.14) inset;
 }
 
-/* SECONDARY — Outlined with refined hover lift */
-/* ─── SECONDARY (Cancel) — Gray #6B7280 (per spec) ─── */
+/* ─── SECONDARY (Cancel) — Refined Slate ─── */
 .btn-secondary {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #9CA3AF 0%, #6B7280 55%, #4B5563 100%);
-  color: #fff;
-  border-color: rgba(75, 85, 99, 0.55);
-  font-weight: 600;
+  background: #F1F5F9;
+  color: #334155;
+  border-color: transparent;
+  font-weight: 500;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.20) inset,
-    0 -1px 0 rgba(0,0,0,0.14) inset,
-    0 2px 6px rgba(75, 85, 99, 0.22);
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 0 0 1px rgba(148, 163, 184, 0.22) inset;
 }
 .btn-secondary:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #B5BCC6 0%, #7B8290 55%, #4B5563 100%);
-  border-color: rgba(55, 65, 81, 0.65);
+  background: #E2E8F0;
+  color: #1E293B;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.26) inset,
-    0 -1px 0 rgba(0,0,0,0.16) inset,
-    0 8px 20px rgba(75, 85, 99, 0.30);
+    0 4px 10px rgba(15, 23, 42, 0.08),
+    0 0 0 1px rgba(148, 163, 184, 0.30) inset;
   transform: translateY(-1px);
 }
+.btn-secondary:active:not(:disabled) {
+  background: #CBD5E1;
+  transform: scale(0.985);
+}
 
-/* ─── DANGER (Delete) — Red #EF4444 (per spec) ─── */
+/* ─── DANGER (Delete) — Refined Red #EF4444 ─── */
 .btn-danger {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #F87171 0%, #EF4444 55%, #DC2626 100%);
+  background: #EF4444;
   color: #fff;
-  border-color: rgba(185, 28, 28, 0.55);
-  font-weight: 600;
+  border-color: transparent;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.20) inset,
-    0 -1px 0 rgba(0,0,0,0.14) inset,
-    0 4px 10px rgba(239, 68, 68, 0.32);
+    0 1px 2px rgba(220, 38, 38, 0.20),
+    0 0 0 1px rgba(220, 38, 38, 0.10) inset,
+    0 1px 0 rgba(255,255,255,0.22) inset;
 }
 .btn-danger:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #FCA5A5 0%, #F87171 55%, #DC2626 100%);
-  border-color: rgba(153, 27, 27, 0.65);
+  background: #DC2626;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.26) inset,
-    0 -1px 0 rgba(0,0,0,0.16) inset,
-    0 10px 26px rgba(239, 68, 68, 0.40);
+    0 6px 16px rgba(239, 68, 68, 0.32),
+    0 1px 3px rgba(220, 38, 38, 0.22),
+    0 0 0 1px rgba(185, 28, 28, 0.14) inset,
+    0 1px 0 rgba(255,255,255,0.24) inset;
   transform: translateY(-1px);
 }
+.btn-danger:active:not(:disabled) {
+  background: #B91C1C;
+  transform: scale(0.985);
+}
 
-/* ─── SUCCESS — Emerald #10B981 (per spec) ─── */
+/* ─── SUCCESS — Refined Emerald #10B981 ─── */
 .btn-success {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #34D399 0%, #10B981 55%, #059669 100%);
+  background: #10B981;
   color: #fff;
-  border-color: rgba(4, 120, 87, 0.55);
-  font-weight: 600;
+  border-color: transparent;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.20) inset,
-    0 -1px 0 rgba(0,0,0,0.14) inset,
-    0 4px 10px rgba(16, 185, 129, 0.32);
+    0 1px 2px rgba(5, 150, 105, 0.22),
+    0 0 0 1px rgba(5, 150, 105, 0.10) inset,
+    0 1px 0 rgba(255,255,255,0.22) inset;
 }
 .btn-success:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #6EE7B7 0%, #34D399 55%, #059669 100%);
-  border-color: rgba(6, 95, 70, 0.65);
+  background: #059669;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.26) inset,
-    0 -1px 0 rgba(0,0,0,0.16) inset,
-    0 10px 26px rgba(16, 185, 129, 0.40);
+    0 6px 16px rgba(16, 185, 129, 0.32),
+    0 1px 3px rgba(5, 150, 105, 0.22),
+    0 0 0 1px rgba(4, 120, 87, 0.14) inset,
+    0 1px 0 rgba(255,255,255,0.24) inset;
   transform: translateY(-1px);
 }
+.btn-success:active:not(:disabled) {
+  background: #047857;
+  transform: scale(0.985);
+}
 
-/* ─── WARNING — Amber #F59E0B (per spec) ─── */
+/* ─── WARNING — Refined Amber #F59E0B ─── */
 .btn-warning {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #FBBF24 0%, #F59E0B 55%, #D97706 100%);
+  background: #F59E0B;
   color: #fff;
-  border-color: rgba(180, 83, 9, 0.55);
-  font-weight: 600;
+  border-color: transparent;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.20) inset,
-    0 -1px 0 rgba(0,0,0,0.14) inset,
-    0 4px 10px rgba(245, 158, 11, 0.32);
+    0 1px 2px rgba(217, 119, 6, 0.22),
+    0 0 0 1px rgba(217, 119, 6, 0.10) inset,
+    0 1px 0 rgba(255,255,255,0.22) inset;
 }
 .btn-warning:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #FCD34D 0%, #FBBF24 55%, #D97706 100%);
-  border-color: rgba(120, 53, 15, 0.65);
+  background: #D97706;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.26) inset,
-    0 -1px 0 rgba(0,0,0,0.16) inset,
-    0 10px 26px rgba(245, 158, 11, 0.40);
+    0 6px 16px rgba(245, 158, 11, 0.32),
+    0 1px 3px rgba(217, 119, 6, 0.22),
+    0 0 0 1px rgba(180, 83, 9, 0.14) inset,
+    0 1px 0 rgba(255,255,255,0.24) inset;
   transform: translateY(-1px);
 }
+.btn-warning:active:not(:disabled) {
+  background: #B45309;
+  transform: scale(0.985);
+}
 
-/* ─── DARK (Action) — Gray-800 #1F2937 (per spec) ─── */
+/* ─── DARK (Action) — Refined Slate-800 #1F2937 ─── */
 .btn-dark {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #374151 0%, #1F2937 55%, #111827 100%);
+  background: #1F2937;
   color: #fff;
-  border-color: rgba(17, 24, 39, 0.55);
-  font-weight: 600;
+  border-color: transparent;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.16) inset,
-    0 -1px 0 rgba(0,0,0,0.20) inset,
-    0 4px 10px rgba(17, 24, 39, 0.30);
+    0 1px 2px rgba(17, 24, 39, 0.30),
+    0 0 0 1px rgba(17, 24, 39, 0.20) inset,
+    0 1px 0 rgba(255,255,255,0.10) inset;
 }
 .btn-dark:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #4B5563 0%, #374151 55%, #111827 100%);
-  border-color: rgba(3, 7, 18, 0.65);
+  background: #111827;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.22) inset,
-    0 -1px 0 rgba(0,0,0,0.22) inset,
-    0 10px 26px rgba(17, 24, 39, 0.40);
+    0 6px 16px rgba(17, 24, 39, 0.36),
+    0 1px 3px rgba(17, 24, 39, 0.28),
+    0 0 0 1px rgba(3, 7, 18, 0.22) inset,
+    0 1px 0 rgba(255,255,255,0.12) inset;
   transform: translateY(-1px);
 }
+.btn-dark:active:not(:disabled) {
+  background: #030712;
+  transform: scale(0.985);
+}
 
-/* ─── NAVY (Corporate) — Navy #000080 (per spec) ─── */
+/* ─── NAVY (Corporate) — Refined #1E40AF (blue-800, modern navy) ─── */
 .btn-navy {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #1E3A8A 0%, #1E40AF 55%, #000080 100%);
+  background: #1E40AF;
   color: #fff;
-  border-color: rgba(0, 0, 128, 0.55);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  border-color: transparent;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.18) inset,
-    0 -1px 0 rgba(0,0,0,0.20) inset,
-    0 4px 10px rgba(0, 0, 128, 0.30);
+    0 1px 2px rgba(30, 58, 138, 0.26),
+    0 0 0 1px rgba(30, 58, 138, 0.16) inset,
+    0 1px 0 rgba(255,255,255,0.16) inset;
 }
 .btn-navy:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(180deg, #3151B5 0%, #1E3A8A 55%, #000080 100%);
+  background: #1E3A8A;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.24) inset,
-    0 -1px 0 rgba(0,0,0,0.22) inset,
-    0 10px 26px rgba(0, 0, 128, 0.40);
+    0 6px 16px rgba(30, 64, 175, 0.36),
+    0 1px 3px rgba(30, 58, 138, 0.24),
+    0 0 0 1px rgba(23, 37, 84, 0.18) inset,
+    0 1px 0 rgba(255,255,255,0.18) inset;
   transform: translateY(-1px);
+}
+.btn-navy:active:not(:disabled) {
+  background: #172554;
+  transform: scale(0.985);
 }
 
-/* ─── OUTLINE — White + border (per spec) ─── */
+/* ─── OUTLINE — Refined Hairline ─── */
 .btn-outline {
-  background: #ffffff;
+  background: #FFFFFF;
   color: var(--text);
-  border-color: var(--border-strong);
+  border-color: transparent;
   font-weight: 500;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 0 0 1px rgba(148, 163, 184, 0.30) inset;
 }
 .btn-outline:hover:not(:disabled) {
-  background: var(--neutral-50);
-  border-color: var(--navy-400);
-  color: var(--primary);
-  box-shadow: 0 3px 10px rgba(59, 130, 246, 0.10), 0 1px 2px rgba(0,0,0,0.04);
+  background: #F8FAFC;
+  color: #2563EB;
+  box-shadow:
+    0 4px 10px rgba(59, 130, 246, 0.08),
+    0 0 0 1px rgba(59, 130, 246, 0.35) inset;
   transform: translateY(-1px);
+}
+.btn-outline:active:not(:disabled) {
+  background: #F1F5F9;
+  transform: scale(0.985);
 }
 
 /* ─── GHOST — transparent text button (icon-only, subtle) ─── */
@@ -634,10 +645,15 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   background: transparent;
   color: var(--text-2);
   border-color: transparent;
+  font-weight: 500;
 }
 .btn-ghost:hover:not(:disabled) {
-  background: var(--surface-2);
+  background: rgba(148, 163, 184, 0.10);
   color: var(--text);
+}
+.btn-ghost:active:not(:disabled) {
+  background: rgba(148, 163, 184, 0.18);
+  transform: scale(0.985);
 }
 
 /* GLASS — premium frosted-glass CTA (special use) */
