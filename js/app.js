@@ -3987,50 +3987,6 @@ router.register('branches', () => {
         <div class="hint" style="margin-top:6px">กด + เพิ่มสาขา เพื่อเริ่มต้น</div>
       </div>`}
     </div>
-
-    ${list.length ? `
-    <div class="sw-chart-card" style="margin-top:24px">
-      <div class="sw-chart-header">
-        <div>
-          <div class="sw-chart-title">ผู้บังคับบัญชาสาขา <span class="sw-chart-count">${fmt.num(list.filter(b => b.active).length)}</span></div>
-          <div class="sw-chart-sub">อิงตามระดับตำแหน่งงานสูงสุดในแต่ละสาขา (auto-detect) · เบอร์/Email สาขากด "แก้สาขา" เพื่อแก้ไข</div>
-        </div>
-      </div>
-      <div class="table-wrap"><table class="table table-compact">
-        <thead><tr>
-          <th style="width:70px">รหัสสาขา</th>
-          <th>ผู้บังคับบัญชา</th>
-          <th>ตำแหน่ง</th>
-          <th>เบอร์มือถือ</th>
-          <th>เบอร์สาขา</th>
-          <th>Email สาขา</th>
-          <th></th>
-        </tr></thead>
-        <tbody>
-          ${list.filter(b => b.active).map(b => {
-            const mgr = DB.getBranchManager(b.id);
-            const pos = mgr ? (DB.getPosition(mgr.position) || {}) : {};
-            const mgrName = mgr ? `${(mgr.title || '') + mgr.firstName} ${mgr.lastName || ''}`.trim() : '';
-            const mgrPos = mgr ? (mgr.positionTitle || pos.name || '') : '';
-            const levelBadge = pos.level ? ` <span class="badge badge-info" style="font-size:10px;margin-left:4px">ระดับ ${pos.level}</span>` : '';
-            return `<tr>
-              <td><code style="font-size:12px;font-weight:700">${escapeHtml(b.id)}</code></td>
-              <td>${mgr
-                ? `<strong>${escapeHtml(mgrName)}</strong>${mgr.nickname ? `<span class="muted-2" style="margin-left:6px">· ${escapeHtml(mgr.nickname)}</span>` : ''}`
-                : '<span class="muted-2">— ไม่มีพนักงาน active —</span>'}</td>
-              <td class="sw-cell-meta">${escapeHtml(mgrPos)}${levelBadge}</td>
-              <td>${mgr?.phone ? `<a href="tel:${escapeHtml(mgr.phone)}" style="color:var(--primary);text-decoration:none">${escapeHtml(mgr.phone)}</a>` : '<span class="muted-2">—</span>'}</td>
-              <td>${b.phone ? `<a href="tel:${escapeHtml(b.phone)}" style="color:var(--primary);text-decoration:none">${escapeHtml(b.phone)}</a>` : '<span class="muted-2">—</span>'}</td>
-              <td>${b.email ? `<a href="mailto:${escapeHtml(b.email)}" style="color:var(--primary);text-decoration:none">${escapeHtml(b.email)}</a>` : '<span class="muted-2">—</span>'}</td>
-              <td class="actions">
-                ${DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="openBranchForm('${escapeHtml(b.id)}')">แก้สาขา</button>` : ''}
-                ${mgr ? `<button class="btn btn-ghost btn-sm" onclick="viewEmployee('${escapeHtml(mgr.id)}')">ดูผู้จัดการ</button>` : ''}
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table></div>
-    </div>` : ''}
   `;
 });
 
