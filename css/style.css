@@ -4,49 +4,50 @@
    ═══════════════════════════════════════════════════════════ */
 
 :root {
-  /* ─── Brand — Refined Royal Navy (deeper, more saturated for premium feel) ─── */
-  --navy-50:  #eef3fa;
-  --navy-100: #dbe4f3;
-  --navy-200: #b3c5e6;
-  --navy-300: #7e9bcc;
-  --navy-400: #4870b0;
-  --navy-500: #1d3f8f;   /* Primary — slightly cooler & richer than before */
-  --navy-600: #163073;
-  --navy-700: #102458;
-  --navy-800: #0a1840;
-  --navy-900: #050d2a;
+  /* ─── Brand — Deep Midnight Indigo (luxe banking, cooler than navy) ─── */
+  --navy-50:  #eef0f7;
+  --navy-100: #d8dded;
+  --navy-200: #b0b9d5;
+  --navy-300: #7a86b3;
+  --navy-400: #455591;
+  --navy-500: #1e2a52;   /* Primary — deep midnight indigo */
+  --navy-600: #14213d;
+  --navy-700: #0e1830;
+  --navy-800: #0a1124;
+  --navy-900: #050816;
 
   --primary:       var(--navy-500);
   --primary-hover: var(--navy-600);
   --primary-soft:  var(--navy-50);
   --primary-text:  var(--navy-700);
 
-  /* ─── Premium accent — Sage Green (refined, calming, pairs with navy) ─── */
-  --sage:        #87a96b;
-  --sage-soft:   #eef3e6;
-  --sage-text:   #3d5230;
-  --sage-dark:   #6b8c54;
-  --sage-light:  #c4d6b1;
-  /* Backward-compat aliases (.badge-gold etc. still work) */
-  --gold:        var(--sage);
-  --gold-soft:   var(--sage-soft);
-  --gold-text:   var(--sage-text);
-  --gold-dark:   var(--sage-dark);
+  /* ─── Premium accent — Champagne Gold (luxe hotel/banking feel) ─── */
+  --gold:        #c4a574;    /* champagne gold — warm metallic */
+  --gold-soft:   #f6efdf;
+  --gold-text:   #6b4f23;
+  --gold-dark:   #a88652;
+  --gold-light:  #e3d2a8;
+  /* Backward-compat aliases (.badge-sage / sage usage still maps to gold accent) */
+  --sage:        var(--gold);
+  --sage-soft:   var(--gold-soft);
+  --sage-text:   var(--gold-text);
+  --sage-dark:   var(--gold-dark);
+  --sage-light:  var(--gold-light);
 
-  /* ─── Neutrals — Refined editorial cream (cooler, less yellow tint) ─── */
+  /* ─── Neutrals — Pearl warm white (cleaner, less yellow than cream) ─── */
   --neutral-0:   #ffffff;
-  --neutral-25:  #fbfaf6;   /* faintly tinted surface — for hero blocks */
-  --neutral-50:  #f6f3ed;   /* main page bg — refined editorial cream */
-  --neutral-100: #efebe2;
-  --neutral-150: #e6e0d2;
-  --neutral-200: #d8d2c2;
-  --neutral-300: #c6c0b2;
-  --neutral-400: #8c8a82;
-  --neutral-500: #5e5d57;
-  --neutral-600: #46453f;
-  --neutral-700: #2f2e28;
-  --neutral-800: #1c1c18;
-  --neutral-900: #0e0e0c;
+  --neutral-25:  #fbfaf6;   /* faintly tinted surface */
+  --neutral-50:  #f7f5ee;   /* main page bg — pearl warm white */
+  --neutral-100: #f0ede3;
+  --neutral-150: #e6e2d4;
+  --neutral-200: #d6d2c2;
+  --neutral-300: #b8b3a0;
+  --neutral-400: #837f73;
+  --neutral-500: #56544c;
+  --neutral-600: #3c3a34;
+  --neutral-700: #26241f;
+  --neutral-800: #161613;
+  --neutral-900: #0c0c0a;
   --neutral-950: #050504;
 
   /* Semantic */
@@ -60,26 +61,26 @@
   --text-2:       var(--neutral-600);
   --text-3:       var(--neutral-400);
 
-  /* ─── Sidebar — Deep onyx with navy undertone (more luxe) ─── */
-  --sidebar-bg:    #07090f;
-  --sidebar-bg-2:  #0e1118;
-  --sidebar-text:  #cdcdc0;
-  --sidebar-text-2: #8c8c80;
-  --sidebar-hover: rgba(78, 110, 175, 0.10);
+  /* ─── Sidebar — True onyx with champagne accent (dramatic luxe) ─── */
+  --sidebar-bg:    #08090e;
+  --sidebar-bg-2:  #0e1019;
+  --sidebar-text:  #d4d1c4;
+  --sidebar-text-2: #8d8a7e;
+  --sidebar-hover: rgba(196, 165, 116, 0.10);   /* champagne hint */
 
-  /* ─── Status — Refined semantic palette ─── */
-  --success:        #15923f;   /* slightly deeper emerald */
+  /* ─── Status — Harmonized with champagne palette ─── */
+  --success:        #166534;   /* deep emerald */
   --success-soft:   #ebfaf0;
-  --success-text:   #0e5226;
-  --danger:         #d72626;
-  --danger-soft:    #fdf0f0;
-  --danger-text:    #7a1818;
-  --warning:        #c97706;   /* slightly less orange, more amber */
-  --warning-soft:   #fdf8eb;
-  --warning-text:   #6d3e08;
-  --info:           #1e7fc4;   /* refined cool blue */
-  --info-soft:      #ebf5fc;
-  --info-text:      #0e466f;
+  --success-text:   #064e1f;
+  --danger:         #c4243f;   /* refined wine red */
+  --danger-soft:    #fdf0f1;
+  --danger-text:    #7d1424;
+  --warning:        #b87a08;   /* amber harmonized with champagne gold */
+  --warning-soft:   #fbf3e1;
+  --warning-text:   #5f3e08;
+  --info:           #1864a8;   /* deeper cool blue */
+  --info-soft:      #e9f2fb;
+  --info-text:      #0a3c66;
 
   /* Shadows */
   --shadow-xs: 0 1px 2px rgba(20, 20, 15, 0.04);
