@@ -9011,7 +9011,8 @@ router.register('calendar', () => {
       filtered = filtered.filter(r => {
         const emp = DB.getEmployee(r.employeeId);
         const name = ((emp?.firstName || '') + ' ' + (emp?.lastName || '')).toLowerCase();
-        return name.includes(s) || String(r.employeeId).toLowerCase().includes(s);
+        const nick = (emp?.nickname || '').toLowerCase();
+        return name.includes(s) || nick.includes(s) || String(r.employeeId).toLowerCase().includes(s);
       });
     }
     // ─── Filter by branch ───
@@ -10477,7 +10478,8 @@ function applyLeaveFilters(list) {
     if (search) {
       const e = DB.getEmployee(r.employeeId);
       const name = ((e?.firstName || '') + ' ' + (e?.lastName || '')).toLowerCase();
-      if (!name.includes(search) && !String(r.employeeId).toLowerCase().includes(search)) return false;
+      const nick = (e?.nickname || '').toLowerCase();
+      if (!name.includes(search) && !nick.includes(search) && !String(r.employeeId).toLowerCase().includes(search)) return false;
     }
     return true;
   });
@@ -10795,7 +10797,8 @@ function renderLeaveBalanceTable() {
     if (f.branch && e.branch !== f.branch) return false;
     if (search) {
       const name = ((e.firstName || '') + ' ' + (e.lastName || '')).toLowerCase();
-      if (!name.includes(search) && !String(e.id).toLowerCase().includes(search)) return false;
+      const nick = (e.nickname || '').toLowerCase();
+      if (!name.includes(search) && !nick.includes(search) && !String(e.id).toLowerCase().includes(search)) return false;
     }
     return true;
   });
@@ -11078,10 +11081,22 @@ async function openLeaveRequestForm(id = null, prefilledType = null) {
     const start = $('#leaveStart').value;
     const type = $('#leaveType').value;
     const box = $('#leaveBackdateHint');
+    const startInput = $('#leaveStart');
+    const endInput = $('#leaveEnd');
+    // อัปเดต min ของ date input ตามประเภท: ถ้าไม่ allow backdate → min = today
+    // (browser block เลือกย้อนหลัง — กันที่ระดับ UI ก่อน submit)
+    const cfg = type ? DB.LEAVE_TYPES[type] : null;
+    if (cfg && !cfg.allowBackdate) {
+      if (startInput) startInput.min = today;
+      if (endInput)   endInput.min = today;
+    } else {
+      // ลาป่วย/คลอด หรือยังไม่เลือกประเภท → เปิดให้เลือกย้อนหลังได้
+      if (startInput) startInput.removeAttribute('min');
+      if (endInput)   endInput.removeAttribute('min');
+    }
     if (!start || !type) { box.textContent = ''; return; }
     const isPast = start < today;
     if (!isPast) { box.innerHTML = ''; return; }
-    const cfg = DB.LEAVE_TYPES[type];
     if (cfg?.allowBackdate) {
       box.innerHTML = `<span style="color:var(--warning)">ℹ️ ลาย้อนหลัง — ประเภท "${escapeHtml(cfg.label || type)}" อนุญาต</span>`;
     } else {
@@ -11145,6 +11160,26 @@ async function openLeaveRequestForm(id = null, prefilledType = null) {
     const expectedDays = (data.startDate === data.endDate && $('#leaveHalfDay')?.checked) ? 0.5 : calendarDays;
     if (Number(data.days) !== expectedDays) {
       data.days = expectedDays;  // force ทุกครั้ง ไม่เชื่อค่า client
+    }
+    // ─── QUOTA CHECK — กันลาเกินสิทธิคงเหลือ ───
+    // ยกเว้น: HR override + ประเภทที่ไม่มีโควต้าตายตัว (เช่น ลาพักร้อนสูตร tenure ที่เกินได้)
+    const reqDays = Number(data.days || 0);
+    const yearOfLeave = parseYMD(data.startDate)?.[0] || new Date().getFullYear();
+    const bal = DB.calcLeaveBalance(data.employeeId, data.leaveType, yearOfLeave);
+    // ใช้ remaining ปัจจุบัน + บวก days ของ row เดิม (ถ้า edit ของตัวเอง — กันลบของตัวเองออกซ้ำซ้อน)
+    let remaining = bal.remaining;
+    if (id && editing && editing.status === 'approved' && editing.leaveType === data.leaveType) {
+      remaining += Number(editing.days || 0);
+    }
+    if (bal.quota > 0 && reqDays > remaining) {
+      const typeLabel = DB.LEAVE_TYPES[data.leaveType]?.label || data.leaveType;
+      const msg = `⛔ "${typeLabel}" คงเหลือ ${remaining} วัน — ลา ${reqDays} วันเกินสิทธิ ${reqDays - remaining} วัน`;
+      if (DB.isHR) {
+        if (!confirm(`${msg}\n\nต้องการบันทึกต่อ? (HR override — โควต้าจะติดลบ)`)) return;
+      } else {
+        toast(msg, 'error');
+        return;
+      }
     }
     // ─── OVERLAP CHECK — กันลาซ้ำ + ลาตรงวันชดเชย swap ───
     const overlapLeaves = DB.findLeaveOverlap(data.employeeId, data.startDate, data.endDate, id);
@@ -11992,8 +12027,9 @@ async function renderEmpAccounts() {
     const filtered = active.filter(e => {
       if (s) {
         const name = ((e.firstName || '') + ' ' + (e.lastName || '')).toLowerCase();
+        const nick = (e.nickname || '').toLowerCase();
         const email = `${e.id.toLowerCase()}@kacha.local`;
-        if (!name.includes(s) && !String(e.id).toLowerCase().includes(s) && !email.includes(s)) return false;
+        if (!name.includes(s) && !nick.includes(s) && !String(e.id).toLowerCase().includes(s) && !email.includes(s)) return false;
       }
       if (f.branch && e.branch !== f.branch) return false;
       const p = byEmpId.get(e.id);

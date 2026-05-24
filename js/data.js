@@ -2804,18 +2804,18 @@ const DB = {
     }
   },
 
-  // กฎทางธุรกิจ: ห้ามอนุมัติคำขอลาที่วันสิ้นสุดผ่านไปแล้ว
+  // กฎทางธุรกิจ: ต้องอนุมัติ "ก่อน" วันลาเริ่ม — ห้ามอนุมัติเมื่อวันลามาถึงแล้ว
   // ยกเว้น (1) ประเภทที่ allow_backdate (ลาป่วย / ลาคลอด / ลาคลอดช่วยภริยา)
-  //       (2) admin / HR — override ได้ทุกกรณี (ทำได้ทุกอย่างไม่มีข้อยกเว้น)
-  // ใช้กับ branch_manager / area_manager เท่านั้น
+  //       (2) admin / HR — override ได้ทุกกรณี
+  // กระทบ branch_manager / area_manager เท่านั้น
   _ensureLeaveDateApprovable(req) {
     if (this.isHR) return; // admin + hr bypass ทุกกรณี
     const cfg = this.LEAVE_TYPES[req.leaveType];
     if (cfg?.allowBackdate) return;
     const today = this.todayBkk();
-    if (req.endDate && req.endDate < today) {
+    if (req.startDate && req.startDate <= today) {
       const label = cfg?.label || req.leaveType;
-      throw new Error(`ไม่สามารถอนุมัติได้ — วันลาผ่านไปแล้ว (สิ้นสุด ${req.endDate}) · ประเภท "${label}" ไม่อนุญาตให้อนุมัติย้อนหลัง · กรุณาปฏิเสธหรือยกเลิกคำขอนี้`);
+      throw new Error(`ไม่สามารถอนุมัติได้ — วันลาเริ่มหรือผ่านไปแล้ว (เริ่ม ${req.startDate}) · ประเภท "${label}" ต้องอนุมัติก่อนถึงวันลา · กรุณาปฏิเสธหรือให้ HR override`);
     }
   },
 
