@@ -430,9 +430,8 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_caller_role TEXT;
-  v_role        public.roles%ROWTYPE;
-  v_critical_count INTEGER;
+  v_role  public.roles%ROWTYPE;
+  v_lost  TEXT[];
 BEGIN
   -- 1. authz: เฉพาะคนที่มี permission.edit_matrix
   IF NOT public.user_has_permission('permission.edit_matrix') THEN
@@ -445,21 +444,32 @@ BEGIN
     RAISE EXCEPTION 'ไม่พบ role: %', p_role_id;
   END IF;
 
-  -- 3. ห้ามปิด critical permissions (safety lock)
-  SELECT COUNT(*) INTO v_critical_count
-  FROM public.permissions
-  WHERE is_critical = true
-    AND key NOT IN (SELECT unnest(p_perm_keys));
-  IF v_critical_count > 0 THEN
-    RAISE EXCEPTION 'ไม่สามารถปิด critical permissions ได้ (safety lock)';
+  -- 3. ห้ามปิด critical permissions ที่ role นี้ "เคยมี" (soft critical — กัน lock-out)
+  --    semantics: ถ้า role เคย granted critical perm A แล้ว p_perm_keys ใหม่ไม่มี A → reject
+  --    ไม่ใช่ "ทุก role ต้องมีทุก critical perm" — เพราะบาง critical perm เช่น permission.edit_matrix
+  --    ไม่ใช่ทุก role ที่ต้องมี
+  SELECT array_agg(rp.permission_key) INTO v_lost
+  FROM public.role_permissions rp
+  JOIN public.permissions p ON p.key = rp.permission_key
+  WHERE rp.role_id = p_role_id
+    AND rp.granted = true
+    AND p.is_critical = true
+    AND rp.permission_key <> ALL (p_perm_keys);
+  IF v_lost IS NOT NULL AND array_length(v_lost, 1) > 0 THEN
+    RAISE EXCEPTION 'ไม่สามารถปิด critical permissions ของ %: %', p_role_id, array_to_string(v_lost, ', ');
   END IF;
 
-  -- 4. ห้าม role ที่ is_protected ปิด is_dangerous permissions (admin lock)
+  -- 4. ห้าม role ที่ is_protected ปิด is_dangerous permissions ที่เคย granted (admin lock)
   IF v_role.is_protected THEN
-    PERFORM 1 FROM public.permissions
-    WHERE is_dangerous = true AND key NOT IN (SELECT unnest(p_perm_keys));
-    IF FOUND THEN
-      RAISE EXCEPTION 'Role % ถูก protect ห้ามปิด dangerous permissions', p_role_id;
+    SELECT array_agg(rp.permission_key) INTO v_lost
+    FROM public.role_permissions rp
+    JOIN public.permissions p ON p.key = rp.permission_key
+    WHERE rp.role_id = p_role_id
+      AND rp.granted = true
+      AND p.is_dangerous = true
+      AND rp.permission_key <> ALL (p_perm_keys);
+    IF v_lost IS NOT NULL AND array_length(v_lost, 1) > 0 THEN
+      RAISE EXCEPTION 'Role % ถูก protect ห้ามปิด dangerous: %', p_role_id, array_to_string(v_lost, ', ');
     END IF;
   END IF;
 
@@ -470,7 +480,7 @@ BEGIN
   FROM unnest(p_perm_keys) AS k
   WHERE EXISTS (SELECT 1 FROM public.permissions WHERE key = k);
 
-  RETURN jsonb_build_object('role_id', p_role_id, 'granted_count', array_length(p_perm_keys, 1));
+  RETURN jsonb_build_object('role_id', p_role_id, 'granted_count', COALESCE(array_length(p_perm_keys, 1), 0));
 END $$;
 GRANT EXECUTE ON FUNCTION public.set_role_permissions(TEXT, TEXT[]) TO authenticated;
 

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "kacha-hr",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["http-server", "C:\\Users\\porns\\kacha-brothers-hr", "-p", "5180", "-c-1"],
+      "port": 5180
+    }
+  ]
+}
