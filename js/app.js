@@ -11001,7 +11001,17 @@ function openLeaveRequestForm(id = null, prefilledType = null) {
           <div id="leaveBackdateHint" class="muted-2" style="font-size:11.5px;margin-top:4px"></div>
         </div>
         <div class="form-group"><label>วันที่สิ้นสุด *</label><input name="endDate" id="leaveEnd" type="date" required value="${editing?.endDate || today}"/></div>
-        <div class="form-group"><label>จำนวนวัน *<span class="muted-2" style="font-size:11px">(แก้ได้ — รองรับครึ่งวัน)</span></label><input name="days" id="leaveDays" type="number" min="0.5" step="0.5" required value="${editing?.days || 1}"/></div>
+        <div class="form-group">
+          <label>จำนวนวัน <span class="muted-2" style="font-size:11px">(คิดอัตโนมัติจากวันที่)</span></label>
+          <div id="leaveDaysDisplay" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);font-size:15px;font-weight:600;color:var(--text);font-feature-settings:'tnum'">
+            <span id="leaveDaysValue">${editing?.days || 1}</span> <span class="muted-2" style="font-size:12.5px;font-weight:400">วัน</span>
+          </div>
+          <input type="hidden" name="days" id="leaveDays" value="${editing?.days || 1}"/>
+          <label id="leaveHalfDayWrap" style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12.5px;cursor:pointer;${(editing?.startDate === editing?.endDate || !editing) ? '' : 'opacity:0.4;pointer-events:none'}">
+            <input type="checkbox" id="leaveHalfDay" ${editing?.days === 0.5 ? 'checked' : ''}/>
+            <span>ลาครึ่งวัน (0.5 วัน) — เฉพาะตอนลาวันเดียว</span>
+          </label>
+        </div>
         <div class="form-group span-2"><label>เหตุผล</label><textarea name="reason" rows="2" placeholder="ระบุเหตุผลโดยย่อ">${escapeHtml(editing?.reason || '')}</textarea></div>
       </div>
       ${(DB.isHR && !editing) ? `<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--success-soft);border:1px solid var(--success);border-radius:8px;font-size:13px;cursor:pointer;margin:8px 0">
@@ -11016,12 +11026,37 @@ function openLeaveRequestForm(id = null, prefilledType = null) {
   `, { size: 'md' });
 
   // auto-calc วัน + อัปเดตช่อง hint
+  // คำนวณจำนวนวันอัตโนมัติ — lock ไม่ให้แก้เอง กัน data ผิด + กัน tampering
+  // ครึ่งวัน (0.5) ใช้ได้เฉพาะตอน start=end (วันเดียว)
   const recalc = () => {
     const s = $('#leaveStart').value, e = $('#leaveEnd').value;
-    if (s && e && e >= s) {
-      const days = Math.round((new Date(e) - new Date(s)) / 86400000) + 1;
-      if (days > 0) $('#leaveDays').value = days;
+    const halfDayBox = $('#leaveHalfDay');
+    const halfDayWrap = $('#leaveHalfDayWrap');
+    const display = $('#leaveDaysValue');
+    const hidden = $('#leaveDays');
+    if (!s || !e || e < s) {
+      if (display) display.textContent = '—';
+      if (hidden) hidden.value = '';
+      return;
     }
+    const calendarDays = Math.round((new Date(e) - new Date(s)) / 86400000) + 1;
+    const isSameDay = (s === e);
+    // half-day checkbox: enable เฉพาะตอน start=end
+    if (halfDayBox && halfDayWrap) {
+      if (isSameDay) {
+        halfDayWrap.style.opacity = '';
+        halfDayWrap.style.pointerEvents = '';
+        halfDayBox.disabled = false;
+      } else {
+        halfDayWrap.style.opacity = '0.4';
+        halfDayWrap.style.pointerEvents = 'none';
+        halfDayBox.checked = false;     // auto-uncheck ตอน range > 1 วัน
+        halfDayBox.disabled = true;
+      }
+    }
+    const days = (isSameDay && halfDayBox?.checked) ? 0.5 : calendarDays;
+    if (display) display.textContent = String(days);
+    if (hidden) hidden.value = String(days);
   };
   const updateBackdate = () => {
     const start = $('#leaveStart').value;
@@ -11065,8 +11100,9 @@ function openLeaveRequestForm(id = null, prefilledType = null) {
   wireEmployeePickers('#leaveForm', () => { updateHint(); updateApprover(); });
   $('#leaveStart').addEventListener('change', () => { recalc(); updateHint(); updateBackdate(); });
   $('#leaveEnd').addEventListener('change', () => { recalc(); updateHint(); });
-  $('#leaveDays').addEventListener('input', updateHint);
+  $('#leaveHalfDay').addEventListener('change', () => { recalc(); updateHint(); });
   $('#leaveType').addEventListener('change', () => { updateHint(); updateBackdate(); });
+  recalc();              // initial calc + setup half-day toggle state
   updateHint();
   updateApprover();
   updateBackdate();
@@ -11088,18 +11124,11 @@ function openLeaveRequestForm(id = null, prefilledType = null) {
     if (data.startDate < today && !DB.LEAVE_TYPES[data.leaveType]?.allowBackdate) {
       return toast('ห้ามลาย้อนหลังสำหรับประเภทนี้ (ดู config ที่ tab "ตั้งค่าประเภท")', 'error');
     }
-    // ─── DAYS SANITY CHECK — กันกรอก days ไม่สอดคล้องกับช่วงวันที่ ───
-    const inputDays = Number(data.days);
+    // DAYS sanity (defense-in-depth — UI lock + auto-calc แล้ว แต่กัน DevTools tamper)
     const calendarDays = Math.round((new Date(data.endDate) - new Date(data.startDate)) / 86400000) + 1;
-    if (!isFinite(inputDays) || inputDays < 0.5) {
-      return toast('จำนวนวันต้องอย่างน้อย 0.5 วัน', 'error');
-    }
-    if (inputDays > calendarDays) {
-      return toast(`จำนวนวัน (${inputDays}) มากกว่าช่วงวันที่ที่เลือก (${calendarDays} วัน) — ปรับให้ตรงกัน`, 'error');
-    }
-    // กรณี start=end อนุญาตได้แค่ 0.5 (ครึ่งวัน) หรือ 1 (เต็มวัน)
-    if (data.startDate === data.endDate && inputDays !== 0.5 && inputDays !== 1) {
-      return toast('ลาวันเดียว ใส่ได้ 0.5 (ครึ่งวัน) หรือ 1 (เต็มวัน) เท่านั้น', 'error');
+    const expectedDays = (data.startDate === data.endDate && $('#leaveHalfDay')?.checked) ? 0.5 : calendarDays;
+    if (Number(data.days) !== expectedDays) {
+      data.days = expectedDays;  // force ทุกครั้ง ไม่เชื่อค่า client
     }
     // ─── OVERLAP CHECK — กันลาซ้ำ + ลาตรงวันชดเชย swap ───
     const overlapLeaves = DB.findLeaveOverlap(data.employeeId, data.startDate, data.endDate, id);
