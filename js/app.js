@@ -15,6 +15,13 @@ function debounce(fn, ms = 150) {
     t = setTimeout(() => fn.apply(this, args), ms);
   };
 }
+// instantSearch — ใช้ใน inline oninput="instantSearch('key', this.value, v=>setFilter('search',v))"
+// ลด keystroke spam ของ heavy filter (เช่น re-render router) — รอ user หยุดพิมพ์ก่อน fire
+function instantSearch(key, value, callback, delay = 250) {
+  const k = '__search_' + key;
+  clearTimeout(window[k]);
+  window[k] = setTimeout(() => callback(value), delay);
+}
 // runWhenIdle — ทำงานเมื่อเบราว์เซอร์ว่าง (ไม่ block main thread)
 // fallback: setTimeout 1 เมื่อไม่มี requestIdleCallback (Safari < 17.4)
 const runWhenIdle = (fn, timeout = 1000) =>
@@ -3974,17 +3981,19 @@ function openImportEmployees() {
           <div class="progress-bar"><div class="progress-fill" id="accFill" style="width:0%"></div></div>
         </div>
       `;
-      for (let i = 0; i < parsedRows.length; i++) {
-        const r = parsedRows[i];
+      // PERF: parallel chunked — 8 concurrent requests ต่อ batch
+      // เดิม serial → 5000 rows × ~400ms = ~33 นาที, ใหม่ ~4 นาที (×8 เร็วขึ้น)
+      // ใช้ chunk เล็ก (8) กัน connection pool ตัน + Supabase rate limit
+      const CHUNK = 8;
+      let processed = 0;
+      const processRow = async (r) => {
         try {
-          // สร้างบัญชีถ้ายังไม่มี
           if (!existingEmpIds.has(r.id)) {
             await DB.createEmployeeAccount(r.id);
             accSuccess++;
           } else {
             accSkip++;
           }
-          // ตั้ง role — ถ้าระบุใน Excel ใช้ค่านั้น, ถ้าไม่ระบุ ใช้ auto-detect
           const emp = DB.getEmployee(r.id);
           const targetRole = r._role || DB.autoDetectRole(emp);
           if (targetRole && targetRole !== 'viewer') {
@@ -3993,11 +4002,19 @@ function openImportEmployees() {
         } catch (ex) {
           accFail++;
           accErrors.push({ id: r.id, message: ex.message || String(ex) });
+        } finally {
+          processed++;
+          const fill = $('#accFill');
+          const text = $('#accProgress');
+          if (fill) fill.style.width = ((processed / parsedRows.length) * 100) + '%';
+          if (text) text.textContent = processed.toLocaleString();
         }
-        const fill = $('#accFill');
-        const text = $('#accProgress');
-        if (fill) fill.style.width = (((i + 1) / parsedRows.length) * 100) + '%';
-        if (text) text.textContent = (i + 1).toLocaleString();
+      };
+      for (let i = 0; i < parsedRows.length; i += CHUNK) {
+        const chunk = parsedRows.slice(i, i + CHUNK);
+        await Promise.all(chunk.map(processRow));
+        // yield ให้ UI update (กัน freeze) ระหว่าง chunk
+        await new Promise(r => requestAnimationFrame(r));
       }
     }
 
@@ -9840,8 +9857,7 @@ router.register('announcements', () => {
 
     <div class="sw-filter-bar" style="margin-bottom:18px">
       <input type="text" class="sw-filter-input" placeholder="🔍 ค้นชื่อ/เนื้อหา" value="${escapeHtml(_annState.search)}"
-        onkeydown="if(event.key==='Enter'){event.preventDefault();setAnnFilter('search', this.value);}"
-        onblur="setAnnFilter('search', this.value)"/>
+        oninput="instantSearch('ann', this.value, v => setAnnFilter('search', v))"/>
       <select class="sw-filter-select" onchange="setAnnFilter('year', this.value)">
         <option value="">— ทุกปี —</option>
         ${yearOptions.map(y => `<option value="${y}" ${_annState.year === y ? 'selected' : ''}>ปี ${Number(y) + 543}${Number(y) === todayYear ? ' (ปัจจุบัน)' : ''}</option>`).join('')}
@@ -10728,10 +10744,9 @@ function renderLeaveFilterBar(scope = 'requests') {
   if (!showSearch && !showType && !showStatus && !showBranch && !showDates) return '';
   return `<div class="sw-filter-bar">
     ${showSearch ? `<input id="leaveSearchInput" type="text" class="sw-filter-input"
-      placeholder="🔍 ค้นชื่อ/รหัสพนักงาน"
+      placeholder="🔍 ค้นชื่อ/รหัส/ชื่อเล่นพนักงาน"
       value="${escapeHtml(_leaveFilters.search)}"
-      onchange="setLeaveFilter('search', this.value)"
-      onkeydown="if(event.key==='Enter'){event.preventDefault();setLeaveFilter('search', this.value);}"/>` : ''}
+      oninput="instantSearch('leave', this.value, v => setLeaveFilter('search', v))"/>` : ''}
     ${showType ? `<select class="sw-filter-select" onchange="setLeaveFilter('leaveType', this.value)">
       <option value="">— ทุกประเภทการลา —</option>
       ${types.map(t => `<option value="${t.id}" ${_leaveFilters.leaveType === t.id ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
@@ -12170,10 +12185,9 @@ async function renderEmpAccounts() {
 
       <!-- Filter bar -->
       <div class="sw-filter-bar" style="margin-top:14px">
-        <input id="empAccSearch" type="text" class="sw-filter-input" placeholder="🔍 ค้นชื่อ / รหัส / email"
+        <input id="empAccSearch" type="text" class="sw-filter-input" placeholder="🔍 ค้นชื่อ/รหัส/ชื่อเล่น/email"
           value="${escapeHtml(f.search)}"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();setEmpAccFilter('search', this.value);}"
-          onblur="setEmpAccFilter('search', this.value)"/>
+          oninput="instantSearch('empAcc', this.value, v => setEmpAccFilter('search', v))"/>
         ${branches.length > 1 ? `<select class="sw-filter-select" onchange="setEmpAccFilter('branch', this.value)">
           <option value="">— ทุกสาขา —</option>
           ${branches.map(b => `<option value="${escapeHtml(b)}" ${f.branch === b ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('')}
