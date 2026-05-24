@@ -12504,9 +12504,9 @@ router.register('schedule', () => {
           <div class="schedule-week-range">${formatWeekRange(weekStart)}</div>
         </div>
         <div class="schedule-controls-spacer"></div>
-        <select class="sw-filter-select schedule-branch-select" onchange="setScheduleBranch(this.value)" ${(branchOptions.length === 1 && !DB.isHR) ? 'disabled' : ''}>
+        <select class="sw-filter-select schedule-branch-select" onchange="setScheduleBranch(this.value)" ${(branchOptions.length === 1 && !DB.isHR) ? 'disabled' : ''} title="พิมพ์อักษรแรกของชื่อย่อเพื่อกระโดด เช่น K → KMB">
           ${branchOptions.length === 0 ? '<option value="">— ไม่มีสาขาในสิทธิ์ —</option>' : ''}
-          ${branchOptions.map(b => `<option value="${escapeHtml(b.id)}" ${branchId === b.id ? 'selected' : ''}>${escapeHtml(b.name || b.id)}</option>`).join('')}
+          ${branchOptions.map(b => `<option value="${escapeHtml(b.id)}" ${branchId === b.id ? 'selected' : ''}>${escapeHtml(b.id)}${b.name ? ' · ' + escapeHtml(b.name) : ''}</option>`).join('')}
         </select>
       </div>
       <div class="schedule-status-row">
@@ -12606,7 +12606,8 @@ function renderScheduleGrid(branchId, weekStart, canEdit) {
 
   // วันลา + วันหยุดประเพณีในสัปดาห์ (overlay)
   const empIds = allEmps.map(e => e.id);
-  const leavesInWeek = DB.getLeavesInRange(empIds, weekStart, addDaysYMD(weekStart, 6));
+  const weekEnd = addDaysYMD(weekStart, 6);
+  const leavesInWeek = DB.getLeavesInRange(empIds, weekStart, weekEnd);
   const leavesByKey = new Map();
   for (const lv of leavesInWeek) {
     let d = lv.startDate;
@@ -12615,8 +12616,18 @@ function renderScheduleGrid(branchId, weekStart, canEdit) {
       d = addDaysYMD(d, 1);
     }
   }
-  const holidaysInWeek = DB.getHolidaysInRange(weekStart, addDaysYMD(weekStart, 6));
+  const holidaysInWeek = DB.getHolidaysInRange(weekStart, weekEnd);
   const holidayByDate = new Map(holidaysInWeek.map(h => [h.date, h]));
+
+  // "ไปช่วย" — entry ของพนักงานที่ถูกจัดกะอยู่สาขาอื่นในสัปดาห์นี้
+  // → สาขาต้นทางเห็นบนเซลล์อัตโนมัติ (read-only เพราะสาขาปลายทางเป็นเจ้าของ)
+  const awayByKey = new Map();
+  for (const ent of (DB.data.scheduleEntries || [])) {
+    if (ent.workDate < weekStart || ent.workDate > weekEnd) continue;
+    if (!ent.branchId || ent.branchId === branchId) continue;
+    const key = `${ent.employeeId}|${ent.workDate}`;
+    if (!awayByKey.has(key)) awayByKey.set(key, ent);
+  }
 
   // build rows
   const rowsHtml = allEmps.map(emp => {
@@ -12626,6 +12637,7 @@ function renderScheduleGrid(branchId, weekStart, canEdit) {
       const entry = entriesByKey.get(`${emp.id}|${d}`);
       const leave = leavesByKey.get(`${emp.id}|${d}`);
       const holiday = holidayByDate.get(d);
+      const awayEntry = (!entry || !entry.shiftId) ? awayByKey.get(`${emp.id}|${d}`) : null;
       const cellId = `cell-${emp.id}-${d}`;
       let cellContent = '';
       let cellExtraCls = '';
@@ -12646,13 +12658,23 @@ function renderScheduleGrid(branchId, weekStart, canEdit) {
           if (entry.isCrossBranch) cellContent += `<span class="cross-branch-mark" title="ข้ามสาขา">⇄</span>`;
           if (shift.isOffDay) cellExtraCls = ' schedule-cell-off';
         }
+      } else if (awayEntry) {
+        // พนักงานสาขานี้ ถูกจัดกะที่สาขาอื่นในวันนี้ → แสดง read-only
+        const awayShift = awayEntry.shiftId ? DB.getShift(awayEntry.shiftId) : null;
+        const awayShiftTxt = awayShift
+          ? (awayShift.isOffDay ? '' : ` · ${awayShift.code}`)
+          : '';
+        cellContent = `<span class="schedule-away-badge" title="ไปช่วยที่สาขา ${escapeHtml(awayEntry.branchId)}${awayShift ? ' กะ ' + awayShift.name : ''} — บันทึกโดยสาขาปลายทาง">
+          ⇄ ${escapeHtml(awayEntry.branchId)}${escapeHtml(awayShiftTxt)}
+        </span>`;
+        cellExtraCls = ' schedule-cell-away';
       }
       if (holiday) {
         cellExtraCls += ' schedule-cell-holiday';
       }
       const isToday = d === today;
       if (isToday) cellExtraCls += ' schedule-cell-today';
-      const clickAttr = canEdit && !leave
+      const clickAttr = canEdit && !leave && !awayEntry
         ? `onclick="openShiftPicker('${escapeHtml(emp.id)}', '${d}', ${entry ? `'${entry.id}'` : 'null'})"`
         : '';
       return `<td class="schedule-cell${cellExtraCls}" id="${cellId}" ${clickAttr}>
@@ -12813,16 +12835,22 @@ function openAddCrossBranchEmployee() {
     .sort((a, b) => (a.branch || '').localeCompare(b.branch || '') || (a.firstName || '').localeCompare(b.firstName || '', 'th'));
 
   const body = `
+    <div class="schedule-info-note">
+      <strong>วิธีทำงาน:</strong> สาขาปลายทาง (สาขานี้) เป็นคนบันทึกกะให้พนักงานที่มาช่วย —
+      เพราะรู้ดีว่าต้องการให้ช่วยกี่โมง วันไหน · สาขาต้นทางของพนักงานจะเห็นป้าย
+      <span class="schedule-away-badge" style="font-size:10px">⇄ ${escapeHtml(_scheduleState.branchId || '')}</span>
+      บนเซลล์ของพนักงานนั้นโดยอัตโนมัติ (read-only)
+    </div>
     <div class="form-group">
-      <label>เลือกพนักงานจากสาขาอื่นมาช่วยงาน</label>
-      <input type="text" id="xbSearch" class="sw-filter-input" placeholder="🔍 ค้นชื่อ/รหัส/สาขา" style="margin-bottom:8px;width:100%" />
+      <label>เลือกพนักงานจากสาขาอื่นมาช่วยงาน <span class="muted-2">(ค้นด้วยชื่อย่อสาขา / ชื่อ / รหัสพนักงาน)</span></label>
+      <input type="text" id="xbSearch" class="sw-filter-input" placeholder="🔍 พิมพ์ชื่อย่อสาขา เช่น KMB หรือชื่อพนักงาน" style="margin-bottom:8px;width:100%" autofocus />
       <select id="xbEmployee" class="sw-filter-select" style="width:100%" size="10">
         ${candidates.map(e => `<option value="${escapeHtml(e.id)}" data-search="${escapeHtml((e.firstName + ' ' + (e.lastName || '') + ' ' + (e.nickname || '') + ' ' + (e.branch || '') + ' ' + e.id).toLowerCase())}">
-          ${escapeHtml(e.id)} · ${escapeHtml(e.firstName)} ${escapeHtml(e.lastName || '')} ${e.nickname ? '(' + escapeHtml(e.nickname) + ')' : ''} — ${escapeHtml(e.branch || '')}
+          [${escapeHtml(e.branch || '—')}] ${escapeHtml(e.id)} · ${escapeHtml(e.firstName)} ${escapeHtml(e.lastName || '')}${e.nickname ? ' (' + escapeHtml(e.nickname) + ')' : ''}
         </option>`).join('')}
       </select>
     </div>
-    <p class="muted-2" style="font-size:12px;margin-top:8px">เมื่อกด "เพิ่ม" ระบบจะสร้าง placeholder row ในตาราง คลิกที่ cell เพื่อจัดกะวันที่ต้องการ</p>
+    <p class="muted-2" style="font-size:12px;margin-top:8px">เมื่อกด "เพิ่ม" จะได้แถวพนักงานในตารางทันที — คลิกที่เซลล์วันที่เพื่อจัดกะให้</p>
   `;
   modal.open('เพิ่มพนักงานข้ามสาขา', body, {
     footer: `<button class="btn btn-secondary" data-close>ยกเลิก</button><button class="btn btn-primary" id="xbAddBtn">เพิ่ม</button>`
