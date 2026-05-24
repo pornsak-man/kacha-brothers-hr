@@ -12476,8 +12476,8 @@ router.register('schedule', () => {
   const canSubmit  = canCreate && (status === 'draft' || status === 'rejected');
   const canApprove = canApproveBranch && status === 'submitted';
   const canReopen  = canApproveBranch && (status === 'approved' || status === 'rejected');
-  const approver   = branchId ? DB.getScheduleApprover(branchId) : null;
-  const branchTopEmp = branchId ? DB.getBranchManager(branchId) : null;
+  const approver = branchId ? DB.getScheduleApprover(branchId) : null;
+  const creators = branchId ? DB.getScheduleCreators(branchId) : [];
 
   // เลือกสาขา — scope ตาม role
   let branchOptions;
@@ -12530,10 +12530,9 @@ router.register('schedule', () => {
       <div class="schedule-approver-row">
         <div class="schedule-approver-cell">
           <span class="muted-2">ผู้จัดตาราง:</span>
-          ${branchTopEmp
-            ? `<strong>${escapeHtml(branchTopEmp.id)} · ${escapeHtml(branchTopEmp.firstName)} ${escapeHtml(branchTopEmp.lastName || '')}</strong>
-               <span class="muted-2">(ตำแหน่งสูงสุดของสาขา)</span>`
-            : '<span class="muted-2">— ไม่มีพนักงานในสาขา —</span>'}
+          ${creators.length
+            ? creators.map(e => `<strong title="ผู้จัดการสาขา">${escapeHtml(e.id)} · ${escapeHtml(e.firstName)} ${escapeHtml(e.lastName || '')}</strong>`).join('<span class="muted-2">, </span>')
+            : '<span class="badge badge-warning" title="ยังไม่มีพนักงานที่ตั้งสิทธิ์ role=ผู้จัดการสาขา ที่ดูแลสาขานี้">⚠ ยังไม่ตั้งผู้จัดการสาขา</span>'}
         </div>
         <div class="schedule-approver-cell">
           <span class="muted-2">ผู้อนุมัติ:</span>

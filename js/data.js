@@ -3842,13 +3842,36 @@ const DB = {
     return this.canCreateScheduleForBranch(branchId);
   },
 
-  // ผู้สร้าง/ส่งตาราง: ตำแหน่งสูงสุดของสาขานั้น (auto-detect จาก position level)
+  // ผู้สร้าง/ส่งตาราง: user_profile.role='branch_manager' ที่ดูแลสาขานี้
+  // - managed_branches override (admin ตั้ง) → ใช้ตามนั้น
+  // - ไม่มี override → ใช้ emp.branch ของตัวเอง
+  // - HR/admin/op_manager override ได้
   canCreateScheduleForBranch(branchId) {
     if (this.isHR) return true;
     if (this.role === 'operation_manager') return true;
-    if (!branchId || !this.profile?.employee_id) return false;
-    const topEmp = this.getBranchManager(branchId);
-    return !!topEmp && topEmp.id === this.profile.employee_id;
+    if (this.role !== 'branch_manager') return false;
+    if (!branchId) return false;
+    const managed = (this._managedBranches && this._managedBranches.length)
+      ? this._managedBranches
+      : (this._myBranch() ? [this._myBranch()] : []);
+    return managed.includes(branchId);
+  },
+
+  // คืน list ของพนักงานที่มีสิทธิ์จัดตารางของสาขา (สำหรับแสดงใน UI)
+  getScheduleCreators(branchId) {
+    if (!branchId) return [];
+    const profiles = this._userProfiles || [];
+    const matched = profiles.filter(p => {
+      if (p.role !== 'branch_manager' || !p.employee_id) return false;
+      const e = this.getEmployee(p.employee_id);
+      if (!e || this.empStatus(e) === 'resigned') return false;
+      // managed_branches override → ใช้ตามนั้น; ไม่งั้น emp.branch
+      if (Array.isArray(p.managed_branches) && p.managed_branches.length) {
+        return p.managed_branches.includes(branchId);
+      }
+      return e.branch === branchId;
+    });
+    return matched.map(p => this.getEmployee(p.employee_id)).filter(Boolean);
   },
 
   // ผู้อนุมัติตาราง: AM (area_manager) ที่ดูแลสาขานั้น
