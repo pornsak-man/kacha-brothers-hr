@@ -10751,11 +10751,12 @@ async function endorseLeaveAMUI(id, decision) {
   const req = DB.getLeaveRequest(id);
   let confirmMsg = decision === 'declined' ? 'เหตุผล (จำเป็น)' : 'หมายเหตุ (ไม่บังคับ)';
   if (decision === 'endorsed' && req) {
-    const finalRole = DB.decideFinalApprover(req.employeeId, req.startDate, req.endDate, id);
+    const n = DB.calcContinuousLeaveDays(req.employeeId, req.startDate, req.endDate, id);
+    const finalRole = n >= 3 ? 'om' : 'am';
     if (finalRole === 'om') {
-      confirmMsg = '⚠ คำขอนี้มีวันลาต่อเนื่อง ≥ 3 วัน → เห็นชอบแล้วจะส่งต่อให้ OM อนุมัติขั้นสุดท้าย\n\nหมายเหตุ (ไม่บังคับ)';
+      confirmMsg = `⚠ คำขอนี้รวมกับลา/swap อื่นของพนักงานเป็นช่วงต่อเนื่อง ${n} วัน → เห็นชอบแล้วส่งต่อให้ OM อนุมัติขั้นสุดท้าย\n\nหมายเหตุ (ไม่บังคับ)`;
     } else {
-      confirmMsg = '✓ คำขอนี้ < 3 วันต่อเนื่อง → เห็นชอบจะเป็นการอนุมัติทันที (ไม่ต้องผ่าน OM)\n\nหมายเหตุ (ไม่บังคับ)';
+      confirmMsg = `✓ คำขอนี้ต่อเนื่อง ${n} วัน (< 3) → เห็นชอบจะเป็นการอนุมัติทันที (ไม่ต้องผ่าน OM)\n\nหมายเหตุ (ไม่บังคับ)`;
     }
   }
   const note = await modal.prompt(`Area Manager — ${label}`, confirmMsg);
