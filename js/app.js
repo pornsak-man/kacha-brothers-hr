@@ -829,9 +829,9 @@ const _RT_PAGE_DEPS = {
   uniform_issues: ['uniform'],
   branches: ['dashboard', 'employees', 'branches', 'uniform'],
   audit_log: ['audit'],
-  leave_requests: ['dashboard', 'leave', 'schedule'],
+  leave_requests: ['dashboard', 'leave', 'schedule', 'leave-calendar'],
   leave_types: ['leave'],
-  holiday_swap_requests: ['dashboard', 'calendar'],
+  holiday_swap_requests: ['dashboard', 'calendar', 'leave-calendar'],
   company_announcements: ['dashboard', 'announcements'],
   shifts: ['schedule'],
   schedule_weeks: ['dashboard', 'schedule'],
@@ -12665,6 +12665,358 @@ document.addEventListener('submit', async (e) => {
     } catch (ex) { toast('เปลี่ยนไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
   }
 });
+
+// ═══════════════════════════════════════════════════════════
+// LEAVE CALENDAR (ปฏิทินภาพรวมการลาของสาขา)
+// ═══════════════════════════════════════════════════════════
+
+const _leaveCalState = {
+  month: null,     // YYYY-MM
+  branchId: null   // null = ของฉัน (auto-scope)
+};
+
+const LEAVE_TYPE_COLOR = {
+  personal:   '#3b82f6',  // ฟ้า — ลากิจ
+  sick:       '#dc2626',  // แดง — ลาป่วย
+  maternity:  '#ec4899',  // ชมพู — ลาคลอด
+  paternity:  '#ec4899',
+  vacation:   '#16a34a',  // เขียว — พักร้อน
+  ordination: '#f59e0b',  // ส้ม — บวช
+  military:   '#6b7280',  // เทา — ทหาร
+  _default:   '#7c3aed'
+};
+
+function leaveTypeColor(t) { return LEAVE_TYPE_COLOR[t] || LEAVE_TYPE_COLOR._default; }
+
+function initLeaveCalState() {
+  if (!_leaveCalState.month) _leaveCalState.month = tz.thisMonth();
+  if (!_leaveCalState.branchId) {
+    if (DB.role === 'branch_manager' || DB.role === 'area_manager' || DB.role === 'branch_staff' || DB.role === 'viewer') {
+      _leaveCalState.branchId = DB._myBranch();
+    } else {
+      const branches = (DB.data.branches || []).filter(b => b.active);
+      _leaveCalState.branchId = branches[0]?.id || null;
+    }
+  }
+}
+
+// คืนวันแรก+สุดท้ายของเดือน + วัน weekday ของวันแรก (จันทร์=0)
+function _monthInfo(yyyymm) {
+  const [y, m] = yyyymm.split('-').map(Number);
+  const first = new Date(y, m - 1, 1);
+  const last = new Date(y, m, 0);
+  const firstDow = (first.getDay() + 6) % 7;  // จันทร์=0
+  return { y, m, firstDate: first, lastDate: last, firstDow, daysInMonth: last.getDate() };
+}
+
+function _addMonths(yyyymm, n) {
+  const [y, m] = yyyymm.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function _formatMonthTH(yyyymm) {
+  const [y, m] = yyyymm.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('th-TH', { year: 'numeric', month: 'long' });
+}
+
+router.register('leave-calendar', () => {
+  initLeaveCalState();
+  const month = _leaveCalState.month;
+  const branchId = _leaveCalState.branchId;
+  const today = tz.today();
+
+  const info = _monthInfo(month);
+  const monthStart = `${info.y}-${String(info.m).padStart(2, '0')}-01`;
+  const monthEnd = `${info.y}-${String(info.m).padStart(2, '0')}-${String(info.daysInMonth).padStart(2, '0')}`;
+
+  // ─── สาขา options ตาม scope ───
+  let branchOptions;
+  if (DB.isHR || DB.role === 'operation_manager') {
+    branchOptions = (DB.data.branches || []).filter(b => b.active);
+  } else {
+    const scoped = DB.scopedBranches() || [];
+    branchOptions = (DB.data.branches || []).filter(b => scoped.includes(b.id) && b.active);
+  }
+
+  // ─── employees ของสาขานี้ (active) ───
+  const empsInBranch = (DB.data.employees || []).filter(e =>
+    e.branch === branchId && DB.empStatus(e) !== 'resigned'
+  );
+  const empIds = new Set(empsInBranch.map(e => e.id));
+
+  // ─── leaves + swaps ที่ overlap กับเดือนนี้ ─── (เฉพาะของพนักงานในสาขา)
+  // นับ approved + pending (เพื่อ planning) — ถ้า rejected/cancelled ข้าม
+  const leaves = (DB.data.leaveRequests || []).filter(r =>
+    empIds.has(r.employeeId)
+    && (r.status === 'approved' || r.status === 'pending')
+    && r.startDate <= monthEnd && r.endDate >= monthStart
+  );
+  const swaps = (DB.data.holidaySwapRequests || []).filter(r =>
+    empIds.has(r.employeeId)
+    && (r.status === 'approved' || r.status === 'pending')
+    && r.swapToDate >= monthStart && r.swapToDate <= monthEnd
+  );
+
+  // map date → array of {emp, type, status, kind}
+  const byDate = new Map();
+  for (const lv of leaves) {
+    let d = lv.startDate < monthStart ? monthStart : lv.startDate;
+    const end = lv.endDate > monthEnd ? monthEnd : lv.endDate;
+    while (d && d <= end) {
+      if (!byDate.has(d)) byDate.set(d, []);
+      byDate.get(d).push({
+        kind: 'leave',
+        emp: DB.getEmployee(lv.employeeId),
+        leaveType: lv.leaveType,
+        status: lv.status,
+        ref: lv
+      });
+      d = addDaysYMD(d, 1);
+    }
+  }
+  for (const sw of swaps) {
+    const d = sw.swapToDate;
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d).push({
+      kind: 'swap',
+      emp: DB.getEmployee(sw.employeeId),
+      status: sw.status,
+      ref: sw
+    });
+  }
+
+  // ─── วันหยุดประเพณีในเดือน ───
+  const holidayByDate = new Map(
+    (DB.data.calendar || [])
+      .filter(c => c.date >= monthStart && c.date <= monthEnd)
+      .map(c => [c.date, c])
+  );
+
+  // ─── สรุปวันนี้ + 7 วันข้างหน้า ───
+  const todayList = byDate.get(today) || [];
+  const next7End = addDaysYMD(today, 7);
+  const upcomingCount = leaves.filter(lv => lv.startDate >= today && lv.startDate <= next7End).length
+                      + swaps.filter(sw => sw.swapToDate >= today && sw.swapToDate <= next7End).length;
+  const monthTotalLeaveDays = leaves.reduce((s, lv) => s + Number(lv.days || 0), 0);
+
+  // ─── Build calendar grid (จันทร์-อาทิตย์) ───
+  const cells = [];
+  for (let i = 0; i < info.firstDow; i++) cells.push(null);  // ช่องเว้นก่อนวันที่ 1
+  for (let d = 1; d <= info.daysInMonth; d++) {
+    cells.push(`${info.y}-${String(info.m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+  }
+  while (cells.length % 7 !== 0) cells.push(null);  // padding ท้าย
+
+  const cellsHtml = cells.map(d => {
+    if (!d) return '<div class="lcal-cell lcal-empty"></div>';
+    const items = byDate.get(d) || [];
+    const holiday = holidayByDate.get(d);
+    const isToday = d === today;
+    const isPast = d < today;
+    const [yy, mm, dd] = parseYMD(d);
+    const dow = (new Date(yy, mm - 1, dd).getDay() + 6) % 7;
+    const isWeekend = dow >= 5;
+
+    // dots ของแต่ละคน (max 5 dots — เหลือใส่ "+N")
+    const maxDots = 5;
+    const dots = items.slice(0, maxDots).map(it => {
+      const color = it.kind === 'swap' ? '#0891b2' : leaveTypeColor(it.leaveType);
+      const opacity = it.status === 'pending' ? 0.5 : 1;
+      const title = `${it.emp?.firstName || '?'} · ${it.kind === 'swap' ? 'ชดเชย' : (DB.LEAVE_TYPES?.[it.leaveType]?.label || it.leaveType)}${it.status === 'pending' ? ' (รออนุมัติ)' : ''}`;
+      return `<span class="lcal-dot" title="${escapeHtml(title)}" style="background:${color};opacity:${opacity}"></span>`;
+    }).join('');
+    const extra = items.length > maxDots ? `<span class="lcal-more">+${items.length - maxDots}</span>` : '';
+
+    let cls = 'lcal-cell';
+    if (isToday) cls += ' lcal-today';
+    if (isPast) cls += ' lcal-past';
+    if (isWeekend) cls += ' lcal-weekend';
+    if (holiday) cls += ' lcal-holiday';
+    if (items.length > 0) cls += ' lcal-has-leave';
+
+    return `<div class="${cls}" onclick="openLeaveDayDetail('${d}')">
+      <div class="lcal-date">${dd}</div>
+      ${holiday ? `<div class="lcal-holiday-label" title="${escapeHtml(holiday.name || '')}">${escapeHtml((holiday.name || '').slice(0, 8))}</div>` : ''}
+      <div class="lcal-dots">${dots}${extra}</div>
+      ${items.length > 0 ? `<div class="lcal-count">${items.length} คน</div>` : ''}
+    </div>`;
+  }).join('');
+
+  const dayHeaderHtml = ['จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์','อาทิตย์']
+    .map((n, i) => `<div class="lcal-day-name ${i >= 5 ? 'lcal-weekend' : ''}">${n}</div>`).join('');
+
+  // ─── Today summary list ───
+  const todayHtml = todayList.length === 0
+    ? '<div class="muted-2" style="font-size:13px">ไม่มีพนักงานลาวันนี้ — ครบทุกคน 🎉</div>'
+    : todayList.map(it => {
+        const color = it.kind === 'swap' ? '#0891b2' : leaveTypeColor(it.leaveType);
+        const typeLabel = it.kind === 'swap' ? 'ชดเชยวันหยุดประเพณี' : (DB.LEAVE_TYPES?.[it.leaveType]?.label || it.leaveType);
+        return `<div class="lcal-today-item">
+          <span class="lcal-dot lcal-dot-lg" style="background:${color};opacity:${it.status === 'pending' ? 0.5 : 1}"></span>
+          <div class="lcal-today-info">
+            <div><strong>${escapeHtml((it.emp?.firstName || '?') + ' ' + (it.emp?.lastName || ''))}</strong>
+              ${it.emp?.nickname ? `<span class="muted-2">(${escapeHtml(it.emp.nickname)})</span>` : ''}
+            </div>
+            <div class="muted-2" style="font-size:11px">${escapeHtml(it.emp?.id || '')} · ${escapeHtml(typeLabel)}${it.status === 'pending' ? ' · <span class="badge badge-warning" style="font-size:9px">รออนุมัติ</span>' : ''}</div>
+          </div>
+        </div>`;
+      }).join('');
+
+  return `
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">ปฏิทินสาขา · ภาพรวมการลา</div>
+        <div class="sw-page-subtitle">ดูพนักงานที่ลาในแต่ละวัน — บริหารกะ + หาคนแทนได้ทันเวลา</div>
+      </div>
+    </div>
+
+    <div class="sw-stats-grid" style="margin-bottom:18px">
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(59,130,246,0.12);color:#3b82f6">📅</div>
+        <div class="sw-stat-label">วันนี้</div>
+        <div class="sw-stat-value" style="color:${todayList.length > 0 ? '#dc2626' : 'var(--success)'}">${fmt.num(todayList.length)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">${todayList.length > 0 ? 'พนักงานลาวันนี้' : 'ครบทุกคน'}</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(234,179,8,0.12);color:#eab308">⏰</div>
+        <div class="sw-stat-label">7 วันข้างหน้า</div>
+        <div class="sw-stat-value">${fmt.num(upcomingCount)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">รายการลา/swap ที่กำลังมา</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(124,58,237,0.12);color:#7c3aed">∑</div>
+        <div class="sw-stat-label">รวมเดือน ${_formatMonthTH(month)}</div>
+        <div class="sw-stat-value">${fmt.num(monthTotalLeaveDays)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">วัน-คน ที่ลาในสาขานี้</div>
+      </div>
+      <div class="sw-stat-card">
+        <div class="sw-stat-icon" style="background:rgba(22,163,74,0.12);color:var(--success)">👥</div>
+        <div class="sw-stat-label">พนักงานสาขา</div>
+        <div class="sw-stat-value">${fmt.num(empsInBranch.length)}</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">active ในสาขานี้</div>
+      </div>
+    </div>
+
+    <div class="sw-chart-card" style="margin-bottom:16px">
+      <div class="lcal-controls">
+        <div class="lcal-month-nav">
+          <button class="btn btn-ghost btn-icon-only" onclick="navLeaveCalMonth(-1)" title="เดือนก่อน">◀</button>
+          <button class="btn btn-secondary" onclick="navLeaveCalToday()">เดือนนี้</button>
+          <button class="btn btn-ghost btn-icon-only" onclick="navLeaveCalMonth(1)" title="เดือนถัดไป">▶</button>
+          <div class="lcal-month-label">${_formatMonthTH(month)}</div>
+        </div>
+        <div style="flex:1"></div>
+        <select class="sw-filter-select" onchange="setLeaveCalBranch(this.value)" ${(branchOptions.length === 1 && !DB.isHR) ? 'disabled' : ''}>
+          ${branchOptions.length === 0 ? '<option value="">— ไม่มีสาขา —</option>' : ''}
+          ${branchOptions.map(b => `<option value="${escapeHtml(b.id)}" ${branchId === b.id ? 'selected' : ''}>${escapeHtml(b.id)}${b.name ? ' · ' + escapeHtml(b.name) : ''}</option>`).join('')}
+        </select>
+      </div>
+      <div class="lcal-legend">
+        <span class="lcal-legend-item"><span class="lcal-dot" style="background:#3b82f6"></span> ลากิจ</span>
+        <span class="lcal-legend-item"><span class="lcal-dot" style="background:#dc2626"></span> ลาป่วย</span>
+        <span class="lcal-legend-item"><span class="lcal-dot" style="background:#16a34a"></span> พักร้อน</span>
+        <span class="lcal-legend-item"><span class="lcal-dot" style="background:#ec4899"></span> ลาคลอด</span>
+        <span class="lcal-legend-item"><span class="lcal-dot" style="background:#f59e0b"></span> บวช</span>
+        <span class="lcal-legend-item"><span class="lcal-dot" style="background:#0891b2"></span> ชดเชย</span>
+        <span class="lcal-legend-item muted-2" style="margin-left:auto">จุดทึบ = อนุมัติ · จุดจาง = รออนุมัติ</span>
+      </div>
+    </div>
+
+    <div class="sw-chart-card lcal-card">
+      <div class="lcal-week-head">${dayHeaderHtml}</div>
+      <div class="lcal-grid">${cellsHtml}</div>
+    </div>
+
+    <div class="sw-chart-card" style="margin-top:16px">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">วันนี้มีใครลาบ้าง <span class="sw-chart-count">${fmt.num(todayList.length)}</span></div>
+          <div class="sw-chart-sub">${escapeHtml(new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</div>
+        </div>
+      </div>
+      <div class="lcal-today-list">${todayHtml}</div>
+    </div>
+  `;
+});
+
+function navLeaveCalMonth(delta) {
+  _leaveCalState.month = _addMonths(_leaveCalState.month, delta);
+  router.go('leave-calendar');
+}
+function navLeaveCalToday() {
+  _leaveCalState.month = tz.thisMonth();
+  router.go('leave-calendar');
+}
+function setLeaveCalBranch(branchId) {
+  _leaveCalState.branchId = branchId || null;
+  router.go('leave-calendar');
+}
+
+// Modal — รายละเอียดวันที่เลือก
+function openLeaveDayDetail(dateStr) {
+  const branchId = _leaveCalState.branchId;
+  if (!branchId) return;
+  const [y, m, d] = parseYMD(dateStr);
+  const dayLabel = new Date(y, m - 1, d).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  const empIds = new Set((DB.data.employees || []).filter(e => e.branch === branchId).map(e => e.id));
+  const leaves = (DB.data.leaveRequests || []).filter(r =>
+    empIds.has(r.employeeId)
+    && (r.status === 'approved' || r.status === 'pending')
+    && r.startDate <= dateStr && r.endDate >= dateStr
+  );
+  const swaps = (DB.data.holidaySwapRequests || []).filter(r =>
+    empIds.has(r.employeeId)
+    && (r.status === 'approved' || r.status === 'pending')
+    && r.swapToDate === dateStr
+  );
+  const holiday = (DB.data.calendar || []).find(c => c.date === dateStr);
+
+  const items = [
+    ...leaves.map(lv => ({ kind: 'leave', ref: lv, emp: DB.getEmployee(lv.employeeId) })),
+    ...swaps.map(sw => ({ kind: 'swap', ref: sw, emp: DB.getEmployee(sw.employeeId) }))
+  ];
+
+  const body = items.length === 0
+    ? `<div class="empty-state" style="padding:30px"><div style="font-size:36px">🎉</div><div class="title">ไม่มีพนักงานลาวันนี้</div></div>`
+    : `<div class="lcal-modal-list">
+        ${items.map(it => {
+          const e = it.emp || {};
+          const isLeave = it.kind === 'leave';
+          const typeLabel = isLeave
+            ? (DB.LEAVE_TYPES?.[it.ref.leaveType]?.label || it.ref.leaveType)
+            : 'ชดเชยวันหยุดประเพณี';
+          const color = isLeave ? leaveTypeColor(it.ref.leaveType) : '#0891b2';
+          const range = isLeave
+            ? (it.ref.startDate === it.ref.endDate
+                ? fmt.date(it.ref.startDate)
+                : `${fmt.date(it.ref.startDate)} – ${fmt.date(it.ref.endDate)}`)
+            : `วันที่ชดเชย ${fmt.date(it.ref.swapToDate)}`;
+          return `<div class="lcal-modal-item">
+            <span class="lcal-dot lcal-dot-lg" style="background:${color}"></span>
+            <div style="flex:1">
+              <div>
+                <strong>${escapeHtml((e.firstName || '?') + ' ' + (e.lastName || ''))}</strong>
+                ${e.nickname ? `<span class="muted-2">(${escapeHtml(e.nickname)})</span>` : ''}
+                <span class="muted-2" style="font-size:11px;margin-left:4px">${escapeHtml(e.id || '')}</span>
+              </div>
+              <div class="muted-2" style="font-size:12px">
+                ${escapeHtml(typeLabel)} · ${escapeHtml(range)}
+                ${isLeave && it.ref.days ? ` · ${it.ref.days} วัน` : ''}
+                ${it.ref.status === 'pending' ? ' · <span class="badge badge-warning" style="font-size:10px">รออนุมัติ</span>' : ' · <span class="badge badge-success" style="font-size:10px">อนุมัติ</span>'}
+              </div>
+              ${it.ref.reason ? `<div class="muted-2" style="font-size:11px;font-style:italic;margin-top:2px">"${escapeHtml(it.ref.reason)}"</div>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+
+  const title = `${holiday ? '🎉 ' + holiday.name + ' — ' : ''}${dayLabel} (${items.length} คน)`;
+  modal.open(title, body, {
+    footer: '<button class="btn btn-secondary" data-close>ปิด</button>'
+  });
+}
 
 // ═══════════════════════════════════════════════════════════
 // WORK SCHEDULE (ตารางงานพนักงาน) — กะรายสัปดาห์ + อนุมัติ

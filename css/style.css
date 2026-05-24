@@ -4911,3 +4911,172 @@ a:hover .badge, button:hover .badge, .sw-recent-item:hover .badge {
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-3);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   LEAVE CALENDAR (ปฏิทินสาขา)
+   ═══════════════════════════════════════════════════════════ */
+
+.lcal-controls {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.lcal-month-nav {
+  display: flex; align-items: center; gap: 8px;
+}
+.lcal-month-label {
+  font-size: 16px; font-weight: 700;
+  margin-left: 8px; color: var(--text);
+}
+.lcal-legend {
+  display: flex; flex-wrap: wrap; gap: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  font-size: 11px; color: var(--text-2);
+}
+.lcal-legend-item {
+  display: inline-flex; align-items: center; gap: 5px;
+}
+
+.lcal-card { padding: 0; overflow: hidden; }
+.lcal-week-head {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: var(--surface-2);
+  border-bottom: 2px solid var(--border-strong);
+}
+.lcal-day-name {
+  padding: 10px 4px; text-align: center;
+  font-size: 12px; font-weight: 600;
+  color: var(--text-2);
+}
+.lcal-day-name.lcal-weekend { color: #dc2626; }
+
+.lcal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+.lcal-cell {
+  min-height: 88px;
+  padding: 6px 6px 8px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background .12s;
+  display: flex; flex-direction: column;
+  position: relative;
+}
+.lcal-cell:nth-child(7n) { border-right: none; }
+.lcal-cell:hover { background: var(--primary-soft); }
+.lcal-empty {
+  background: var(--surface-2);
+  cursor: default;
+}
+.lcal-empty:hover { background: var(--surface-2); }
+.lcal-past { opacity: 0.7; }
+.lcal-today {
+  background: var(--primary-soft);
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.lcal-today .lcal-date {
+  color: var(--primary-text);
+  font-weight: 800;
+}
+.lcal-weekend { background: rgba(220, 38, 38, 0.03); }
+.lcal-holiday {
+  background: var(--warning-soft);
+}
+.lcal-has-leave .lcal-date { font-weight: 700; }
+
+.lcal-date {
+  font-size: 13px; font-weight: 600;
+  color: var(--text);
+}
+.lcal-holiday-label {
+  font-size: 9px;
+  color: var(--warning-text);
+  background: rgba(184, 122, 8, 0.2);
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lcal-dots {
+  display: flex; flex-wrap: wrap; gap: 3px;
+  margin-top: auto;
+  align-items: center;
+}
+.lcal-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.lcal-dot-lg { width: 14px; height: 14px; }
+.lcal-more {
+  font-size: 10px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.lcal-count {
+  font-size: 10px;
+  color: var(--text-3);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+/* Today list */
+.lcal-today-list {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 8px 0;
+}
+.lcal-today-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+}
+.lcal-today-info { flex: 1; }
+
+/* Modal day detail list */
+.lcal-modal-list {
+  display: flex; flex-direction: column; gap: 10px;
+  max-height: 70vh; overflow-y: auto;
+}
+.lcal-modal-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 10px;
+  background: var(--surface-2);
+  border-radius: 6px;
+}
+
+/* === DARK MODE === */
+[data-theme="dark"] .lcal-cell:hover {
+  background: rgba(59, 130, 246, 0.10);
+}
+[data-theme="dark"] .lcal-today {
+  background: rgba(59, 130, 246, 0.15);
+}
+[data-theme="dark"] .lcal-weekend {
+  background: rgba(220, 38, 38, 0.05);
+}
+[data-theme="dark"] .lcal-holiday {
+  background: rgba(184, 122, 8, 0.12);
+}
+[data-theme="dark"] .lcal-holiday-label {
+  background: rgba(184, 122, 8, 0.3);
+  color: #fbbf24;
+}
+[data-theme="dark"] .lcal-today-item,
+[data-theme="dark"] .lcal-modal-item {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+@media (max-width: 768px) {
+  .lcal-cell { min-height: 60px; padding: 4px; }
+  .lcal-date { font-size: 12px; }
+  .lcal-dot { width: 8px; height: 8px; }
+  .lcal-day-name { font-size: 10px; }
+  .lcal-count { font-size: 9px; }
+}
