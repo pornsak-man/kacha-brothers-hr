@@ -12871,6 +12871,53 @@ function renderScheduleGrid(branchId, weekStart, canEdit) {
     </th>`;
   }).join('');
 
+  // คำนวณรวมชั่วโมงทั้งสาขาต่อวัน (ไม่นับวันที่มีลา หรือกะ OFF)
+  const totalMinsByDate = new Map();
+  const shiftCountByDate = new Map();
+  let grandTotalMins = 0;
+  let grandTotalShifts = 0;
+  for (const emp of allEmps) {
+    for (const d of dates) {
+      if (leavesByKey.get(`${emp.id}|${d}`)) continue;
+      const entry = entriesByKey.get(`${emp.id}|${d}`);
+      if (!entry) continue;
+      let mins = 0;
+      if (entry.shiftId) {
+        const sh = DB.getShift(entry.shiftId);
+        if (!sh || sh.isOffDay || !sh.startTime || !sh.endTime) continue;
+        const [h1, m1] = sh.startTime.split(':').map(Number);
+        const [h2, m2] = sh.endTime.split(':').map(Number);
+        let mm = (h2 * 60 + m2) - (h1 * 60 + m1);
+        if (mm < 0) mm += 24 * 60;
+        mm -= Number(sh.breakMinutes || 0);
+        mins = Math.max(0, mm);
+      } else if (entry.customStartTime && entry.customEndTime) {
+        const [h1, m1] = entry.customStartTime.split(':').map(Number);
+        const [h2, m2] = entry.customEndTime.split(':').map(Number);
+        let mm = (h2 * 60 + m2) - (h1 * 60 + m1);
+        if (mm < 0) mm += 24 * 60;
+        mm -= Number(entry.customBreakMinutes || 0);
+        mins = Math.max(0, mm);
+      }
+      if (mins > 0) {
+        totalMinsByDate.set(d, (totalMinsByDate.get(d) || 0) + mins);
+        shiftCountByDate.set(d, (shiftCountByDate.get(d) || 0) + 1);
+        grandTotalMins += mins;
+        grandTotalShifts++;
+      }
+    }
+  }
+
+  const footerHtml = dates.map(d => {
+    const mins = totalMinsByDate.get(d) || 0;
+    const count = shiftCountByDate.get(d) || 0;
+    const isToday = d === today;
+    return `<td class="schedule-footer-cell ${isToday ? 'today' : ''}">
+      <div class="schedule-footer-hours">${mins > 0 ? `<strong>${(mins / 60).toFixed(1)}</strong> ชม.` : '<span class="muted-2">—</span>'}</div>
+      <div class="schedule-summary-meta muted-2">${count > 0 ? `${count} กะ` : ''}</div>
+    </td>`;
+  }).join('');
+
   return `<div class="sw-chart-card schedule-grid-card">
     <div class="schedule-grid-scroll">
       <table class="schedule-grid">
@@ -12882,6 +12929,19 @@ function renderScheduleGrid(branchId, weekStart, canEdit) {
           </tr>
         </thead>
         <tbody>${rowsHtml}</tbody>
+        <tfoot>
+          <tr class="schedule-footer-row">
+            <th class="schedule-emp-cell schedule-footer-label">
+              <div><strong>รวม/วัน</strong></div>
+              <div class="muted-2 schedule-summary-meta">ทั้งสาขา · ไม่นับลา/OFF</div>
+            </th>
+            ${footerHtml}
+            <td class="schedule-summary-cell schedule-footer-grand">
+              <div><strong>${(grandTotalMins / 60).toFixed(1)}</strong> ชม.</div>
+              <div class="muted-2 schedule-summary-meta">${grandTotalShifts} กะ ทั้งสัปดาห์</div>
+            </td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   </div>`;

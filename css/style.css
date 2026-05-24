@@ -4676,3 +4676,38 @@ a:hover .badge, button:hover .badge, .sw-recent-item:hover .badge {
   font-size: 12px; padding: 3px 8px;
 }
 .muted-row td { opacity: 0.6; }
+
+/* === SCHEDULE: tfoot รวมชั่วโมงทั้งสาขาต่อวัน === */
+.schedule-footer-row {
+  background: var(--surface-2);
+  border-top: 2px solid var(--border-strong);
+  font-size: 12px;
+}
+.schedule-footer-row:hover { background: var(--surface-2) !important; }
+.schedule-footer-label {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--surface-2) !important;
+  border-right: 2px solid var(--border-strong);
+  text-align: left;
+  padding: 10px;
+}
+.schedule-footer-cell {
+  text-align: center;
+  padding: 10px 6px;
+  border-left: 1px solid var(--border);
+  vertical-align: middle;
+}
+.schedule-footer-cell.today {
+  background: rgba(30, 42, 82, 0.06);
+}
+.schedule-footer-hours strong {
+  font-size: 14px;
+  color: var(--primary-text);
+}
+.schedule-footer-grand {
+  background: var(--primary-soft) !important;
+}
+.schedule-footer-grand strong {
+  font-size: 16px;
+  color: var(--primary-text);
+}
