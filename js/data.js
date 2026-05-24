@@ -87,8 +87,11 @@ const DB = {
     const { data: { session } } = await this.client.auth.getSession();
     if (session?.user) {
       this.user = session.user;
-      await this.loadProfile();
-      await this.loadAll();
+      // ─── PERF: ยิง loadProfile + loadAll คู่ขนาน (เดิม serial) ───
+      // loadAll ใช้ profile แค่ใน fetchMyAnnReads — รอ profilePromise ภายในตัวเอง
+      // → กำไร 1 round-trip ของ loadProfile (100-300ms) ใน critical path login
+      const profilePromise = this.loadProfile();
+      await Promise.all([profilePromise, this.loadAll(profilePromise)]);
       this.subscribeRealtime();
       this.ready = true;
     }
@@ -140,8 +143,9 @@ const DB = {
     });
     if (error) throw error;
     this.user = data.user;
-    await this.loadProfile();
-    await this.loadAll();
+    // PERF: parallel เหมือนใน init() — โหลด data ทันทีไม่รอ profile เสร็จ
+    const profilePromise = this.loadProfile();
+    await Promise.all([profilePromise, this.loadAll(profilePromise)]);
     this.subscribeRealtime();
     this.ready = true;
     return data.user;
@@ -299,7 +303,7 @@ const DB = {
     return all;
   },
 
-  async loadAll() {
+  async loadAll(profilePromise = null) {
     // ─── Phase 1 (critical) — รวม Promise.all เดียวให้ parallel สูงสุด ───
     // ทุกตารางที่ต้องใช้สำหรับ: dashboard, sidebar badges, login profile
     // = พนักงาน + master + leave + swap + user_profiles
@@ -334,7 +338,10 @@ const DB = {
 
     // โหลด read receipts ของพนักงานคนนี้ — สำหรับ unread badge
     // โหลดให้ HR ด้วย เพื่อรองรับโหมด "ดูเสมือนพนักงาน" (query ขนาดเล็ก — filter by employee_id)
+    // PERF: ถ้าผู้เรียกส่ง profilePromise มา → loadAll ยิงคู่ขนานกับ loadProfile,
+    //       fetchMyAnnReads รอ profile เฉพาะตอนใช้ (other queries เริ่มทันที)
     const fetchMyAnnReads = async () => {
+      if (profilePromise) { try { await profilePromise; } catch (e) { /* profile fail → no reads */ } }
       if (!this.profile?.employee_id) return [];
       const { data } = await this.client.from('announcement_reads')
         .select('announcement_id')

@@ -74,6 +74,25 @@ function parseYMD(s) {
   return m ? [+m[1], +m[2], +m[3]] : null;
 }
 
+// ─── [PERF] Lazy XLSX loader (เดิม eager ใน index.html ~500KB) ─────────────
+// XLSX ใช้แค่หน้า import/export — โหลดเมื่อ user เรียกครั้งแรก, cache promise
+// ระหว่างโหลด exportEmployeesXLSX/downloadEmployeeTemplate/import จะ await ก่อน
+let _xlsxLoadPromise = null;
+function loadXLSX() {
+  if (typeof XLSX !== 'undefined') return Promise.resolve();
+  if (_xlsxLoadPromise) return _xlsxLoadPromise;
+  _xlsxLoadPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.integrity = 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw';
+    s.crossOrigin = 'anonymous';
+    s.onload = () => resolve();
+    s.onerror = () => { _xlsxLoadPromise = null; reject(new Error('โหลด XLSX library ไม่สำเร็จ — เช็คสัญญาณเน็ต')); };
+    document.head.appendChild(s);
+  });
+  return _xlsxLoadPromise;
+}
+
 // แปลง "YYYY-MM-DD" → Excel Date — ทำให้สูตรวันที่ใน Excel ทำงานได้ตรงๆ
 function excelDate(s) {
   const ymd = parseYMD(s);
@@ -3166,8 +3185,11 @@ const IMPORT_COLUMNS = [
 // Role keys ที่ระบบรองรับ (ใช้ใน Excel import) — ตรงกับ user_profiles.role ใน DB
 const ROLE_KEYS_FOR_IMPORT = ['admin', 'hr', 'operation_manager', 'area_manager', 'branch_manager', 'branch_staff', 'viewer'];
 
-function downloadEmployeeTemplate() {
-  if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(downloadEmployeeTemplate, 800); return; }
+async function downloadEmployeeTemplate() {
+  if (typeof XLSX === 'undefined') {
+    toast('กำลังโหลด XLSX library...', 'info');
+    try { await loadXLSX(); } catch (e) { toast(e.message, 'error'); return; }
+  }
   const sample = [
     {
       'รหัสพนักงาน': 1001, 'คำนำหน้า': 'นาย', 'ชื่อ': 'ตัวอย่าง', 'นามสกุล': 'นามสกุลตัวอย่าง',
@@ -3380,6 +3402,8 @@ async function readExcelFile(file) {
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
+        // [PERF] XLSX lazy-load — โหลดสคริปต์ครั้งแรกที่ import (อาจ 200-500ms)
+        if (typeof XLSX === 'undefined') await loadXLSX();
         // yield ให้ UI render "กำลังอ่าน..." ก่อน parse สูตร XLSX (sync, อาจ block 1-2 sec)
         await new Promise(r => setTimeout(r, 0));
         const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
@@ -3758,9 +3782,12 @@ function renderBulkPhotoPreview(total, matches, unmatched) {
   `;
 }
 
-function exportEmployeesXLSX() {
+async function exportEmployeesXLSX() {
   if (!requireHR()) return; // 🔒 เฉพาะ admin/HR — มีข้อมูลส่วนตัว + เงินเดือน
-  if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(exportEmployeesXLSX, 800); return; }
+  if (typeof XLSX === 'undefined') {
+    toast('กำลังโหลด XLSX library...', 'info');
+    try { await loadXLSX(); } catch (e) { toast(e.message, 'error'); return; }
+  }
   // text fields ผ่าน csvSafe() เพื่อกัน CSV-injection (ชื่อขึ้นต้น = + - @ จะถูก prefix ด้วย ')
   const cs = csvSafe;
   const rows = DB.getEmployees().map(e => ({
