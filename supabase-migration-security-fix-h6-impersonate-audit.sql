@@ -88,5 +88,5 @@ BEGIN
   RAISE NOTICE '   - RPC log_impersonate_toggle(BOOLEAN) พร้อมใช้';
   RAISE NOTICE '   - frontend (data.js setEmployeeView) ต้อง await DB.client.rpc()';
   RAISE NOTICE '   - audit_log จะมี action = IMPERSONATE_ON / IMPERSONATE_OFF';
-  RAISE NOTICE '   - filter ในหน้า "ประวัติการแก้ไข" หา action LIKE ''IMPERSONATE_%''';
+  RAISE NOTICE '   - filter ในหน้า "ประวัติการแก้ไข" หา action LIKE ''IMPERSONATE_%%''';
 END $$;
