@@ -3835,14 +3835,55 @@ const DB = {
     return mapped;
   },
 
+  // เดิม: branch_manager + area_manager + HR + op_manager แก้ได้
+  // ใหม่: เฉพาะ "ตำแหน่งสูงสุดของสาขา" (= branch top emp) + HR/admin/op override
+  // → ใช้สำหรับ saveScheduleEntry, submit, ensureScheduleWeek
   _canEditScheduleForBranch(branchId) {
+    return this.canCreateScheduleForBranch(branchId);
+  },
+
+  // ผู้สร้าง/ส่งตาราง: ตำแหน่งสูงสุดของสาขานั้น (auto-detect จาก position level)
+  canCreateScheduleForBranch(branchId) {
     if (this.isHR) return true;
     if (this.role === 'operation_manager') return true;
-    if (this.role === 'branch_manager' || this.role === 'area_manager') {
-      const scoped = this.scopedBranches() || [];
-      return scoped.includes(branchId);
+    if (!branchId || !this.profile?.employee_id) return false;
+    const topEmp = this.getBranchManager(branchId);
+    return !!topEmp && topEmp.id === this.profile.employee_id;
+  },
+
+  // ผู้อนุมัติตาราง: AM (area_manager) ที่ดูแลสาขานั้น
+  canApproveScheduleForBranch(branchId) {
+    if (this.isHR) return true;
+    if (!branchId) return false;
+    if (this.role !== 'area_manager') return false;
+    // managed_branches override → ใช้ตามนั้น; ถ้าไม่มี → สาขาของตัวเอง
+    const myBranch = this._myBranch();
+    const managed = (this._managedBranches && this._managedBranches.length)
+      ? this._managedBranches
+      : (myBranch ? [myBranch] : []);
+    return managed.includes(branchId);
+  },
+
+  // หา AM ที่ดูแลสาขา (สำหรับแสดงในหน้า "ผู้อนุมัติ")
+  getScheduleApprover(branchId) {
+    if (!branchId) return null;
+    const profiles = this._userProfiles || [];
+    const ams = profiles.filter(p =>
+      p.role === 'area_manager' && p.employee_id &&
+      Array.isArray(p.managed_branches) && p.managed_branches.includes(branchId)
+    ).sort((a, b) => (a.employee_id < b.employee_id ? -1 : 1));
+    for (const am of ams) {
+      const e = this.getEmployee(am.employee_id);
+      if (e && this.empStatus(e) !== 'resigned') return e;
     }
-    return false;
+    // fallback: HR คนแรก
+    const hrs = profiles.filter(p => p.role === 'hr' && p.employee_id)
+      .sort((a, b) => (a.employee_id < b.employee_id ? -1 : 1));
+    for (const h of hrs) {
+      const e = this.getEmployee(h.employee_id);
+      if (e && this.empStatus(e) !== 'resigned') return e;
+    }
+    return null;
   },
 
   // ─── SCHEDULE ENTRIES ───
@@ -3862,7 +3903,7 @@ const DB = {
       throw new Error('คุณไม่มีสิทธิ์แก้ไขตารางของสาขานี้');
     }
     if (week.status === 'approved' && !this.isHR) {
-      throw new Error('ตารางอนุมัติแล้ว — ต้องให้ HR/admin เปิดให้แก้ไขก่อน');
+      throw new Error('ตารางอนุมัติแล้ว — ต้องให้ AM ที่ดูแลสาขา (หรือ HR/admin) "เปิดให้แก้ไข" ก่อน');
     }
     const row = this._schedEntryToDB(entry);
     if (entry.id) row.id = entry.id;
@@ -3889,7 +3930,7 @@ const DB = {
       throw new Error('คุณไม่มีสิทธิ์แก้ไขตารางของสาขานี้');
     }
     if (week && week.status === 'approved' && !this.isHR) {
-      throw new Error('ตารางอนุมัติแล้ว — ต้องให้ HR/admin เปิดให้แก้ไขก่อน');
+      throw new Error('ตารางอนุมัติแล้ว — ต้องให้ AM ที่ดูแลสาขา (หรือ HR/admin) "เปิดให้แก้ไข" ก่อน');
     }
     const { error } = await this.client.from('schedule_entries').delete().eq('id', id);
     if (error) throw error;
@@ -3910,8 +3951,8 @@ const DB = {
   async submitScheduleWeek(weekId) {
     const week = (this.data.scheduleWeeks || []).find(w => w.id === weekId);
     if (!week) throw new Error('ไม่พบสัปดาห์');
-    if (!this._canEditScheduleForBranch(week.branchId)) {
-      throw new Error('คุณไม่มีสิทธิ์ส่งขออนุมัติของสาขานี้');
+    if (!this.canCreateScheduleForBranch(week.branchId)) {
+      throw new Error('เฉพาะตำแหน่งสูงสุดของสาขา (หรือ HR/admin) เท่านั้นที่ส่งขออนุมัติได้');
     }
     const entries = (this.data.scheduleEntries || []).filter(e => e.scheduleWeekId === weekId);
     if (!entries.length) throw new Error('ยังไม่ได้กรอกตารางใดๆ — กรอกกะอย่างน้อย 1 ช่องก่อนส่ง');
@@ -3924,7 +3965,11 @@ const DB = {
   },
 
   async approveScheduleWeek(weekId, note = '') {
-    if (!this.isHR) throw new Error('เฉพาะ HR/admin เท่านั้นที่อนุมัติได้');
+    const week = (this.data.scheduleWeeks || []).find(w => w.id === weekId);
+    if (!week) throw new Error('ไม่พบสัปดาห์');
+    if (!this.canApproveScheduleForBranch(week.branchId)) {
+      throw new Error('เฉพาะ Area Manager ที่ดูแลสาขานี้ (หรือ HR/admin) ที่อนุมัติได้');
+    }
     return this._setScheduleWeekStatus(weekId, 'approved', {
       approved_by: this.user?.id || null,
       approved_at: new Date().toISOString(),
@@ -3935,7 +3980,11 @@ const DB = {
   },
 
   async rejectScheduleWeek(weekId, reason = '') {
-    if (!this.isHR) throw new Error('เฉพาะ HR/admin เท่านั้นที่ปฏิเสธได้');
+    const week = (this.data.scheduleWeeks || []).find(w => w.id === weekId);
+    if (!week) throw new Error('ไม่พบสัปดาห์');
+    if (!this.canApproveScheduleForBranch(week.branchId)) {
+      throw new Error('เฉพาะ Area Manager ที่ดูแลสาขานี้ (หรือ HR/admin) ที่ปฏิเสธได้');
+    }
     return this._setScheduleWeekStatus(weekId, 'rejected', {
       rejected_at: new Date().toISOString(),
       reject_reason: reason || null,
@@ -3944,9 +3993,14 @@ const DB = {
     });
   },
 
-  // HR เปิดให้แก้ไขตารางที่อนุมัติแล้ว → bump กลับเป็น draft
+  // เปิดให้แก้ไขตารางที่อนุมัติแล้ว → bump กลับเป็น draft
+  // AM ที่ดูแลสาขานั้น หรือ HR/admin เปิดได้
   async reopenScheduleWeek(weekId) {
-    if (!this.isHR) throw new Error('เฉพาะ HR/admin เปิดให้แก้ไขได้');
+    const week = (this.data.scheduleWeeks || []).find(w => w.id === weekId);
+    if (!week) throw new Error('ไม่พบสัปดาห์');
+    if (!this.canApproveScheduleForBranch(week.branchId)) {
+      throw new Error('เฉพาะ Area Manager ที่ดูแลสาขานี้ (หรือ HR/admin) ที่เปิดให้แก้ไขได้');
+    }
     return this._setScheduleWeekStatus(weekId, 'draft', {
       approved_by: null, approved_at: null, approver_note: null,
       submitted_by: null, submitted_at: null,

@@ -11452,16 +11452,17 @@ function updateLeaveBadge() {
 }
 
 // Badge ตารางงาน — นับสัปดาห์ที่ status='submitted' ที่ user มีสิทธิ์อนุมัติ
-// HR/admin → นับทุกสาขา; manager ไม่เห็น badge (ตัวเองเป็นคนส่ง ไม่ใช่อนุมัติ)
+// HR/admin → ทุกสาขา; AM → เฉพาะสาขาที่ตัวเองดูแล; คนอื่น → ไม่เห็น badge
 function updateScheduleBadge() {
   const badge = document.getElementById('navBadgeSchedule');
   if (!badge) return;
-  if (!DB.isHR) { badge.style.display = 'none'; return; }
-  const pending = (DB.data.scheduleWeeks || []).filter(w => w.status === 'submitted').length;
+  const submitted = (DB.data.scheduleWeeks || []).filter(w => w.status === 'submitted');
+  const actionable = submitted.filter(w => DB.canApproveScheduleForBranch(w.branchId));
+  const pending = actionable.length;
   if (pending > 0) {
     badge.textContent = String(pending);
     badge.style.display = 'inline-block';
-    badge.title = `${pending} ตารางสัปดาห์รออนุมัติ`;
+    badge.title = `${pending} ตารางสัปดาห์รออนุมัติ (สาขาที่คุณดูแล)`;
   } else {
     badge.style.display = 'none';
   }
@@ -12469,10 +12470,14 @@ router.register('schedule', () => {
   const week = branchId ? DB.getScheduleWeek(branchId, weekStart) : null;
   const status = week ? week.status : 'draft';
   const statusBadge = SCHEDULE_STATUS_BADGE[status] || SCHEDULE_STATUS_BADGE.draft;
-  const canEdit    = branchId && DB._canEditScheduleForBranch(branchId) && (status !== 'approved' || DB.isHR);
-  const canSubmit  = branchId && DB._canEditScheduleForBranch(branchId) && (status === 'draft' || status === 'rejected');
-  const canApprove = DB.isHR && status === 'submitted';
-  const canReopen  = DB.isHR && (status === 'approved' || status === 'rejected');
+  const canCreate  = branchId && DB.canCreateScheduleForBranch(branchId);
+  const canApproveBranch = branchId && DB.canApproveScheduleForBranch(branchId);
+  const canEdit    = canCreate && (status !== 'approved' || DB.isHR);
+  const canSubmit  = canCreate && (status === 'draft' || status === 'rejected');
+  const canApprove = canApproveBranch && status === 'submitted';
+  const canReopen  = canApproveBranch && (status === 'approved' || status === 'rejected');
+  const approver   = branchId ? DB.getScheduleApprover(branchId) : null;
+  const branchTopEmp = branchId ? DB.getBranchManager(branchId) : null;
 
   // เลือกสาขา — scope ตาม role
   let branchOptions;
@@ -12522,6 +12527,26 @@ router.register('schedule', () => {
           ${canReopen ? `<button class="btn btn-secondary" onclick="reopenScheduleWeekUI()">เปิดให้แก้ไข</button>` : ''}
         </div>
       </div>
+      <div class="schedule-approver-row">
+        <div class="schedule-approver-cell">
+          <span class="muted-2">ผู้จัดตาราง:</span>
+          ${branchTopEmp
+            ? `<strong>${escapeHtml(branchTopEmp.id)} · ${escapeHtml(branchTopEmp.firstName)} ${escapeHtml(branchTopEmp.lastName || '')}</strong>
+               <span class="muted-2">(ตำแหน่งสูงสุดของสาขา)</span>`
+            : '<span class="muted-2">— ไม่มีพนักงานในสาขา —</span>'}
+        </div>
+        <div class="schedule-approver-cell">
+          <span class="muted-2">ผู้อนุมัติ:</span>
+          ${approver
+            ? `<strong>${escapeHtml(approver.id)} · ${escapeHtml(approver.firstName)} ${escapeHtml(approver.lastName || '')}</strong>
+               <span class="muted-2">(${DB._userProfiles?.find(p => p.employee_id === approver.id)?.role === 'area_manager' ? 'Area Manager' : 'HR (fallback)'})</span>`
+            : '<span class="muted-2">— ยังไม่ได้ตั้ง AM ที่ดูแลสาขา —</span>'}
+        </div>
+      </div>
+      ${status === 'approved' ? `<div class="schedule-info-note" style="margin:12px 0 0 0">
+        <strong>ตารางอนุมัติแล้ว</strong> — ถ้าต้องแก้ ให้ผู้อนุมัติกด <strong>"เปิดให้แก้ไข"</strong> ก่อน
+        · ถ้าพนักงานลา ระบบจะแสดงป้าย "ลา" ทับเซลล์ให้อัตโนมัติ (ไม่ต้องแก้ตารางถ้าไม่ต้องหาคนแทน)
+      </div>` : ''}
     </div>
 
     <div id="scheduleGridWrap">${renderScheduleGrid(branchId, weekStart, canEdit)}</div>
