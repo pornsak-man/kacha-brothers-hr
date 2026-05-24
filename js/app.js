@@ -2040,11 +2040,11 @@ function validateNationalId(s, nationality) {
   return { ok: true };
 }
 
-// รายได้รวมต่อเดือน = เงินเดือน + ค่าตำแหน่ง + ค่าเดินทาง + ค่าอาหาร + ค่าเบี้ยเลี้ยง + ค่าภาษา + ค่าอื่นๆ
+// รายได้รวมต่อเดือน = เงินเดือน + ค่าตำแหน่ง + ค่าเดินทาง + ค่าอาหาร + ค่าเบี้ยเลี้ยง + ค่าภาษา + ค่าโทรศัพท์ + ค่าอื่นๆ
 const totalIncome = (e) => Number(e.salary || 0) + Number(e.allowancePosition || 0) +
   Number(e.allowanceTravel || 0) + Number(e.allowanceFood || 0) +
   Number(e.allowancePerDiem || 0) + Number(e.allowanceLanguage || 0) +
-  Number(e.allowanceOther || 0);
+  Number(e.allowancePhone || 0) + Number(e.allowanceOther || 0);
 
 // ─── SALARY MASKING ───
 // แสดง "•••" สำหรับ user ที่ไม่มีสิทธิ์ดูเงินเดือน (ใช้ใน table cells/labels)
@@ -2068,7 +2068,8 @@ function buildEmployeePreview(data, isNew, currentEmp, pendingPhotoBlob, removeP
   // คำนวณรายได้รวม
   const num = (k) => Number(data[k] || 0);
   const totalIncome = num('salary') + num('allowancePosition') + num('allowanceTravel')
-    + num('allowanceFood') + num('allowancePerDiem') + num('allowanceLanguage') + num('allowanceOther');
+    + num('allowanceFood') + num('allowancePerDiem') + num('allowanceLanguage')
+    + num('allowancePhone') + num('allowanceOther');
 
   // photo preview
   let photoHtml = '';
@@ -2092,13 +2093,14 @@ function buildEmployeePreview(data, isNew, currentEmp, pendingPhotoBlob, removeP
       employeeType: 'ประเภทพนักงาน', hireDate: 'วันเริ่มงาน',
       salary: 'เงินเดือน',
       allowancePosition: 'ค่าตำแหน่ง', allowanceTravel: 'ค่าเดินทาง', allowanceFood: 'ค่าอาหาร',
-      allowancePerDiem: 'ค่าเบี้ยเลี้ยง', allowanceLanguage: 'ค่าภาษา', allowanceOther: 'ค่าอื่นๆ',
+      allowancePerDiem: 'ค่าเบี้ยเลี้ยง', allowanceLanguage: 'ค่าภาษา',
+      allowancePhone: 'ค่าโทรศัพท์', allowanceOther: 'ค่าอื่นๆ',
       bank: 'ธนาคาร', bankAccount: 'เลขบัญชี',
       terminationDate: 'วันพ้นสภาพ', terminationReason: 'เหตุผลพ้นสภาพ'
     };
     const changes = [];
     // Lookup helpers — แสดงชื่อแทน ID สำหรับฟิลด์ที่เป็น reference
-    const moneyKeys = new Set(['salary','allowancePosition','allowanceTravel','allowanceFood','allowancePerDiem','allowanceLanguage','allowanceOther']);
+    const moneyKeys = new Set(['salary','allowancePosition','allowanceTravel','allowanceFood','allowancePerDiem','allowanceLanguage','allowancePhone','allowanceOther']);
     const lookupValue = (key, v) => {
       if (!v) return '—';
       if (key === 'department') return DB.data.departments.find(d => d.id === v)?.name || v;
@@ -2219,6 +2221,7 @@ function buildEmployeePreview(data, isNew, currentEmp, pendingPhotoBlob, removeP
         ${num('allowanceFood') > 0 ? `<div class="emp-info-row"><div class="label">ค่าอาหาร</div><div class="value">${fmt.money(num('allowanceFood'))}</div></div>` : ''}
         ${num('allowancePerDiem') > 0 ? `<div class="emp-info-row"><div class="label">ค่าเบี้ยเลี้ยง</div><div class="value">${fmt.money(num('allowancePerDiem'))}</div></div>` : ''}
         ${num('allowanceLanguage') > 0 ? `<div class="emp-info-row"><div class="label">ค่าภาษา</div><div class="value">${fmt.money(num('allowanceLanguage'))}</div></div>` : ''}
+        ${num('allowancePhone') > 0 ? `<div class="emp-info-row"><div class="label">ค่าโทรศัพท์</div><div class="value">${fmt.money(num('allowancePhone'))}</div></div>` : ''}
         ${num('allowanceOther') > 0 ? `<div class="emp-info-row"><div class="label">ค่าอื่นๆ</div><div class="value">${fmt.money(num('allowanceOther'))}</div></div>` : ''}
       </div>
       <div style="margin-top:14px;padding:14px 18px;background:var(--primary-soft);border-radius:8px;display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border)">
@@ -2260,7 +2263,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
     terminationDate: '', terminationReason: '', terminationNote: '',
     salary: 0,
     allowancePosition: 0, allowanceTravel: 0, allowanceFood: 0,
-    allowancePerDiem: 0, allowanceLanguage: 0, allowanceOther: 0,
+    allowancePerDiem: 0, allowanceLanguage: 0, allowancePhone: 0, allowanceOther: 0,
     bank: '', bankAccount: '',
     status: 'active', note: ''
   };
@@ -2417,6 +2420,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
           <div class="form-group"><label>ค่าอาหาร</label><input name="allowanceFood" type="number" min="0" step="100" value="${emp.allowanceFood || 0}" class="income-input"/></div>
           <div class="form-group"><label>ค่าเบี้ยเลี้ยง</label><input name="allowancePerDiem" type="number" min="0" step="100" value="${emp.allowancePerDiem || 0}" class="income-input"/></div>
           <div class="form-group"><label>ค่าภาษา</label><input name="allowanceLanguage" type="number" min="0" step="100" value="${emp.allowanceLanguage || 0}" class="income-input"/></div>
+          <div class="form-group"><label>ค่าโทรศัพท์</label><input name="allowancePhone" type="number" min="0" step="100" value="${emp.allowancePhone || 0}" class="income-input"/></div>
           <div class="form-group"><label>ค่าอื่นๆ</label><input name="allowanceOther" type="number" min="0" step="100" value="${emp.allowanceOther || 0}" class="income-input"/></div>
           <div class="form-group"><label>รวมรายได้ต่อเดือน</label><input id="incomeTotal" type="text" readonly style="font-weight:600;color:var(--primary)"/></div>
         </div>
@@ -2839,7 +2843,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
       delete data.userBranches;
 
       ['salary', 'allowancePosition', 'allowanceTravel', 'allowanceFood',
-       'allowancePerDiem', 'allowanceLanguage', 'allowanceOther'].forEach(k => data[k] = Number(data[k]));
+       'allowancePerDiem', 'allowanceLanguage', 'allowancePhone', 'allowanceOther'].forEach(k => data[k] = Number(data[k]));
 
       // upload photo if changed
       if (pendingPhotoBlob) {
@@ -3112,6 +3116,7 @@ function viewEmployee(id) {
         <div class="emp-info-row"><div class="label">ค่าอาหาร</div><div class="value">${fmt.money(e.allowanceFood)}</div></div>
         <div class="emp-info-row"><div class="label">ค่าเบี้ยเลี้ยง</div><div class="value">${fmt.money(e.allowancePerDiem)}</div></div>
         <div class="emp-info-row"><div class="label">ค่าภาษา</div><div class="value">${fmt.money(e.allowanceLanguage)}</div></div>
+        <div class="emp-info-row"><div class="label">ค่าโทรศัพท์</div><div class="value">${fmt.money(e.allowancePhone)}</div></div>
         <div class="emp-info-row"><div class="label">ค่าอื่นๆ</div><div class="value">${fmt.money(e.allowanceOther)}</div></div>
       </div>
       <div style="margin-top:14px;padding:14px 18px;background:var(--primary-soft);border-radius:var(--radius-sm);display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border)">
@@ -3217,7 +3222,7 @@ const IMPORT_COLUMNS = [
   'รหัสฝ่าย', 'สาขา', 'รหัสระดับตำแหน่ง', 'ตำแหน่ง', 'ประเภทพนักงาน', 'วันเริ่มงาน',
   'วันพ้นสภาพ', 'เหตุผลพ้นสภาพ', 'รายละเอียดพ้นสภาพ',
   'ธนาคาร', 'เลขบัญชี',
-  'เงินเดือน', 'ค่าตำแหน่ง', 'ค่าเดินทาง', 'ค่าอาหาร', 'ค่าเบี้ยเลี้ยง', 'ค่าภาษา', 'ค่าอื่นๆ',
+  'เงินเดือน', 'ค่าตำแหน่ง', 'ค่าเดินทาง', 'ค่าอาหาร', 'ค่าเบี้ยเลี้ยง', 'ค่าภาษา', 'ค่าโทรศัพท์', 'ค่าอื่นๆ',
   'เลข สปส.', 'วันที่แจ้งเข้า สปส.', 'วันที่แจ้งออก สปส.', 'สถานพยาบาล สปส.',
   'สิทธิ์ใช้งานระบบ', 'สถานะ', 'หมายเหตุ'
 ];
@@ -3246,7 +3251,7 @@ async function downloadEmployeeTemplate() {
       'วันพ้นสภาพ': '', 'เหตุผลพ้นสภาพ': '', 'รายละเอียดพ้นสภาพ': '',
       'ธนาคาร': 'ธนาคารกสิกรไทย (KBANK)', 'เลขบัญชี': '123-4-56789-0',
       'เงินเดือน': 30000, 'ค่าตำแหน่ง': 3000, 'ค่าเดินทาง': 2000, 'ค่าอาหาร': 1500,
-      'ค่าเบี้ยเลี้ยง': 0, 'ค่าภาษา': 0, 'ค่าอื่นๆ': 0,
+      'ค่าเบี้ยเลี้ยง': 0, 'ค่าภาษา': 0, 'ค่าโทรศัพท์': 0, 'ค่าอื่นๆ': 0,
       'เลข สปส.': '', 'วันที่แจ้งเข้า สปส.': '', 'วันที่แจ้งออก สปส.': '', 'สถานพยาบาล สปส.': '',
       'สิทธิ์ใช้งานระบบ': 'branch_staff',
       'สถานะ': 'active', 'หมายเหตุ': ''
@@ -3390,6 +3395,7 @@ function parseImportRow(row) {
     allowanceFood: num('ค่าอาหาร'),
     allowancePerDiem: num('ค่าเบี้ยเลี้ยง'),
     allowanceLanguage: num('ค่าภาษา'),
+    allowancePhone: num('ค่าโทรศัพท์'),
     allowanceOther: num('ค่าอื่นๆ'),
     ssoNo: get('เลข สปส.'),
     ssoEnrolledDate: parseDate('วันที่แจ้งเข้า สปส.') || '',
@@ -3854,6 +3860,7 @@ async function exportEmployeesXLSX() {
     'ค่าอาหาร': Number(e.allowanceFood || 0),
     'ค่าเบี้ยเลี้ยง': Number(e.allowancePerDiem || 0),
     'ค่าภาษา': Number(e.allowanceLanguage || 0),
+    'ค่าโทรศัพท์': Number(e.allowancePhone || 0),
     'ค่าอื่นๆ': Number(e.allowanceOther || 0),
     'รวมรายได้': totalIncome(e),
     'เลข สปส.': cs(e.ssoNo),
@@ -3875,7 +3882,7 @@ async function exportEmployeesXLSX() {
   if (idIdx >= 0) setColumnFormat(ws, idIdx, '0');
 
   // ทุกคอลัมน์เงินเดือน/ค่าต่างๆ → '#,##0' (มี comma คั่นพัน, ไม่มีทศนิยม)
-  const moneyCols = ['เงินเดือน', 'ค่าตำแหน่ง', 'ค่าเดินทาง', 'ค่าอาหาร', 'ค่าเบี้ยเลี้ยง', 'ค่าภาษา', 'ค่าอื่นๆ', 'รวมรายได้'];
+  const moneyCols = ['เงินเดือน', 'ค่าตำแหน่ง', 'ค่าเดินทาง', 'ค่าอาหาร', 'ค่าเบี้ยเลี้ยง', 'ค่าภาษา', 'ค่าโทรศัพท์', 'ค่าอื่นๆ', 'รวมรายได้'];
   for (const col of moneyCols) {
     const idx = headerKeys.indexOf(col);
     if (idx >= 0) setColumnFormat(ws, idx, '#,##0');
@@ -6866,6 +6873,7 @@ const ALLOWANCE_LABELS = {
   AllowanceFood:     'ค่าอาหาร',
   AllowancePerDiem:  'ค่าเบี้ยเลี้ยง',
   AllowanceLanguage: 'ค่าภาษา',
+  AllowancePhone:    'ค่าโทรศัพท์',
   AllowanceOther:    'ค่าอื่นๆ'
 };
 
@@ -6984,6 +6992,7 @@ function openSalaryAdjustForm() {
           <div class="form-group"><label>ค่าอาหารเก่า</label><input id="adjOldAlFood" type="text" readonly/></div>
           <div class="form-group"><label>ค่าเบี้ยเลี้ยงเก่า</label><input id="adjOldAlPd" type="text" readonly/></div>
           <div class="form-group"><label>ค่าภาษาเก่า</label><input id="adjOldAlLang" type="text" readonly/></div>
+          <div class="form-group"><label>ค่าโทรศัพท์เก่า</label><input id="adjOldAlPhone" type="text" readonly/></div>
           <div class="form-group"><label>ค่าอื่นๆ เก่า</label><input id="adjOldAlOther" type="text" readonly/></div>
           <div class="form-group span-2"><label>รายได้รวมเก่า</label><input id="adjOldTotal" type="text" readonly style="font-weight:600;color:var(--primary)"/></div>
         </div>
@@ -6998,6 +7007,7 @@ function openSalaryAdjustForm() {
           <div class="form-group"><label>ค่าอาหารใหม่</label><input name="newAllowanceFood" type="number" min="0" step="100" placeholder="ไม่เปลี่ยน" class="adj-money"/></div>
           <div class="form-group"><label>ค่าเบี้ยเลี้ยงใหม่</label><input name="newAllowancePerDiem" type="number" min="0" step="100" placeholder="ไม่เปลี่ยน" class="adj-money"/></div>
           <div class="form-group"><label>ค่าภาษาใหม่</label><input name="newAllowanceLanguage" type="number" min="0" step="100" placeholder="ไม่เปลี่ยน" class="adj-money"/></div>
+          <div class="form-group"><label>ค่าโทรศัพท์ใหม่</label><input name="newAllowancePhone" type="number" min="0" step="100" placeholder="ไม่เปลี่ยน" class="adj-money"/></div>
           <div class="form-group"><label>ค่าอื่นๆ ใหม่</label><input name="newAllowanceOther" type="number" min="0" step="100" placeholder="ไม่เปลี่ยน" class="adj-money"/></div>
           <div class="form-group"><label>รายได้รวมใหม่</label><input id="adjNewTotal" type="text" readonly style="font-weight:600;color:var(--success)"/></div>
         </div>
@@ -7062,6 +7072,7 @@ function openSalaryAdjustForm() {
       numOr($('#adjForm [name="newAllowanceFood"]')?.value, emp.allowanceFood) +
       numOr($('#adjForm [name="newAllowancePerDiem"]')?.value, emp.allowancePerDiem) +
       numOr($('#adjForm [name="newAllowanceLanguage"]')?.value, emp.allowanceLanguage) +
+      numOr($('#adjForm [name="newAllowancePhone"]')?.value, emp.allowancePhone) +
       numOr($('#adjForm [name="newAllowanceOther"]')?.value, emp.allowanceOther);
     $('#adjNewTotal').value = fmt.money(total) + ' บาท';
   };
@@ -7074,7 +7085,7 @@ function openSalaryAdjustForm() {
     const hint = $('#adjEmpHint');
     if (!emp) {
       ['#adjOldSalary','#adjOldPosition','#adjOldBranch','#adjOldDept',
-       '#adjOldAlPos','#adjOldAlTrv','#adjOldAlFood','#adjOldAlPd','#adjOldAlLang','#adjOldAlOther',
+       '#adjOldAlPos','#adjOldAlTrv','#adjOldAlFood','#adjOldAlPd','#adjOldAlLang','#adjOldAlPhone','#adjOldAlOther',
        '#adjOldTotal','#adjNewTotal'].forEach(s => { const el = $(s); if (el) el.value = ''; });
       if (hint) hint.innerHTML = $('#adjEmpSearch').value ? '<span style="color:var(--danger)">ไม่พบพนักงาน — เลือกจากรายการ</span>' : '';
       return;
@@ -7089,6 +7100,7 @@ function openSalaryAdjustForm() {
     $('#adjOldAlFood').value  = fmt.money(emp.allowanceFood);
     $('#adjOldAlPd').value    = fmt.money(emp.allowancePerDiem);
     $('#adjOldAlLang').value  = fmt.money(emp.allowanceLanguage);
+    $('#adjOldAlPhone').value = fmt.money(emp.allowancePhone);
     $('#adjOldAlOther').value = fmt.money(emp.allowanceOther);
     $('#adjOldTotal').value   = fmt.money(totalIncome(emp)) + ' บาท';
     calcNewTotal();
@@ -7144,7 +7156,7 @@ const CHANGE_IMPORT_COLUMNS = [
   'รหัสพนักงาน', 'วันที่มีผล',
   'เงินเดือนใหม่',
   'ค่าตำแหน่งใหม่', 'ค่าเดินทางใหม่', 'ค่าอาหารใหม่',
-  'ค่าเบี้ยเลี้ยงใหม่', 'ค่าภาษาใหม่', 'ค่าอื่นๆใหม่',
+  'ค่าเบี้ยเลี้ยงใหม่', 'ค่าภาษาใหม่', 'ค่าโทรศัพท์ใหม่', 'ค่าอื่นๆใหม่',
   'รหัสตำแหน่งใหม่', 'ชื่อตำแหน่งใหม่',
   'สาขาใหม่', 'รหัสฝ่ายใหม่', 'เหตุผล'
 ];
@@ -7157,7 +7169,7 @@ function downloadEmployeeChangesTemplate() {
       'รหัสพนักงาน': 1001, 'วันที่มีผล': '01/06/2026',
       'เงินเดือนใหม่': 35000,
       'ค่าตำแหน่งใหม่': '', 'ค่าเดินทางใหม่': '', 'ค่าอาหารใหม่': '',
-      'ค่าเบี้ยเลี้ยงใหม่': '', 'ค่าภาษาใหม่': '', 'ค่าอื่นๆใหม่': '',
+      'ค่าเบี้ยเลี้ยงใหม่': '', 'ค่าภาษาใหม่': '', 'ค่าโทรศัพท์ใหม่': '', 'ค่าอื่นๆใหม่': '',
       'รหัสตำแหน่งใหม่': 'P04', 'ชื่อตำแหน่งใหม่': 'หัวหน้าฝ่ายอาวุโส',
       'สาขาใหม่': '', 'รหัสฝ่ายใหม่': '',
       'เหตุผล': 'โปรโมทประจำปี'
@@ -7166,7 +7178,7 @@ function downloadEmployeeChangesTemplate() {
       'รหัสพนักงาน': 1002, 'วันที่มีผล': '01/06/2026',
       'เงินเดือนใหม่': '',
       'ค่าตำแหน่งใหม่': 2000, 'ค่าเดินทางใหม่': '', 'ค่าอาหารใหม่': '',
-      'ค่าเบี้ยเลี้ยงใหม่': '', 'ค่าภาษาใหม่': '', 'ค่าอื่นๆใหม่': '',
+      'ค่าเบี้ยเลี้ยงใหม่': '', 'ค่าภาษาใหม่': '', 'ค่าโทรศัพท์ใหม่': '', 'ค่าอื่นๆใหม่': '',
       'รหัสตำแหน่งใหม่': '', 'ชื่อตำแหน่งใหม่': '',
       'สาขาใหม่': '', 'รหัสฝ่ายใหม่': '',
       'เหตุผล': 'เพิ่มค่าตำแหน่งเป็นหัวหน้าทีม'
@@ -7175,7 +7187,7 @@ function downloadEmployeeChangesTemplate() {
       'รหัสพนักงาน': 1003, 'วันที่มีผล': '15/06/2026',
       'เงินเดือนใหม่': 20000,
       'ค่าตำแหน่งใหม่': '', 'ค่าเดินทางใหม่': 1500, 'ค่าอาหารใหม่': 1000,
-      'ค่าเบี้ยเลี้ยงใหม่': '', 'ค่าภาษาใหม่': '', 'ค่าอื่นๆใหม่': '',
+      'ค่าเบี้ยเลี้ยงใหม่': '', 'ค่าภาษาใหม่': '', 'ค่าโทรศัพท์ใหม่': 500, 'ค่าอื่นๆใหม่': '',
       'รหัสตำแหน่งใหม่': '', 'ชื่อตำแหน่งใหม่': '',
       'สาขาใหม่': 'สาขาเซ็นทรัล', 'รหัสฝ่ายใหม่': '',
       'เหตุผล': 'ย้ายสาขา + ปรับเงิน + เพิ่มเบี้ยเลี้ยง'
@@ -7195,7 +7207,7 @@ function downloadEmployeeChangesTemplate() {
     [''],
     ['ฟิลด์ค่าใหม่ (กรอกอย่างน้อย 1 อย่าง — ที่ไม่กรอกระบบจะคงเดิม):'],
     ['• เงินเดือนใหม่ — ตัวเลข ไม่ใส่ comma'],
-    ['• ค่าตำแหน่งใหม่ / ค่าเดินทางใหม่ / ค่าอาหารใหม่ / ค่าเบี้ยเลี้ยงใหม่ / ค่าภาษาใหม่ / ค่าอื่นๆใหม่ — ตัวเลข'],
+    ['• ค่าตำแหน่งใหม่ / ค่าเดินทางใหม่ / ค่าอาหารใหม่ / ค่าเบี้ยเลี้ยงใหม่ / ค่าภาษาใหม่ / ค่าโทรศัพท์ใหม่ / ค่าอื่นๆใหม่ — ตัวเลข'],
     ['• รหัสตำแหน่งใหม่ — เช่น P03, P04 (ดูรหัสด้านล่าง)'],
     ['• ชื่อตำแหน่งใหม่ — ข้อความ'],
     ['• สาขาใหม่ — ชื่อสาขาที่ต้องการย้ายไป'],
@@ -7256,6 +7268,8 @@ function exportEmployeeChangesXLSX() {
       'ค่าเบี้ยเลี้ยงใหม่': numOrEmpty(h.newAllowancePerDiem),
       'ค่าภาษาเก่า': numOrEmpty(h.oldAllowanceLanguage),
       'ค่าภาษาใหม่': numOrEmpty(h.newAllowanceLanguage),
+      'ค่าโทรศัพท์เก่า': numOrEmpty(h.oldAllowancePhone),
+      'ค่าโทรศัพท์ใหม่': numOrEmpty(h.newAllowancePhone),
       'ค่าอื่นๆเก่า': numOrEmpty(h.oldAllowanceOther),
       'ค่าอื่นๆใหม่': numOrEmpty(h.newAllowanceOther),
       'รหัสตำแหน่งเก่า': cs(h.oldPosition),
@@ -7277,7 +7291,7 @@ function exportEmployeeChangesXLSX() {
   const moneyCols = ['เงินเดือนเก่า','เงินเดือนใหม่','ส่วนต่างเงินเดือน',
     'ค่าตำแหน่งเก่า','ค่าตำแหน่งใหม่','ค่าเดินทางเก่า','ค่าเดินทางใหม่',
     'ค่าอาหารเก่า','ค่าอาหารใหม่','ค่าเบี้ยเลี้ยงเก่า','ค่าเบี้ยเลี้ยงใหม่',
-    'ค่าภาษาเก่า','ค่าภาษาใหม่','ค่าอื่นๆเก่า','ค่าอื่นๆใหม่'];
+    'ค่าภาษาเก่า','ค่าภาษาใหม่','ค่าโทรศัพท์เก่า','ค่าโทรศัพท์ใหม่','ค่าอื่นๆเก่า','ค่าอื่นๆใหม่'];
   for (const col of moneyCols) {
     const idx = headerKeys.indexOf(col);
     if (idx >= 0) setColumnFormat(ws, idx, '#,##0');
@@ -7325,6 +7339,7 @@ function parseImportChangeRow(row) {
     newAllowanceFood:     num('ค่าอาหารใหม่'),
     newAllowancePerDiem:  num('ค่าเบี้ยเลี้ยงใหม่'),
     newAllowanceLanguage: num('ค่าภาษาใหม่'),
+    newAllowancePhone:    num('ค่าโทรศัพท์ใหม่'),
     newAllowanceOther:    num('ค่าอื่นๆใหม่'),
     newPosition: get('รหัสตำแหน่งใหม่'),
     newPositionTitle: get('ชื่อตำแหน่งใหม่'),
@@ -8083,6 +8098,7 @@ function exportPayrollXLSX() {
       'ค่าอาหาร': Number(e.allowanceFood || 0),
       'ค่าเบี้ยเลี้ยง': Number(e.allowancePerDiem || 0),
       'ค่าภาษา': Number(e.allowanceLanguage || 0),
+      'ค่าโทรศัพท์': Number(e.allowancePhone || 0),
       'ค่าอื่นๆ': Number(e.allowanceOther || 0),
       'เบี้ยเลี้ยงพิเศษ': Number(extraAllow),
       'รวมรายได้': Number(gross),
@@ -8096,7 +8112,7 @@ function exportPayrollXLSX() {
   // รหัส → '0' (เลขล้วน); เงิน → '#,##0' (มี comma)
   const idIdx = headerKeys.indexOf('รหัส');
   if (idIdx >= 0) setColumnFormat(ws, idIdx, '0');
-  const moneyCols = ['เงินเดือน','ค่าตำแหน่ง','ค่าเดินทาง','ค่าอาหาร','ค่าเบี้ยเลี้ยง','ค่าภาษา','ค่าอื่นๆ','เบี้ยเลี้ยงพิเศษ','รวมรายได้','หักเบิกล่วงหน้า','หักผ่อนกู้','รับสุทธิ'];
+  const moneyCols = ['เงินเดือน','ค่าตำแหน่ง','ค่าเดินทาง','ค่าอาหาร','ค่าเบี้ยเลี้ยง','ค่าภาษา','ค่าโทรศัพท์','ค่าอื่นๆ','เบี้ยเลี้ยงพิเศษ','รวมรายได้','หักเบิกล่วงหน้า','หักผ่อนกู้','รับสุทธิ'];
   for (const col of moneyCols) {
     const idx = headerKeys.indexOf(col);
     if (idx >= 0) setColumnFormat(ws, idx, '#,##0');
@@ -8248,6 +8264,7 @@ function doMultiSheetExport(opts) {
     'ค่าอาหาร': mask(e.allowanceFood),
     'ค่าเบี้ยเลี้ยง': mask(e.allowancePerDiem),
     'ค่าภาษา': mask(e.allowanceLanguage),
+    'ค่าโทรศัพท์': mask(e.allowancePhone),
     'ค่าอื่นๆ': mask(e.allowanceOther),
     'รวมรายได้': opts.includeSalary ? totalIncome(e) : '***',
     'สถานะ': DB.empStatus(e) === 'resigned' ? 'พ้นสภาพ' : 'ปฏิบัติงาน'

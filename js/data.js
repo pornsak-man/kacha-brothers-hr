@@ -628,6 +628,7 @@ const DB = {
       allowanceFood:     hr ? Number(r.allowance_food     || 0) : 0,
       allowancePerDiem:  hr ? Number(r.allowance_per_diem || 0) : 0,
       allowanceLanguage: hr ? Number(r.allowance_language || 0) : 0,
+      allowancePhone:    hr ? Number(r.allowance_phone    || 0) : 0,
       allowanceOther:    hr ? Number(r.allowance_other    || 0) : 0,
       bank: hr ? (r.bank || '') : '',
       bankAccount: hr ? (r.bank_account || '') : '',
@@ -662,6 +663,7 @@ const DB = {
     allowance_food: Number(e.allowanceFood || 0),
     allowance_per_diem: Number(e.allowancePerDiem || 0),
     allowance_language: Number(e.allowanceLanguage || 0),
+    allowance_phone: Number(e.allowancePhone || 0),
     allowance_other: Number(e.allowanceOther || 0),
     bank: e.bank || null, bank_account: e.bankAccount || null,
     passport_number: e.passportNumber || null,
@@ -706,6 +708,8 @@ const DB = {
     newAllowancePerDiem:  r.new_allowance_per_diem != null ? Number(r.new_allowance_per_diem) : null,
     oldAllowanceLanguage: r.old_allowance_language != null ? Number(r.old_allowance_language) : null,
     newAllowanceLanguage: r.new_allowance_language != null ? Number(r.new_allowance_language) : null,
+    oldAllowancePhone:    r.old_allowance_phone    != null ? Number(r.old_allowance_phone)    : null,
+    newAllowancePhone:    r.new_allowance_phone    != null ? Number(r.new_allowance_phone)    : null,
     oldAllowanceOther:    r.old_allowance_other    != null ? Number(r.old_allowance_other)    : null,
     newAllowanceOther:    r.new_allowance_other    != null ? Number(r.new_allowance_other)    : null,
     changeType: r.change_type || '',
@@ -733,6 +737,8 @@ const DB = {
     new_allowance_per_diem:  s.newAllowancePerDiem  != null ? Number(s.newAllowancePerDiem)  : null,
     old_allowance_language: s.oldAllowanceLanguage != null ? Number(s.oldAllowanceLanguage) : null,
     new_allowance_language: s.newAllowanceLanguage != null ? Number(s.newAllowanceLanguage) : null,
+    old_allowance_phone:    s.oldAllowancePhone    != null ? Number(s.oldAllowancePhone)    : null,
+    new_allowance_phone:    s.newAllowancePhone    != null ? Number(s.newAllowancePhone)    : null,
     old_allowance_other:    s.oldAllowanceOther    != null ? Number(s.oldAllowanceOther)    : null,
     new_allowance_other:    s.newAllowanceOther    != null ? Number(s.newAllowanceOther)    : null,
     change_type: s.changeType || null,
@@ -1511,6 +1517,7 @@ const DB = {
       oldAllowanceFood:     rec.newAllowanceFood     != null ? (rec.oldAllowanceFood     != null ? rec.oldAllowanceFood     : emp.allowanceFood)     : null,
       oldAllowancePerDiem:  rec.newAllowancePerDiem  != null ? (rec.oldAllowancePerDiem  != null ? rec.oldAllowancePerDiem  : emp.allowancePerDiem)  : null,
       oldAllowanceLanguage: rec.newAllowanceLanguage != null ? (rec.oldAllowanceLanguage != null ? rec.oldAllowanceLanguage : emp.allowanceLanguage) : null,
+      oldAllowancePhone:    rec.newAllowancePhone    != null ? (rec.oldAllowancePhone    != null ? rec.oldAllowancePhone    : emp.allowancePhone)    : null,
       oldAllowanceOther:    rec.newAllowanceOther    != null ? (rec.oldAllowanceOther    != null ? rec.oldAllowanceOther    : emp.allowanceOther)    : null
     };
 
@@ -1548,6 +1555,7 @@ const DB = {
     if (enriched.newAllowanceFood     != null) emp.allowanceFood     = Number(enriched.newAllowanceFood);
     if (enriched.newAllowancePerDiem  != null) emp.allowancePerDiem  = Number(enriched.newAllowancePerDiem);
     if (enriched.newAllowanceLanguage != null) emp.allowanceLanguage = Number(enriched.newAllowanceLanguage);
+    if (enriched.newAllowancePhone    != null) emp.allowancePhone    = Number(enriched.newAllowancePhone);
     if (enriched.newAllowanceOther    != null) emp.allowanceOther    = Number(enriched.newAllowanceOther);
     await this.saveEmployee(emp);
 
@@ -3213,6 +3221,7 @@ const DB = {
       Number(e.allowanceFood || 0) +
       Number(e.allowancePerDiem || 0) +
       Number(e.allowanceLanguage || 0) +
+      Number(e.allowancePhone || 0) +
       Number(e.allowanceOther || 0);
     const map = new Map();
     for (const e of this.data.employees) {
