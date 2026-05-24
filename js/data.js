@@ -2955,12 +2955,20 @@ const DB = {
   // ─── BRANCH STATS (จำนวนพนักงานต่อสาขา — เฉพาะที่ยังปฏิบัติงาน) ───
   // ─── Helper: กรอง employees ตาม scope (สายงาน) ───
   // ใช้ใน dashboard filters: scope = 'operation'/'office'/'scm'/... | '' = no filter
-  // chain: employee.position → positionLevels.scope → match กับ scope ที่กรอง
+  // Resolution chain (ลำดับความสำคัญ):
+  //   1. employee.position → positionLevels.scope  (ถ้าตำแหน่งระดับมี scope)
+  //   2. fallback → employee.department → departments.scope  (ถ้าฝ่ายมี scope)
+  // เหตุที่ต้อง fallback: หลายองค์กรไม่ได้กรอกระดับตำแหน่งให้พนักงานทุกคน
+  // (ตำแหน่งใช้ positionTitle free-text แทน) — แต่ฝ่ายต้องมีเสมอ
   _filterByScope(emps, scope) {
     if (!scope) return emps;
     return emps.filter(e => {
+      // priority 1: position.scope
       const pos = e.position ? this.getPosition(e.position) : null;
-      return pos?.scope === scope;
+      if (pos?.scope) return pos.scope === scope;
+      // priority 2: dept.scope (fallback)
+      const dept = e.department ? this.getDepartment(e.department) : null;
+      return dept?.scope === scope;
     });
   },
 
