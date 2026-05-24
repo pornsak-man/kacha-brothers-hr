@@ -201,6 +201,8 @@ const DB = {
     this.profile = null;
     this.isAdmin = false;
     this._asEmployee = false;
+    this._permCache = null;            // Phase 2: เคลียร์ permission cache กัน leak ข้าม user
+    this._permLoadPromise = null;
     try { sessionStorage.removeItem('kb_as_employee'); } catch (e) {}
     this.ready = false;
   },
@@ -218,6 +220,8 @@ const DB = {
       const flag = sessionStorage.getItem('kb_as_employee') === '1';
       this._asEmployee = flag && this.isHR && !!this.profile?.employee_id;
     } catch (e) { this._asEmployee = false; }
+    // Phase 2: โหลด permission matrix แบบ parallel — fail silently → fallback ไป _legacyPermission
+    this._loadPermissions();
   },
 
   // ─── EMPLOYEE-VIEW MODE (impersonation) ───
@@ -248,6 +252,107 @@ const DB = {
   canManageBlacklist() { return this.isHR; },  // จัดการ blacklist เฉพาะ admin/HR
   canApproveLeave() {
     return ['admin', 'hr', 'operation_manager', 'area_manager', 'branch_manager'].includes(this.role);
+  },
+
+  // ─── DYNAMIC PERMISSION SYSTEM (Phase 2) ───
+  // hasPermission(key) — ใช้ matrix จาก DB ถ้าโหลดแล้ว, fallback ไปกฎเดิม
+  // ⚠️ Phase 2 = "เพิ่ม API ใหม่" ห้ามแตะ call site เดิม — โค้ดเดิมยังใช้ isHR/isAdmin ปกติ
+  // หลัง Phase 3 ค่อย refactor แต่ละหน้าให้เรียก hasPermission() แทน
+  _permCache: null,             // Set<string> ของ permission keys ที่ user มี (null = ยังไม่ load)
+  _permLoadPromise: null,
+
+  async _loadPermissions() {
+    if (!this.user) return;
+    // กัน race condition: ถ้ามี request วิ่งอยู่ ใช้ตัวเดิม
+    if (this._permLoadPromise) return this._permLoadPromise;
+    this._permLoadPromise = (async () => {
+      try {
+        const { data, error } = await this.client.rpc('user_permissions_list');
+        if (error) throw error;
+        this._permCache = new Set((data || []).map(r => r.permission_key));
+      } catch (ex) {
+        // ถ้า RPC ยังไม่มี (migration ยังไม่รัน) หรือ network fail
+        // → cache เป็น null → hasPermission() จะ fallback ไป _legacyPermission
+        console.warn('[perm] load failed, using legacy fallback:', ex?.message || ex);
+        this._permCache = null;
+      } finally {
+        this._permLoadPromise = null;
+      }
+    })();
+    return this._permLoadPromise;
+  },
+
+  hasPermission(key) {
+    if (!key) return false;
+    // 1. ถ้า matrix โหลดแล้ว → ใช้ matrix
+    if (this._permCache instanceof Set) {
+      return this._permCache.has(key);
+    }
+    // 2. Fallback: กฎเดิม (hardcoded behavior ก่อน Phase 1)
+    return this._legacyPermission(key);
+  },
+
+  // ────────────────────────────────────────────────────────────
+  // _legacyPermission — map 62 permission keys → isHR/isAdmin/role
+  // ใช้เป็น safety net ก่อน Phase 1 migration รัน หรือถ้า RPC fail
+  // ค่าตรงกับ default seed ใน supabase-migration-permissions-v1.sql
+  // ────────────────────────────────────────────────────────────
+  _legacyPermission(key) {
+    const isAdmin = this.isAdmin;
+    const isHR = this.isHR;                       // admin + hr
+    const role = this.role || 'viewer';
+    const isMgr = ['operation_manager', 'area_manager', 'branch_manager'].includes(role);
+    const hasAnyRole = !!role;
+
+    // safety locks — ทุก role ใช้ได้ (ตรงกับ is_critical=true ใน seed)
+    if (key === 'leave.request_own')          return hasAnyRole;
+    if (key === 'holiday_swap.request_own')   return hasAnyRole;
+    if (key === 'user.view_accounts')         return isHR;       // critical แต่ default = HR+admin
+
+    // admin-only (is_dangerous + admin protect)
+    if (key === 'user.set_role_admin')        return isAdmin;
+    if (key === 'system.edit_company')        return isAdmin;
+    if (key === 'system.view_audit')          return isAdmin;
+    if (key === 'system.full_backup')         return isAdmin;
+    if (key === 'permission.edit_matrix')     return isAdmin;
+    if (key === 'leave.manage_types')         return isAdmin;
+
+    // HR+admin (สิทธิ์ admin/HR ทำได้เหมือนกัน)
+    const hrKeys = new Set([
+      'employee.view_pii', 'employee.view_salary',
+      'employee.create', 'employee.edit', 'employee.delete', 'employee.terminate',
+      'employee.bulk_import', 'employee.export_xlsx',
+      'applicant.view', 'applicant.manage', 'blacklist.manage',
+      'payroll.view_menu',
+      'salary.adjust', 'salary.import', 'salary.view_history',
+      'loan.view', 'loan.manage', 'advance.view', 'advance.manage',
+      'allowance.view', 'allowance.manage', 'evaluation.view', 'evaluation.manage',
+      'report.export_payroll',
+      'leave.approve_all', 'leave.delete', 'leave.bypass_backdate',
+      'holiday.manage', 'holiday_swap.auto_approve',
+      'branch.manage', 'department.manage', 'position.manage',
+      'user.create_account', 'user.bulk_create', 'user.reset_password', 'user.set_role',
+      'announcement.manage',
+      'employee.view_all_branches'
+    ]);
+    if (hrKeys.has(key)) return isHR;
+
+    // view-only menus — เห็นได้ทุก manager + HR
+    const viewKeys = new Set([
+      'employee.view_list', 'branch.view', 'department.view', 'position.view'
+    ]);
+    if (viewKeys.has(key)) return isHR || isMgr;
+
+    // leave.request_for_others / approve_own_branch / holiday_swap.request_for_others
+    if (key === 'leave.request_for_others')        return isHR || isMgr;
+    if (key === 'leave.approve_own_branch')        return isHR || isMgr;
+    if (key === 'holiday_swap.request_for_others') return isHR || isMgr;
+
+    // scope modifier
+    if (key === 'employee.view_own_branch')        return isMgr;  // ผู้จัดการเห็นสาขาตัวเอง
+
+    // default: deny
+    return false;
   },
 
   // ─── SCOPE FILTER (สาขาที่ดูแลได้) ───
