@@ -1081,6 +1081,16 @@ const DB = {
     cancelledAt: r.cancelled_at,
     cancelledBy: r.cancelled_by,
     cancelReason: r.cancel_reason || '',
+    // ─── Approval chain (3-step) ───
+    bmStatus: r.bm_status || 'pending',
+    bmBy: r.bm_by,
+    bmAt: r.bm_at,
+    bmNote: r.bm_note || '',
+    amStatus: r.am_status || 'pending',
+    amBy: r.am_by,
+    amAt: r.am_at,
+    amNote: r.am_note || '',
+    finalApproverRole: r.final_approver_role || null,
     createdAt: r.created_at,
     updatedAt: r.updated_at
   }),
@@ -2623,6 +2633,16 @@ const DB = {
     cancelledAt: r.cancelled_at,
     cancelledBy: r.cancelled_by,
     cancelReason: r.cancel_reason || '',
+    // ─── Approval chain (3-step) ───
+    bmStatus: r.bm_status || 'pending',
+    bmBy: r.bm_by,
+    bmAt: r.bm_at,
+    bmNote: r.bm_note || '',
+    amStatus: r.am_status || 'pending',
+    amBy: r.am_by,
+    amAt: r.am_at,
+    amNote: r.am_note || '',
+    finalApproverRole: r.final_approver_role || null,
     createdAt: r.created_at,
     updatedAt: r.updated_at
   }),
@@ -2784,6 +2804,293 @@ const DB = {
     if (idx >= 0) this.data.leaveRequests[idx] = mapped;
     else this.data.leaveRequests.unshift(mapped);
     return mapped;
+  },
+
+  // ─── APPROVAL CHAIN HELPERS (3-step BM → AM → AM/OM) ───
+
+  // คำนวณช่วงวันต่อเนื่อง (รวม leave + holiday swap วันเดียวกัน) ที่ติดต่อกันจริง
+  // (ไม่ข้ามเสาร์-อาทิตย์ — ส-อา = ไม่ติด)
+  // คืน max length ของช่วงที่ครอบ leave นี้
+  calcContinuousLeaveDays(empId, startDate, endDate, excludeId = null) {
+    if (!empId || !startDate || !endDate) return 0;
+    // รวบรวมวันที่ลา + swap ของพนักงานคนนี้ที่ยัง active
+    const allDates = new Set();
+    // วันลา (รวมตัวเอง)
+    (this.data.leaveRequests || []).forEach(r => {
+      if (r.id === excludeId) return;
+      if (r.employeeId !== empId) return;
+      if (r.status === 'rejected' || r.status === 'cancelled') return;
+      let d = r.startDate;
+      while (d && d <= r.endDate) {
+        allDates.add(d);
+        d = this._nextDayYMD(d);
+      }
+    });
+    // เพิ่มช่วงปัจจุบันที่กำลังพิจารณา (กันลืม)
+    let d = startDate;
+    while (d && d <= endDate) {
+      allDates.add(d);
+      d = this._nextDayYMD(d);
+    }
+    // วัน swap (พนักงานคนนี้)
+    (this.data.holidaySwapRequests || []).forEach(r => {
+      if (r.id === excludeId) return;
+      if (r.employeeId !== empId) return;
+      if (r.status === 'rejected' || r.status === 'cancelled') return;
+      if (r.swapToDate) allDates.add(r.swapToDate);
+    });
+    if (!allDates.size) return 0;
+    // หาช่วงต่อเนื่องที่ครอบ startDate
+    const sorted = [...allDates].sort();
+    // ขยายจาก startDate ออกซ้าย-ขวา ทีละวัน (วันต่อวัน — ไม่ข้าม)
+    let cur = startDate;
+    let count = 1;
+    // ขยายไปขวาจาก endDate
+    let right = endDate;
+    while (true) {
+      const next = this._nextDayYMD(right);
+      if (allDates.has(next)) { right = next; count++; }
+      else break;
+    }
+    // ขยายไปซ้ายจาก startDate
+    let left = startDate;
+    while (true) {
+      const prev = this._prevDayYMD(left);
+      if (allDates.has(prev)) { left = prev; count++; }
+      else break;
+    }
+    // นับจริงตามช่วง [left, right]
+    let n = 0;
+    let cursor = left;
+    while (cursor && cursor <= right) { n++; cursor = this._nextDayYMD(cursor); }
+    return n;
+  },
+
+  _nextDayYMD(ymd) {
+    if (!ymd) return null;
+    const m = String(ymd).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3] + 1);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  },
+  _prevDayYMD(ymd) {
+    if (!ymd) return null;
+    const m = String(ymd).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3] - 1);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  },
+
+  // ตัดสินใจว่า request นี้ต้องผ่าน OM หรือ AM อนุมัติ final
+  // ≥3 วันต่อเนื่อง → 'om', ไม่งั้น → 'am'
+  decideFinalApprover(empId, startDate, endDate, excludeId = null) {
+    const n = this.calcContinuousLeaveDays(empId, startDate, endDate, excludeId);
+    return n >= 3 ? 'om' : 'am';
+  },
+
+  // หา OM (operation_manager) สำหรับแสดง/อนุมัติ
+  getOperationManager() {
+    const profiles = this._userProfiles || [];
+    const oms = profiles.filter(p => p.role === 'operation_manager' && p.employee_id)
+      .sort((a, b) => (a.employee_id < b.employee_id ? -1 : 1));
+    for (const p of oms) {
+      const e = this.getEmployee(p.employee_id);
+      if (e && this.empStatus(e) !== 'resigned') return e;
+    }
+    return null;
+  },
+
+  // สิทธิ์ตามขั้น chain
+  canEndorseLeaveAsBM(empId) {
+    if (this.isHR) return true;
+    if (this.role !== 'branch_manager') return false;
+    const emp = this.getEmployee(empId);
+    if (!emp) return false;
+    const myBranch = this._myBranch();
+    const managed = (this._managedBranches && this._managedBranches.length)
+      ? this._managedBranches
+      : (myBranch ? [myBranch] : []);
+    return managed.includes(emp.branch);
+  },
+  canEndorseLeaveAsAM(empId) {
+    if (this.isHR) return true;
+    if (this.role !== 'area_manager') return false;
+    const emp = this.getEmployee(empId);
+    if (!emp) return false;
+    const myBranch = this._myBranch();
+    const managed = (this._managedBranches && this._managedBranches.length)
+      ? this._managedBranches
+      : (myBranch ? [myBranch] : []);
+    return managed.includes(emp.branch);
+  },
+  canFinalApproveLeave(req) {
+    if (this.isHR) return true;
+    if (!req) return false;
+    // ต้องผ่าน chain BM+AM endorsed ก่อน
+    if (req.bmStatus !== 'endorsed' || req.amStatus !== 'endorsed') return false;
+    const role = req.finalApproverRole || 'am';
+    if (role === 'om') {
+      return this.role === 'operation_manager';
+    }
+    // 'am' — AM ที่ดูแลสาขา
+    return this.canEndorseLeaveAsAM(req.employeeId);
+  },
+
+  // ─── ENDORSE methods (leave) ───
+  async endorseLeaveByBM(id, decision /* 'endorsed' | 'declined' */, note = '') {
+    const req = this.getLeaveRequest(id);
+    if (!req) throw new Error('ไม่พบคำขอลา');
+    if (!this.canEndorseLeaveAsBM(req.employeeId)) {
+      throw new Error('เฉพาะผู้จัดการสาขา (หรือ HR/admin) ที่เห็นชอบขั้นแรกได้');
+    }
+    const patch = {
+      bm_status: decision,
+      bm_by: this.user?.id || null,
+      bm_at: new Date().toISOString(),
+      bm_note: note || null
+    };
+    if (decision === 'declined') {
+      patch.status = 'rejected';
+      patch.approver_note = note || null;
+    }
+    const { data, error } = await this.client.from('leave_requests')
+      .update(patch).eq('id', id).select().single();
+    if (error) throw error;
+    return this._leaveFromDB(data);
+  },
+
+  async endorseLeaveByAM(id, decision, note = '') {
+    const req = this.getLeaveRequest(id);
+    if (!req) throw new Error('ไม่พบคำขอลา');
+    if (!this.canEndorseLeaveAsAM(req.employeeId)) {
+      throw new Error('เฉพาะ Area Manager (หรือ HR/admin) ที่เห็นชอบขั้นที่สองได้');
+    }
+    if (req.bmStatus !== 'endorsed' && !this.isHR) {
+      throw new Error('ต้องให้ผู้จัดการสาขาเห็นชอบก่อน');
+    }
+    // ตัดสินใจ final approver role ตามจำนวนวันต่อเนื่อง
+    const finalRole = this.decideFinalApprover(req.employeeId, req.startDate, req.endDate, id);
+    const patch = {
+      am_status: decision,
+      am_by: this.user?.id || null,
+      am_at: new Date().toISOString(),
+      am_note: note || null,
+      final_approver_role: finalRole
+    };
+    if (decision === 'declined') {
+      patch.status = 'rejected';
+      patch.approver_note = note || null;
+    } else if (finalRole === 'am') {
+      // AM endorse + final approver = AM → อนุมัติทันทีในขั้นเดียว
+      patch.status = 'approved';
+      patch.approved_by = this.user?.id || null;
+      patch.approved_at = new Date().toISOString();
+      patch.approver_note = note || null;
+    }
+    const { data, error } = await this.client.from('leave_requests')
+      .update(patch).eq('id', id).select().single();
+    if (error) throw error;
+    return this._leaveFromDB(data);
+  },
+
+  async finalApproveLeaveByOM(id, decision /* 'approved' | 'rejected' */, note = '') {
+    const req = this.getLeaveRequest(id);
+    if (!req) throw new Error('ไม่พบคำขอลา');
+    if (!this.canFinalApproveLeave(req)) {
+      throw new Error('คุณไม่มีสิทธิ์อนุมัติขั้นสุดท้าย — ต้องเป็น OM/HR ตามที่กำหนด');
+    }
+    if (req.finalApproverRole !== 'om' && !this.isHR) {
+      throw new Error('คำขอนี้ AM อนุมัติได้โดยตรง ไม่ต้องผ่าน OM');
+    }
+    const patch = {
+      status: decision,
+      approved_by: this.user?.id || null,
+      approved_at: new Date().toISOString(),
+      approver_note: note || null
+    };
+    const { data, error } = await this.client.from('leave_requests')
+      .update(patch).eq('id', id).select().single();
+    if (error) throw error;
+    return this._leaveFromDB(data);
+  },
+
+  // ─── ENDORSE methods (holiday_swap) ───
+  async endorseSwapByBM(id, decision, note = '') {
+    const req = (this.data.holidaySwapRequests || []).find(r => r.id === id);
+    if (!req) throw new Error('ไม่พบคำขอ swap');
+    if (!this.canEndorseLeaveAsBM(req.employeeId)) {
+      throw new Error('เฉพาะผู้จัดการสาขา (หรือ HR/admin) ที่เห็นชอบขั้นแรกได้');
+    }
+    const patch = {
+      bm_status: decision,
+      bm_by: this.user?.id || null,
+      bm_at: new Date().toISOString(),
+      bm_note: note || null
+    };
+    if (decision === 'declined') {
+      patch.status = 'rejected';
+      patch.approver_note = note || null;
+    }
+    const { data, error } = await this.client.from('holiday_swap_requests')
+      .update(patch).eq('id', id).select().single();
+    if (error) throw error;
+    return this._swapReqFromDB(data);
+  },
+
+  async endorseSwapByAM(id, decision, note = '') {
+    const req = (this.data.holidaySwapRequests || []).find(r => r.id === id);
+    if (!req) throw new Error('ไม่พบคำขอ swap');
+    if (!this.canEndorseLeaveAsAM(req.employeeId)) {
+      throw new Error('เฉพาะ Area Manager (หรือ HR/admin) ที่เห็นชอบขั้นที่สองได้');
+    }
+    if (req.bmStatus !== 'endorsed' && !this.isHR) {
+      throw new Error('ต้องให้ผู้จัดการสาขาเห็นชอบก่อน');
+    }
+    // swap = 1 วัน → final approver = AM เสมอ (ยกเว้นรวมกับลา ≥3 วันต่อเนื่อง)
+    const finalRole = this.decideFinalApprover(req.employeeId, req.swapToDate, req.swapToDate, id);
+    const patch = {
+      am_status: decision,
+      am_by: this.user?.id || null,
+      am_at: new Date().toISOString(),
+      am_note: note || null,
+      final_approver_role: finalRole
+    };
+    if (decision === 'declined') {
+      patch.status = 'rejected';
+      patch.approver_note = note || null;
+    } else if (finalRole === 'am') {
+      patch.status = 'approved';
+      patch.approved_by = this.user?.id || null;
+      patch.approved_at = new Date().toISOString();
+      patch.approver_note = note || null;
+    }
+    const { data, error } = await this.client.from('holiday_swap_requests')
+      .update(patch).eq('id', id).select().single();
+    if (error) throw error;
+    return this._swapReqFromDB(data);
+  },
+
+  async finalApproveSwapByOM(id, decision, note = '') {
+    const req = (this.data.holidaySwapRequests || []).find(r => r.id === id);
+    if (!req) throw new Error('ไม่พบคำขอ swap');
+    if (req.bmStatus !== 'endorsed' || req.amStatus !== 'endorsed') {
+      throw new Error('ต้องผ่านขั้น ผจก. และ AM เห็นชอบก่อน');
+    }
+    if (!this.isHR && this.role !== 'operation_manager') {
+      throw new Error('เฉพาะ OM (หรือ HR/admin) ที่อนุมัติขั้นสุดท้ายได้');
+    }
+    const patch = {
+      status: decision,
+      approved_by: this.user?.id || null,
+      approved_at: new Date().toISOString(),
+      approver_note: note || null
+    };
+    const { data, error } = await this.client.from('holiday_swap_requests')
+      .update(patch).eq('id', id).select().single();
+    if (error) throw error;
+    return this._swapReqFromDB(data);
   },
 
   // ─── OVERLAP DETECTION (กันลาซ้ำ + ลาตรงวันชดเชย swap) ───

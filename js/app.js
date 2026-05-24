@@ -9227,10 +9227,13 @@ router.register('calendar', () => {
         <td style="font-variant-numeric:tabular-nums">
           <div style="font-weight:600;font-size:13px;color:var(--success-text)">${fmt.date(r.swapToDate)}</div>
         </td>
-        <td><span class="badge ${STATUS.cls}" style="font-size:10.5px;white-space:nowrap">${STATUS.label}</span></td>
+        <td>
+          <span class="badge ${STATUS.cls}" style="font-size:10.5px;white-space:nowrap">${STATUS.label}</span>
+          <div style="margin-top:4px">${renderApprovalChain(r)}</div>
+        </td>
         <td style="font-size:11.5px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap">${r.requestedAt ? new Date(r.requestedAt).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short' }) : '-'}</td>
         <td style="text-align:right;white-space:nowrap">
-          ${canApprove ? `<button class="btn btn-primary btn-sm" style="font-size:11.5px" onclick="approveSwapReq('${r.id}')">อนุมัติ</button>` : ''}
+          ${renderSwapChainActions(r)}
           <button class="btn btn-ghost btn-sm" style="font-size:11.5px" onclick="openSwapRequestDetail('${r.id}')">รายละเอียด</button>
         </td>
       </tr>`;
@@ -10661,6 +10664,209 @@ const LEAVE_STATUS_BADGE = {
 
 function switchLeaveTab(t) { _leaveState.tab = t; router.go('leave'); }
 
+// ─── APPROVAL CHAIN HELPERS (BM → AM → AM/OM) ───
+// แสดง chain badge บนตารางการลา/swap
+function renderApprovalChain(req) {
+  const finalRole = req.finalApproverRole || null;
+  const bm = req.bmStatus || 'pending';
+  const am = req.amStatus || 'pending';
+  const finalDone = req.status === 'approved';
+  const finalRejected = req.status === 'rejected';
+
+  const icon = (s) => s === 'endorsed' ? '✓' : s === 'declined' ? '✕' : '⏳';
+  const cls = (s) => s === 'endorsed' ? 'chain-ok' : s === 'declined' ? 'chain-no' : 'chain-wait';
+
+  let finalStage;
+  if (finalDone) finalStage = { icon: '✓', cls: 'chain-ok', label: finalRole === 'om' ? 'OM' : 'AM' };
+  else if (finalRejected) finalStage = { icon: '✕', cls: 'chain-no', label: 'ปฏิเสธ' };
+  else if (finalRole === 'om') finalStage = { icon: '⏳', cls: 'chain-wait', label: 'OM' };
+  else if (am === 'endorsed' && !finalRole) finalStage = { icon: '⏳', cls: 'chain-wait', label: 'AM' };
+  else finalStage = { icon: '—', cls: 'chain-pending', label: finalRole === 'om' ? 'OM' : 'AM' };
+
+  return `<div class="chain-row" title="ขั้นอนุมัติ — ผู้จัดการสาขา / Area Manager / ${finalRole === 'om' ? 'Operation Manager' : 'AM อนุมัติ'}">
+    <span class="chain-step ${cls(bm)}">${icon(bm)} ผจก.</span>
+    <span class="chain-arrow">→</span>
+    <span class="chain-step ${cls(am)}">${icon(am)} AM</span>
+    ${finalRole === 'om' || finalStage.label === 'OM' ? `<span class="chain-arrow">→</span>
+      <span class="chain-step ${finalStage.cls}">${finalStage.icon} ${finalStage.label}</span>` : ''}
+  </div>`;
+}
+
+// คืน HTML ของปุ่ม action ตาม chain stage + role
+function renderLeaveChainActions(req) {
+  if (req.status !== 'pending') return '';
+  const isHR = DB.isHR;
+  const canBM  = req.bmStatus === 'pending' && DB.canEndorseLeaveAsBM(req.employeeId);
+  const canAM  = req.bmStatus === 'endorsed' && req.amStatus === 'pending' && DB.canEndorseLeaveAsAM(req.employeeId);
+  const canOM  = req.bmStatus === 'endorsed' && req.amStatus === 'endorsed'
+                 && req.finalApproverRole === 'om'
+                 && (DB.role === 'operation_manager' || isHR);
+
+  const btns = [];
+  if (canBM) {
+    btns.push(`<button class="btn btn-success btn-sm" onclick="endorseLeaveBMUI('${req.id}','endorsed')">เห็นชอบ (ผจก.)</button>`);
+    btns.push(`<button class="btn btn-danger btn-sm" onclick="endorseLeaveBMUI('${req.id}','declined')">ไม่เห็นชอบ</button>`);
+  } else if (canAM) {
+    btns.push(`<button class="btn btn-success btn-sm" onclick="endorseLeaveAMUI('${req.id}','endorsed')">เห็นชอบ (AM)</button>`);
+    btns.push(`<button class="btn btn-danger btn-sm" onclick="endorseLeaveAMUI('${req.id}','declined')">ไม่เห็นชอบ</button>`);
+  } else if (canOM) {
+    btns.push(`<button class="btn btn-primary btn-sm" onclick="finalApproveLeaveOMUI('${req.id}','approved')">อนุมัติ (OM)</button>`);
+    btns.push(`<button class="btn btn-danger btn-sm" onclick="finalApproveLeaveOMUI('${req.id}','rejected')">ปฏิเสธ</button>`);
+  } else if (isHR) {
+    // HR override — แสดงปุ่มที่ตรงกับขั้นปัจจุบัน
+    if (req.bmStatus === 'pending') {
+      btns.push(`<button class="btn btn-success btn-sm" onclick="endorseLeaveBMUI('${req.id}','endorsed')">เห็นชอบ (HR override)</button>`);
+    } else if (req.amStatus === 'pending') {
+      btns.push(`<button class="btn btn-success btn-sm" onclick="endorseLeaveAMUI('${req.id}','endorsed')">เห็นชอบ (HR override)</button>`);
+    } else {
+      btns.push(`<button class="btn btn-primary btn-sm" onclick="finalApproveLeaveOMUI('${req.id}','approved')">อนุมัติ (HR override)</button>`);
+    }
+    btns.push(`<button class="btn btn-danger btn-sm" onclick="rejectLeaveHR('${req.id}')">ปฏิเสธ (HR)</button>`);
+  } else {
+    // ไม่มีสิทธิ์ — แสดงว่ารอใคร
+    if (req.bmStatus === 'pending') btns.push('<span class="muted-2 sw-wait-note">รอผู้จัดการสาขา</span>');
+    else if (req.amStatus === 'pending') btns.push('<span class="muted-2 sw-wait-note">รอ Area Manager</span>');
+    else if (req.finalApproverRole === 'om') btns.push('<span class="muted-2 sw-wait-note">รอ Operation Manager</span>');
+    else btns.push('<span class="muted-2 sw-wait-note">รออนุมัติ</span>');
+  }
+  return btns.join(' ');
+}
+
+// === EVENT HANDLERS (เรียกจาก HTML onclick) ===
+async function endorseLeaveBMUI(id, decision) {
+  const label = decision === 'endorsed' ? 'เห็นชอบ' : 'ไม่เห็นชอบ';
+  const note = await modal.prompt(`ผู้จัดการสาขา — ${label}`, decision === 'declined' ? 'เหตุผล (จำเป็น)' : 'หมายเหตุ (ไม่บังคับ)');
+  if (note === null) return;
+  if (decision === 'declined' && !note.trim()) { toast('ต้องระบุเหตุผล', 'warning'); return; }
+  try {
+    await DB.endorseLeaveByBM(id, decision, note);
+    if (router.current === 'leave') router.go('leave');
+    toast(`บันทึก "${label}" แล้ว`, 'success');
+  } catch (ex) { toast(ex.message || String(ex), 'error'); }
+}
+
+async function endorseLeaveAMUI(id, decision) {
+  const label = decision === 'endorsed' ? 'เห็นชอบ' : 'ไม่เห็นชอบ';
+  // คำนวณว่าจะส่งไป OM หรือไม่ก่อน เพื่อแจ้ง user
+  const req = DB.getLeaveRequest(id);
+  let confirmMsg = decision === 'declined' ? 'เหตุผล (จำเป็น)' : 'หมายเหตุ (ไม่บังคับ)';
+  if (decision === 'endorsed' && req) {
+    const finalRole = DB.decideFinalApprover(req.employeeId, req.startDate, req.endDate, id);
+    if (finalRole === 'om') {
+      confirmMsg = '⚠ คำขอนี้มีวันลาต่อเนื่อง ≥ 3 วัน → เห็นชอบแล้วจะส่งต่อให้ OM อนุมัติขั้นสุดท้าย\n\nหมายเหตุ (ไม่บังคับ)';
+    } else {
+      confirmMsg = '✓ คำขอนี้ < 3 วันต่อเนื่อง → เห็นชอบจะเป็นการอนุมัติทันที (ไม่ต้องผ่าน OM)\n\nหมายเหตุ (ไม่บังคับ)';
+    }
+  }
+  const note = await modal.prompt(`Area Manager — ${label}`, confirmMsg);
+  if (note === null) return;
+  if (decision === 'declined' && !note.trim()) { toast('ต้องระบุเหตุผล', 'warning'); return; }
+  try {
+    await DB.endorseLeaveByAM(id, decision, note);
+    if (router.current === 'leave') router.go('leave');
+    toast(`บันทึก "${label}" แล้ว`, 'success');
+  } catch (ex) { toast(ex.message || String(ex), 'error'); }
+}
+
+async function finalApproveLeaveOMUI(id, decision) {
+  const label = decision === 'approved' ? 'อนุมัติ' : 'ปฏิเสธ';
+  const note = await modal.prompt(`Operation Manager — ${label}ขั้นสุดท้าย`, decision === 'rejected' ? 'เหตุผล (จำเป็น)' : 'หมายเหตุ (ไม่บังคับ)');
+  if (note === null) return;
+  if (decision === 'rejected' && !note.trim()) { toast('ต้องระบุเหตุผล', 'warning'); return; }
+  try {
+    await DB.finalApproveLeaveByOM(id, decision, note);
+    if (router.current === 'leave') router.go('leave');
+    toast(`${label}แล้ว`, 'success');
+  } catch (ex) { toast(ex.message || String(ex), 'error'); }
+}
+
+async function rejectLeaveHR(id) {
+  const reason = await modal.prompt('HR ปฏิเสธคำขอ', 'เหตุผล (จำเป็น)');
+  if (reason === null) return;
+  if (!reason.trim()) { toast('ต้องระบุเหตุผล', 'warning'); return; }
+  try {
+    await DB.rejectLeaveRequest(id, reason);
+    if (router.current === 'leave') router.go('leave');
+    toast('ปฏิเสธแล้ว', 'success');
+  } catch (ex) { toast(ex.message || String(ex), 'error'); }
+}
+
+// ─── HOLIDAY SWAP chain actions ───
+function renderSwapChainActions(req) {
+  if (req.status !== 'pending') return '';
+  const isHR = DB.isHR;
+  const canBM = req.bmStatus === 'pending' && DB.canEndorseLeaveAsBM(req.employeeId);
+  const canAM = req.bmStatus === 'endorsed' && req.amStatus === 'pending' && DB.canEndorseLeaveAsAM(req.employeeId);
+  const canOM = req.bmStatus === 'endorsed' && req.amStatus === 'endorsed'
+                && req.finalApproverRole === 'om'
+                && (DB.role === 'operation_manager' || isHR);
+  const btns = [];
+  if (canBM) {
+    btns.push(`<button class="btn btn-success btn-sm" style="font-size:11px" onclick="endorseSwapBMUI('${req.id}','endorsed')">เห็นชอบ</button>`);
+    btns.push(`<button class="btn btn-danger btn-sm" style="font-size:11px" onclick="endorseSwapBMUI('${req.id}','declined')">ไม่เห็นชอบ</button>`);
+  } else if (canAM) {
+    btns.push(`<button class="btn btn-success btn-sm" style="font-size:11px" onclick="endorseSwapAMUI('${req.id}','endorsed')">เห็นชอบ (AM)</button>`);
+    btns.push(`<button class="btn btn-danger btn-sm" style="font-size:11px" onclick="endorseSwapAMUI('${req.id}','declined')">ไม่เห็นชอบ</button>`);
+  } else if (canOM) {
+    btns.push(`<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="finalApproveSwapOMUI('${req.id}','approved')">อนุมัติ (OM)</button>`);
+    btns.push(`<button class="btn btn-danger btn-sm" style="font-size:11px" onclick="finalApproveSwapOMUI('${req.id}','rejected')">ปฏิเสธ</button>`);
+  } else if (isHR) {
+    if (req.bmStatus === 'pending') {
+      btns.push(`<button class="btn btn-success btn-sm" style="font-size:11px" onclick="endorseSwapBMUI('${req.id}','endorsed')">เห็นชอบ (HR)</button>`);
+    } else if (req.amStatus === 'pending') {
+      btns.push(`<button class="btn btn-success btn-sm" style="font-size:11px" onclick="endorseSwapAMUI('${req.id}','endorsed')">เห็นชอบ (HR)</button>`);
+    } else {
+      btns.push(`<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="finalApproveSwapOMUI('${req.id}','approved')">อนุมัติ (HR)</button>`);
+    }
+  }
+  return btns.join(' ');
+}
+
+async function endorseSwapBMUI(id, decision) {
+  const label = decision === 'endorsed' ? 'เห็นชอบ' : 'ไม่เห็นชอบ';
+  const note = await modal.prompt(`ผู้จัดการสาขา — ${label}`, decision === 'declined' ? 'เหตุผล (จำเป็น)' : 'หมายเหตุ (ไม่บังคับ)');
+  if (note === null) return;
+  if (decision === 'declined' && !note.trim()) { toast('ต้องระบุเหตุผล', 'warning'); return; }
+  try {
+    await DB.endorseSwapByBM(id, decision, note);
+    if (router.current === 'calendar') router.go('calendar');
+    toast(`บันทึก "${label}" แล้ว`, 'success');
+  } catch (ex) { toast(ex.message || String(ex), 'error'); }
+}
+
+async function endorseSwapAMUI(id, decision) {
+  const label = decision === 'endorsed' ? 'เห็นชอบ' : 'ไม่เห็นชอบ';
+  const req = (DB.data.holidaySwapRequests || []).find(r => r.id === id);
+  let msg = decision === 'declined' ? 'เหตุผล (จำเป็น)' : 'หมายเหตุ (ไม่บังคับ)';
+  if (decision === 'endorsed' && req) {
+    const finalRole = DB.decideFinalApprover(req.employeeId, req.swapToDate, req.swapToDate, id);
+    msg = finalRole === 'om'
+      ? '⚠ swap วันนี้รวมกับลาต่อเนื่อง ≥ 3 วัน → เห็นชอบแล้วส่งต่อให้ OM อนุมัติ\n\nหมายเหตุ (ไม่บังคับ)'
+      : '✓ < 3 วันต่อเนื่อง → เห็นชอบ = อนุมัติทันที\n\nหมายเหตุ (ไม่บังคับ)';
+  }
+  const note = await modal.prompt(`Area Manager — ${label}`, msg);
+  if (note === null) return;
+  if (decision === 'declined' && !note.trim()) { toast('ต้องระบุเหตุผล', 'warning'); return; }
+  try {
+    await DB.endorseSwapByAM(id, decision, note);
+    if (router.current === 'calendar') router.go('calendar');
+    toast(`บันทึก "${label}" แล้ว`, 'success');
+  } catch (ex) { toast(ex.message || String(ex), 'error'); }
+}
+
+async function finalApproveSwapOMUI(id, decision) {
+  const label = decision === 'approved' ? 'อนุมัติ' : 'ปฏิเสธ';
+  const note = await modal.prompt(`Operation Manager — ${label}ขั้นสุดท้าย`, decision === 'rejected' ? 'เหตุผล (จำเป็น)' : 'หมายเหตุ (ไม่บังคับ)');
+  if (note === null) return;
+  if (decision === 'rejected' && !note.trim()) { toast('ต้องระบุเหตุผล', 'warning'); return; }
+  try {
+    await DB.finalApproveSwapByOM(id, decision, note);
+    if (router.current === 'calendar') router.go('calendar');
+    toast(`${label}แล้ว`, 'success');
+  } catch (ex) { toast(ex.message || String(ex), 'error'); }
+}
+
+
 // แสดงสิทธิ์การลาของผู้ใช้ปัจจุบัน (ของฉัน) — แสดงทุกประเภทที่เปิดใช้งานและเข้าเงื่อนไขเพศ
 function renderMyLeaveBalance() {
   const myEmpId = DB.profile?.employee_id;
@@ -10937,12 +11143,10 @@ function renderLeaveTab() {
               ${r.approverNote ? `<div class="sw-status-note">"${escapeHtml(r.approverNote)}"</div>` : ''}
               ${r.cancelReason ? `<div class="sw-status-note">"${escapeHtml(r.cancelReason)}"</div>` : ''}
             </td>
-            <td>${approverCell}</td>
+            <td>${renderApprovalChain(r)}</td>
             <td class="actions">
-              ${isExpired ? `<span class="badge badge-danger" title="วันลาสิ้นสุด ${fmt.date(r.endDate)} ผ่านไปแล้ว — ประเภท ${escapeHtml(typeCfg.label)} ไม่อนุญาตให้อนุมัติย้อนหลัง" style="font-size:10.5px">⛔ เลยกำหนด — อนุมัติไม่ได้</span>` : ''}
-              ${r.status === 'pending' && canApprove && !isExpired ? `<button class="btn btn-success btn-sm" onclick="approveLeave('${r.id}')">อนุมัติ</button>` : ''}
-              ${r.status === 'pending' && canApprove ? `<button class="btn btn-danger btn-sm" onclick="rejectLeave('${r.id}')">ปฏิเสธ</button>` : ''}
-              ${r.status === 'pending' && !canApprove ? `<span class="muted-2 sw-wait-note">รอหัวสาขา</span>` : ''}
+              ${isExpired && r.status === 'pending' ? `<span class="badge badge-danger" title="วันลาสิ้นสุด ${fmt.date(r.endDate)} ผ่านไปแล้ว — ประเภท ${escapeHtml(typeCfg.label)} ไม่อนุญาตให้อนุมัติย้อนหลัง" style="font-size:10.5px">⛔ เลยกำหนด</span>` : ''}
+              ${(!isExpired || DB.isHR) ? renderLeaveChainActions(r) : ''}
               ${r.status === 'pending' ? `<button class="btn btn-ghost btn-sm" onclick="openLeaveRequestForm('${r.id}')">แก้</button>
                 <button class="btn btn-ghost btn-sm" onclick="cancelLeave('${r.id}')">ยกเลิก</button>` : ''}
               ${r.status !== 'pending' && DB.isHR ? `<button class="btn btn-ghost btn-sm" onclick="deleteLeave('${r.id}')">ลบ</button>` : ''}
