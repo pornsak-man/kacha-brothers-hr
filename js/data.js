@@ -3723,6 +3723,11 @@ const DB = {
     branchId: r.branch_id || '',
     isCrossBranch: r.is_cross_branch === true,
     note: r.note || '',
+    // กะกำหนดเอง — สำหรับ PT ที่ความยาวกะไม่ตายตัว
+    customStartTime: r.custom_start_time || '',
+    customEndTime: r.custom_end_time || '',
+    customBreakMinutes: Number(r.custom_break_minutes || 0),
+    customLabel: r.custom_label || '',
     createdAt: r.created_at,
     updatedAt: r.updated_at
   }),
@@ -3733,7 +3738,11 @@ const DB = {
     shift_id: e.shiftId || null,
     branch_id: e.branchId || null,
     is_cross_branch: e.isCrossBranch === true,
-    note: e.note || null
+    note: e.note || null,
+    custom_start_time: e.customStartTime || null,
+    custom_end_time: e.customEndTime || null,
+    custom_break_minutes: Number(e.customBreakMinutes || 0),
+    custom_label: e.customLabel || null
   }),
 
   // ─── SHIFT MASTER (HR CRUD) ───
@@ -3962,24 +3971,39 @@ const DB = {
   },
 
   // คำนวณชั่วโมงทำงานของพนักงานในสัปดาห์ — สำหรับสรุปท้ายตาราง
+  // รองรับทั้ง shift master + custom shift (PT เวลาไม่ตายตัว)
   calcScheduleHours(weekId, employeeId) {
     const entries = (this.data.scheduleEntries || []).filter(e =>
-      e.scheduleWeekId === weekId && e.employeeId === employeeId && e.shiftId
+      e.scheduleWeekId === weekId && e.employeeId === employeeId
     );
     let totalMins = 0;
     let offDays = 0;
+    let shiftCount = 0;
     for (const e of entries) {
+      // กะกำหนดเอง (custom) — ไม่มี shift_id แต่มี customStartTime
+      if (!e.shiftId && e.customStartTime && e.customEndTime) {
+        const [sh1, sm1] = e.customStartTime.split(':').map(Number);
+        const [sh2, sm2] = e.customEndTime.split(':').map(Number);
+        let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+        if (mins < 0) mins += 24 * 60;
+        mins -= Number(e.customBreakMinutes || 0);
+        if (mins > 0) totalMins += mins;
+        shiftCount++;
+        continue;
+      }
+      if (!e.shiftId) continue;
       const sh = this.getShift(e.shiftId);
       if (!sh) continue;
+      shiftCount++;
       if (sh.isOffDay) { offDays++; continue; }
       if (!sh.startTime || !sh.endTime) continue;
       const [sh1, sm1] = sh.startTime.split(':').map(Number);
       const [sh2, sm2] = sh.endTime.split(':').map(Number);
       let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
-      if (mins < 0) mins += 24 * 60; // ข้ามเที่ยงคืน
+      if (mins < 0) mins += 24 * 60;
       mins -= Number(sh.breakMinutes || 0);
       if (mins > 0) totalMins += mins;
     }
-    return { hours: +(totalMins / 60).toFixed(2), offDays, shiftCount: entries.filter(e => e.shiftId).length };
+    return { hours: +(totalMins / 60).toFixed(2), offDays, shiftCount };
   }
 };

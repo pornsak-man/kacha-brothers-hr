@@ -12637,7 +12637,8 @@ function renderScheduleGrid(branchId, weekStart, canEdit) {
       const entry = entriesByKey.get(`${emp.id}|${d}`);
       const leave = leavesByKey.get(`${emp.id}|${d}`);
       const holiday = holidayByDate.get(d);
-      const awayEntry = (!entry || !entry.shiftId) ? awayByKey.get(`${emp.id}|${d}`) : null;
+      const hasShift = entry && (entry.shiftId || entry.customStartTime);
+      const awayEntry = !hasShift ? awayByKey.get(`${emp.id}|${d}`) : null;
       const cellId = `cell-${emp.id}-${d}`;
       let cellContent = '';
       let cellExtraCls = '';
@@ -12658,6 +12659,23 @@ function renderScheduleGrid(branchId, weekStart, canEdit) {
           if (entry.isCrossBranch) cellContent += `<span class="cross-branch-mark" title="ข้ามสาขา">⇄</span>`;
           if (shift.isOffDay) cellExtraCls = ' schedule-cell-off';
         }
+      } else if (entry && entry.customStartTime) {
+        // กะกำหนดเอง — PT เวลาไม่ตายตัว
+        const cs = (entry.customStartTime || '').slice(0, 5);
+        const ce = (entry.customEndTime || '').slice(0, 5);
+        // คำนวณชั่วโมงไว้แสดง
+        const [h1, m1] = cs.split(':').map(Number);
+        const [h2, m2] = ce.split(':').map(Number);
+        let mins = (h2 * 60 + m2) - (h1 * 60 + m1);
+        if (mins < 0) mins += 24 * 60;
+        mins -= Number(entry.customBreakMinutes || 0);
+        const hrs = +(mins / 60).toFixed(1);
+        const label = entry.customLabel || `${hrs} ชม.`;
+        cellContent = `<span class="shift-badge shift-badge-custom" title="กะกำหนดเอง · ทำงาน ${hrs} ชม. (พัก ${entry.customBreakMinutes || 0} นาที)">
+          <strong>${escapeHtml(label)}</strong>
+          <span class="shift-badge-time">${escapeHtml(cs)}–${escapeHtml(ce)}</span>
+        </span>`;
+        if (entry.isCrossBranch) cellContent += `<span class="cross-branch-mark" title="ข้ามสาขา">⇄</span>`;
       } else if (awayEntry) {
         // พนักงานสาขานี้ ถูกจัดกะที่สาขาอื่นในวันนี้ → แสดง read-only
         const awayShift = awayEntry.shiftId ? DB.getShift(awayEntry.shiftId) : null;
@@ -12686,7 +12704,8 @@ function renderScheduleGrid(branchId, weekStart, canEdit) {
     return `<tr class="${isHelper ? 'schedule-row-helper' : ''}">
       <th class="schedule-emp-cell">
         <div class="schedule-emp-name">
-          ${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName || '')}
+          <span class="schedule-emp-id">${escapeHtml(emp.id)}</span>
+          <span class="schedule-emp-fullname">${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName || '')}</span>
           ${emp.nickname ? `<span class="muted-2">(${escapeHtml(emp.nickname)})</span>` : ''}
           ${isHelper ? `<span class="badge badge-info" title="ข้ามสาขาจาก ${escapeHtml(emp.branch || '')}">⇄ ${escapeHtml(emp.branch || '')}</span>` : ''}
         </div>
@@ -12757,10 +12776,13 @@ function openShiftPicker(empId, workDate, entryId) {
     return dt.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   })();
 
+  const isCustomNow = !!(existingEntry && !existingEntry.shiftId && existingEntry.customStartTime);
   const body = `
     <div class="shift-picker">
       <div class="shift-picker-header">
-        <div><strong>${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName || '')}</strong></div>
+        <div><strong>${escapeHtml(emp.id)} · ${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName || '')}</strong>
+          ${emp.employeeType ? `<span class="badge" style="margin-left:8px">${escapeHtml(emp.employeeType)}</span>` : ''}
+        </div>
         <div class="muted-2">${escapeHtml(dayLabel)}</div>
       </div>
       <div class="shift-picker-grid">
@@ -12775,8 +12797,13 @@ function openShiftPicker(empId, workDate, entryId) {
             </div>
           </button>
         `).join('')}
+        <button class="shift-picker-option shift-picker-custom ${isCustomNow ? 'selected' : ''}" data-custom="1" style="border-left:6px dashed #6b7280">
+          <div class="shift-picker-code">⚙</div>
+          <div class="shift-picker-name">กะกำหนดเอง</div>
+          <div class="shift-picker-time muted-2">PT — ระบุเวลาเอง</div>
+        </button>
       </div>
-      ${shifts.length === 0 ? '<div class="empty-state" style="padding:24px;font-size:13px">ไม่มีกะที่เหมาะกับประเภทพนักงานนี้ — HR ต้องเพิ่มกะที่หน้า "จัดการกะ" ก่อน</div>' : ''}
+      ${shifts.length === 0 ? '<div class="empty-state" style="padding:24px;font-size:13px">ยังไม่มีกะมาสเตอร์ — ใช้ "กะกำหนดเอง" หรือเพิ่มกะที่หน้า "⚙ จัดการกะ"</div>' : ''}
     </div>
   `;
   const footer = `
@@ -12787,6 +12814,11 @@ function openShiftPicker(empId, workDate, entryId) {
   const root = $('#modalRoot');
   root.querySelectorAll('.shift-picker-option').forEach(btn => {
     btn.addEventListener('click', async () => {
+      if (btn.dataset.custom === '1') {
+        // เปิดฟอร์มกะกำหนดเอง
+        openCustomShiftForm(empId, workDate, existingEntry);
+        return;
+      }
       const shiftId = btn.dataset.shiftId;
       try {
         const w = await DB.ensureScheduleWeek(branchId, weekStart);
@@ -12799,7 +12831,12 @@ function openShiftPicker(empId, workDate, entryId) {
           shiftId,
           branchId,
           isCrossBranch,
-          note: existingEntry?.note || ''
+          note: existingEntry?.note || '',
+          // ล้าง custom เมื่อเปลี่ยนเป็น shift master
+          customStartTime: '',
+          customEndTime: '',
+          customBreakMinutes: 0,
+          customLabel: ''
         });
         modal.close();
         router.go('schedule');
@@ -12820,6 +12857,122 @@ function openShiftPicker(empId, workDate, entryId) {
       } catch (ex) {
         toast(ex.message || String(ex), 'error');
       }
+    });
+  }
+}
+
+// === CUSTOM SHIFT FORM (PT เวลาไม่ตายตัว) ===
+
+function openCustomShiftForm(empId, workDate, existingEntry) {
+  const branchId = _scheduleState.branchId;
+  const weekStart = _scheduleState.weekStart;
+  const emp = DB.getEmployee(empId);
+  if (!emp) return;
+  const dayLabel = (() => {
+    const [y, m, d] = parseYMD(workDate);
+    return new Date(y, m - 1, d).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long' });
+  })();
+
+  const cur = {
+    startTime: (existingEntry?.customStartTime || '').slice(0, 5) || '17:00',
+    endTime:   (existingEntry?.customEndTime   || '').slice(0, 5) || '21:00',
+    breakMinutes: existingEntry?.customBreakMinutes || 0,
+    label: existingEntry?.customLabel || ''
+  };
+
+  const body = `
+    <div class="custom-shift-form">
+      <div class="custom-shift-header">
+        <strong>${escapeHtml(emp.id)} · ${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName || '')}</strong>
+        ${emp.employeeType ? `<span class="badge" style="margin-left:8px">${escapeHtml(emp.employeeType)}</span>` : ''}
+        <div class="muted-2" style="margin-top:4px">${escapeHtml(dayLabel)}</div>
+      </div>
+      <form id="customShiftForm" class="form-grid">
+        <div class="form-group">
+          <label>เวลาเริ่ม</label>
+          <input type="time" name="startTime" value="${escapeHtml(cur.startTime)}" step="900" required />
+        </div>
+        <div class="form-group">
+          <label>เวลาเลิก</label>
+          <input type="time" name="endTime" value="${escapeHtml(cur.endTime)}" step="900" required />
+        </div>
+        <div class="form-group">
+          <label>พักกี่นาที <span class="muted-2">(0 = ไม่พัก)</span></label>
+          <input type="number" name="breakMinutes" min="0" max="240" step="15" value="${cur.breakMinutes}" />
+        </div>
+        <div class="form-group">
+          <label>ป้ายในเซลล์ <span class="muted-2">(ว่าง = "X ชม.")</span></label>
+          <input type="text" name="label" maxlength="20" value="${escapeHtml(cur.label)}" placeholder="เช่น PT 3 ชม." />
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <div id="customShiftPreview" class="custom-shift-preview"></div>
+        </div>
+      </form>
+    </div>
+  `;
+  modal.open('กะกำหนดเอง', body, {
+    footer: `${existingEntry ? '<button class="btn btn-danger" data-clear>ล้างกะ</button>' : ''}
+             <button class="btn btn-secondary" data-close>ยกเลิก</button>
+             <button class="btn btn-primary" id="customShiftSaveBtn">บันทึก</button>`
+  });
+
+  const form = $('#customShiftForm');
+  const preview = $('#customShiftPreview');
+  const updatePreview = () => {
+    const fd = new FormData(form);
+    const s = fd.get('startTime'), e = fd.get('endTime');
+    const br = Number(fd.get('breakMinutes') || 0);
+    if (s && e) {
+      const [sh, sm] = s.split(':').map(Number);
+      const [eh, em] = e.split(':').map(Number);
+      let mins = (eh * 60 + em) - (sh * 60 + sm);
+      if (mins < 0) mins += 24 * 60;
+      const work = Math.max(0, mins - br);
+      preview.innerHTML = `รวมเวลา <strong>${(mins / 60).toFixed(1)}</strong> ชม. · พัก <strong>${br}</strong> นาที · ทำงานจริง <strong>${(work / 60).toFixed(1)}</strong> ชม.`;
+    } else {
+      preview.textContent = '';
+    }
+  };
+  form.addEventListener('input', updatePreview);
+  updatePreview();
+
+  $('#customShiftSaveBtn').addEventListener('click', async () => {
+    const fd = new FormData(form);
+    const startTime = fd.get('startTime');
+    const endTime = fd.get('endTime');
+    if (!startTime || !endTime) { toast('ระบุเวลาเริ่ม-เลิกให้ครบ', 'warning'); return; }
+    try {
+      const w = await DB.ensureScheduleWeek(branchId, weekStart);
+      const isCrossBranch = emp.branch !== branchId;
+      await DB.saveScheduleEntry({
+        id: existingEntry?.id,
+        scheduleWeekId: w.id,
+        employeeId: empId,
+        workDate,
+        shiftId: null,
+        branchId,
+        isCrossBranch,
+        note: existingEntry?.note || '',
+        customStartTime: startTime,
+        customEndTime: endTime,
+        customBreakMinutes: Number(fd.get('breakMinutes') || 0),
+        customLabel: (fd.get('label') || '').toString().trim()
+      });
+      modal.close();
+      router.go('schedule');
+      toast('บันทึกกะกำหนดเองแล้ว', 'success');
+    } catch (ex) { toast(ex.message || String(ex), 'error'); }
+  });
+
+  const clearBtn = $('#modalRoot').querySelector('[data-clear]');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async () => {
+      try {
+        await DB.deleteScheduleEntry(existingEntry.id);
+        modal.close();
+        router.go('schedule');
+        toast('ล้างกะแล้ว', 'success');
+      } catch (ex) { toast(ex.message || String(ex), 'error'); }
     });
   }
 }
