@@ -12724,11 +12724,10 @@ function openShiftPicker(empId, workDate, entryId) {
 
   const existingEntry = entryId ? (DB.data.scheduleEntries || []).find(e => e.id === entryId) : null;
   const currentShiftId = existingEntry?.shiftId || '';
-  const shifts = DB.getShifts({
-    activeOnly: true,
-    employeeType: emp.employeeType || null,
-    branchId  // กรองให้ตรงสาขา (กะที่ branch_id = null = ใช้ได้ทุกสาขา)
-  });
+  // แสดงกะที่ active ทั้งหมดที่ตรงสาขา (กะที่ branch_id = null = ใช้ได้ทุกสาขา)
+  // ไม่ auto-filter ตาม employeeType เพราะ DB อาจเก็บเป็นภาษาไทย ไม่ตรง key ในกะ
+  // (employeeType ใน shift = แนะนำ ไม่ใช่บังคับ — HR/manager เลือกได้อิสระ)
+  const shifts = DB.getShifts({ activeOnly: true, branchId });
 
   const dayLabel = (() => {
     const [y, m, d] = parseYMD(workDate);
