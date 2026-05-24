@@ -3205,6 +3205,85 @@ const DB = {
     };
   },
 
+  // ─── LEAVE/SWAP STATS (ตามประเภท + เฉลี่ยต่อพนักงาน per branch/department) ───
+  // ใช้ใน dashboard card "ภาพรวมการลา"
+  getLeaveSwapStats({ scope = '', year = new Date().getFullYear() } = {}) {
+    return this._cachedStats(`leaveSwapStats:${scope}:${year}:${this.role || ''}`,
+      () => this._computeLeaveSwapStats({ scope, year }));
+  },
+  _computeLeaveSwapStats({ scope = '', year } = {}) {
+    const emps = this._filterByScope(this.getEmployees(), scope);
+    const active = emps.filter(e => this.empStatus(e) !== 'resigned');
+    const empIds = new Set(active.map(e => e.id));
+    const headcount = active.length;
+    // by leave type — รวมเฉพาะ approved ในปีที่เลือก
+    const types = this.getLeaveTypesList();
+    const yearStart = `${year}-01-01`;
+    const yearEnd = `${year}-12-31`;
+    const byType = types.map(t => {
+      const matched = (this.data.leaveRequests || []).filter(r =>
+        r.status === 'approved' && r.leaveType === t.id &&
+        empIds.has(r.employeeId) &&
+        r.startDate >= yearStart && r.startDate <= yearEnd
+      );
+      const totalDays = matched.reduce((s, r) => s + Number(r.days || 0), 0);
+      const uniqueEmps = new Set(matched.map(r => r.employeeId)).size;
+      return {
+        id: t.id, label: t.label, badge: t.badge || 'badge-info',
+        totalDays, requestCount: matched.length, uniqueEmps,
+        avgPerEmp: headcount ? +(totalDays / headcount).toFixed(2) : 0
+      };
+    });
+    // swap days (วันหยุดชดเชย — รวม approved ในปี)
+    const swapMatched = (this.data.holidaySwapRequests || []).filter(r =>
+      r.status === 'approved' &&
+      empIds.has(r.employeeId) &&
+      r.swapToDate >= yearStart && r.swapToDate <= yearEnd
+    );
+    const swapTotal = swapMatched.length;     // 1 swap = 1 วันชดเชย
+    const swapUnique = new Set(swapMatched.map(r => r.employeeId)).size;
+    // per branch breakdown
+    const byBranch = new Map();
+    for (const r of (this.data.leaveRequests || [])) {
+      if (r.status !== 'approved') continue;
+      if (!empIds.has(r.employeeId)) continue;
+      if (r.startDate < yearStart || r.startDate > yearEnd) continue;
+      const emp = this.getEmployee(r.employeeId);
+      const b = emp?.branch || 'ไม่ระบุ';
+      if (!byBranch.has(b)) byBranch.set(b, { branch: b, leaveDays: 0, swapDays: 0, empCount: 0 });
+      byBranch.get(b).leaveDays += Number(r.days || 0);
+    }
+    for (const r of swapMatched) {
+      const emp = this.getEmployee(r.employeeId);
+      const b = emp?.branch || 'ไม่ระบุ';
+      if (!byBranch.has(b)) byBranch.set(b, { branch: b, leaveDays: 0, swapDays: 0, empCount: 0 });
+      byBranch.get(b).swapDays += 1;
+    }
+    // populate emp count per branch
+    for (const e of active) {
+      const b = e.branch || 'ไม่ระบุ';
+      if (!byBranch.has(b)) byBranch.set(b, { branch: b, leaveDays: 0, swapDays: 0, empCount: 0 });
+      byBranch.get(b).empCount += 1;
+    }
+    const branches = Array.from(byBranch.values())
+      .map(x => ({ ...x, avgLeavePerEmp: x.empCount ? +(x.leaveDays / x.empCount).toFixed(2) : 0,
+                          avgSwapPerEmp:  x.empCount ? +(x.swapDays / x.empCount).toFixed(2) : 0 }))
+      .sort((a, b) => (b.leaveDays + b.swapDays) - (a.leaveDays + a.swapDays));
+    // overall totals
+    const totalLeaveDays = byType.reduce((s, t) => s + t.totalDays, 0);
+    return {
+      year, headcount,
+      byType,
+      swap: { totalDays: swapTotal, uniqueEmps: swapUnique, avgPerEmp: headcount ? +(swapTotal / headcount).toFixed(2) : 0 },
+      branches,
+      totals: {
+        leaveDays: totalLeaveDays,
+        swapDays: swapTotal,
+        avgLeavePerEmp: headcount ? +(totalLeaveDays / headcount).toFixed(2) : 0
+      }
+    };
+  },
+
   // ─── BRANCH STATS (จำนวนพนักงานต่อสาขา — เฉพาะที่ยังปฏิบัติงาน) ───
   // ─── Helper: กรอง employees ตาม scope (สายงาน) ───
   // ใช้ใน dashboard filters: scope = 'operation'/'office'/'scm'/... | '' = no filter

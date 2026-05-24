@@ -987,6 +987,8 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   overflow: hidden;
   animation: notifPanelIn 0.18s var(--ease-out);
 }
+/* ⚠️ ต้องอยู่หลัง .notif-panel เพื่อ override display:flex — กัน panel ค้างเปิด */
+.notif-panel[hidden] { display: none; }
 @keyframes notifPanelIn {
   0%   { opacity: 0; transform: translateY(-6px) scale(0.98); }
   100% { opacity: 1; transform: translateY(0) scale(1); }

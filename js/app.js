@@ -547,7 +547,7 @@ const auth = {
       if (typeof _calendarState === 'object') _calendarState.filterYear = new Date().getFullYear();
       if (typeof _empAccFilter === 'object') Object.assign(_empAccFilter, { search: '', branch: '', role: '', accStatus: '' });
       if (typeof _leaveState === 'object') Object.assign(_leaveState, { tab: 'pending', filterYear: new Date().getFullYear() });
-      if (typeof _leaveFilters === 'object') Object.assign(_leaveFilters, { search: '', leaveType: '', status: '', branch: '', from: '', to: '' });
+      if (typeof _leaveFilters === 'object') Object.assign(_leaveFilters, { search: '', leaveType: '', status: '', branch: '', department: '', scope: '', from: '', to: '' });
       if (typeof _auditState === 'object') Object.assign(_auditState, { page: 0, filterTable: '', filterAction: '', filterSearch: '', rows: [], total: 0, hasLoaded: false });
     } catch (e) { /* state may not exist yet */ }
     this.showLogin();
@@ -1265,6 +1265,7 @@ router.register('dashboard', () => {
   const branchStats = DB.getBranchStats(opts);
   // scope chart = breakdown ของทุกสาย → แสดงเสมอ (ไม่ filter)
   const scopeStats = DB.getScopeStats();
+  const leaveSwapStats = DB.getLeaveSwapStats({ ...opts, year: new Date().getFullYear() });
   const recentEmps = DB._filterByScope(DB.getEmployees(), scope)
     .filter(e => DB.empStatus(e) !== 'resigned')
     .sort((a, b) => (b.hireDate || '').localeCompare(a.hireDate || ''))
@@ -1485,6 +1486,82 @@ router.register('dashboard', () => {
       </div>
     </div>`;
     })() : ''}
+
+    ${(() => {
+      const ls = leaveSwapStats;
+      if (!ls || !ls.headcount) return '';
+      const typesWithData = ls.byType.filter(t => t.totalDays > 0);
+      if (!typesWithData.length && !ls.swap.totalDays) return '';
+      return `
+    <div class="sw-section-label">ภาพรวมการลา · ปี ${ls.year + 543}</div>
+    <div class="sw-chart-card">
+      <div class="sw-chart-header">
+        <div>
+          <div class="sw-chart-title">วันลาแยกตามประเภท + วันชดเชย (ทั้งปี)</div>
+          <div class="sw-chart-sub">จากพนักงาน ${fmt.num(ls.headcount)} คนที่ยังปฏิบัติงาน · นับเฉพาะที่ "อนุมัติแล้ว"</div>
+        </div>
+      </div>
+      <!-- Totals row -->
+      <div class="sw-stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-top:14px;margin-bottom:18px">
+        <div class="sw-stat-card sw-accent-primary" style="padding:14px 16px">
+          <div class="sw-stat-label">วันลารวม</div>
+          <div class="sw-stat-value">${fmt.num(ls.totals.leaveDays)}</div>
+          <div class="sw-stat-change">เฉลี่ย ${ls.totals.avgLeavePerEmp} วัน/คน</div>
+        </div>
+        <div class="sw-stat-card sw-accent-green" style="padding:14px 16px">
+          <div class="sw-stat-label">วันชดเชย (swap)</div>
+          <div class="sw-stat-value">${fmt.num(ls.swap.totalDays)}</div>
+          <div class="sw-stat-change">เฉลี่ย ${ls.swap.avgPerEmp} วัน/คน</div>
+        </div>
+      </div>
+      <!-- Breakdown by type -->
+      ${typesWithData.length ? `
+      <div class="sw-section-label" style="margin-top:0;font-size:11.5px">แยกตามประเภท</div>
+      <div class="table-wrap"><table class="table table-compact" style="margin-top:6px">
+        <thead><tr>
+          <th>ประเภท</th>
+          <th class="num">วันรวม</th>
+          <th class="num">คำขอ</th>
+          <th class="num">พนักงานที่ใช้</th>
+          <th class="num">เฉลี่ย/คน</th>
+        </tr></thead>
+        <tbody>
+          ${typesWithData.map(t => `<tr>
+            <td><span class="badge ${escapeHtml(t.badge)}" style="font-size:11px">${escapeHtml(t.label)}</span></td>
+            <td class="num"><strong>${fmt.num(t.totalDays)}</strong></td>
+            <td class="num">${fmt.num(t.requestCount)}</td>
+            <td class="num">${fmt.num(t.uniqueEmps)}</td>
+            <td class="num">${t.avgPerEmp}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>` : ''}
+      <!-- Per branch breakdown -->
+      ${ls.branches.length ? `
+      <div class="sw-section-label" style="margin-top:18px;font-size:11.5px">เฉลี่ย/คน แยกตามสาขา (เรียงจากสาขาที่ใช้มากสุด)</div>
+      <div style="max-height:340px;overflow-y:auto;padding-right:6px;margin-top:6px">
+        <table class="table table-compact" style="margin-top:0">
+          <thead><tr>
+            <th>สาขา</th>
+            <th class="num">พนักงาน</th>
+            <th class="num">วันลา</th>
+            <th class="num">วันชดเชย</th>
+            <th class="num">เฉลี่ยลา/คน</th>
+            <th class="num">เฉลี่ยชดเชย/คน</th>
+          </tr></thead>
+          <tbody>
+            ${ls.branches.map(b => `<tr>
+              <td><strong>${escapeHtml(b.branch)}</strong></td>
+              <td class="num">${fmt.num(b.empCount)}</td>
+              <td class="num">${fmt.num(b.leaveDays)}</td>
+              <td class="num">${fmt.num(b.swapDays)}</td>
+              <td class="num" style="color:${b.avgLeavePerEmp > 5 ? 'var(--warning-text)' : 'var(--text)'}">${b.avgLeavePerEmp}</td>
+              <td class="num">${b.avgSwapPerEmp}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : ''}
+    </div>`;
+    })()}
 
     <div class="sw-section-label">ภาพรวมพนักงาน</div>
     <div class="sw-charts-grid">
@@ -10444,7 +10521,7 @@ function auditGoPage(p) {
 //  PAGE: LEAVE MANAGEMENT (การลางาน)
 // ═══════════════════════════════════════════════════════
 const _leaveState = { tab: 'pending', filterYear: new Date().getFullYear() };
-const _leaveFilters = { search: '', leaveType: '', status: '', branch: '', from: '', to: '' };
+const _leaveFilters = { search: '', leaveType: '', status: '', branch: '', department: '', scope: '', from: '', to: '' };
 
 function setLeaveFilter(field, value) {
   _leaveFilters[field] = value;
@@ -10471,9 +10548,18 @@ function applyLeaveFilters(list) {
     if (f.status && r.status !== f.status) return false;
     if (f.from && (r.startDate || '') < f.from) return false;
     if (f.to && (r.startDate || '') > f.to) return false;
-    if (f.branch) {
+    if (f.branch || f.department || f.scope) {
       const e = DB.getEmployee(r.employeeId);
-      if (!e || e.branch !== f.branch) return false;
+      if (!e) return false;
+      if (f.branch && e.branch !== f.branch) return false;
+      if (f.department && e.department !== f.department) return false;
+      if (f.scope) {
+        // resolution: position.scope → dept.scope fallback (เหมือน _filterByScope)
+        const pos = e.position ? DB.getPosition(e.position) : null;
+        const dept = e.department ? DB.getDepartment(e.department) : null;
+        const empScope = pos?.scope || dept?.scope || null;
+        if (empScope !== f.scope) return false;
+      }
     }
     if (search) {
       const e = DB.getEmployee(r.employeeId);
@@ -10657,6 +10743,14 @@ function renderLeaveFilterBar(scope = 'requests') {
     ${showBranch ? `<select class="sw-filter-select" onchange="setLeaveFilter('branch', this.value)">
       <option value="">— ทุกสาขา —</option>
       ${branches.map(b => `<option value="${escapeHtml(b)}" ${_leaveFilters.branch === b ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('')}
+    </select>` : ''}
+    ${!isSelfOnly ? `<select class="sw-filter-select" onchange="setLeaveFilter('department', this.value)">
+      <option value="">— ทุกฝ่าย —</option>
+      ${(DB.getDepartments?.() || []).map(d => `<option value="${escapeHtml(d.id)}" ${_leaveFilters.department === d.id ? 'selected' : ''}>${escapeHtml(d.id + ' — ' + (d.name || d.id))}</option>`).join('')}
+    </select>` : ''}
+    ${!isSelfOnly ? `<select class="sw-filter-select" onchange="setLeaveFilter('scope', this.value)">
+      <option value="">— ทุกสายงาน —</option>
+      ${(DB.getScopes?.() || []).map(sc => `<option value="${escapeHtml(sc.id)}" ${_leaveFilters.scope === sc.id ? 'selected' : ''}>${escapeHtml(sc.label || sc.id)}</option>`).join('')}
     </select>` : ''}
     ${showDates ? `<div class="sw-filter-date-group">
       <input type="date" class="sw-filter-input sw-filter-date" title="ตั้งแต่วันที่" value="${_leaveFilters.from || ''}" onchange="setLeaveFilter('from', this.value)"/>
@@ -11028,7 +11122,7 @@ async function openLeaveRequestForm(id = null, prefilledType = null) {
           <input type="hidden" name="days" id="leaveDays" value="${editing?.days || 1}"/>
           <label id="leaveHalfDayWrap" style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12.5px;cursor:pointer;${(editing?.startDate === editing?.endDate || !editing) ? '' : 'opacity:0.4;pointer-events:none'}">
             <input type="checkbox" id="leaveHalfDay" ${editing?.days === 0.5 ? 'checked' : ''}/>
-            <span>ลาครึ่งวัน (0.5 วัน) — เฉพาะตอนลาวันเดียว</span>
+            <span>ลาครึ่งวัน (0.5 วัน) — เฉพาะลาป่วย/ลากิจ + ลาวันเดียว</span>
           </label>
         </div>
         <div class="form-group span-2"><label>เหตุผล</label><textarea name="reason" rows="2" placeholder="ระบุเหตุผลโดยย่อ">${escapeHtml(editing?.reason || '')}</textarea></div>
@@ -11060,20 +11154,25 @@ async function openLeaveRequestForm(id = null, prefilledType = null) {
     }
     const calendarDays = Math.round((new Date(e) - new Date(s)) / 86400000) + 1;
     const isSameDay = (s === e);
-    // half-day checkbox: enable เฉพาะตอน start=end
+    const type = $('#leaveType')?.value || '';
+    // half-day allowed เฉพาะลาป่วย (sick) / ลากิจ (personal) — นโยบายบริษัท
+    const HALF_DAY_TYPES = new Set(['sick', 'personal']);
+    const typeAllowsHalf = HALF_DAY_TYPES.has(type);
+    // half-day checkbox: enable เฉพาะตอน start=end + ประเภทอนุญาต
     if (halfDayBox && halfDayWrap) {
-      if (isSameDay) {
+      const canHalf = isSameDay && typeAllowsHalf;
+      if (canHalf) {
         halfDayWrap.style.opacity = '';
         halfDayWrap.style.pointerEvents = '';
         halfDayBox.disabled = false;
       } else {
         halfDayWrap.style.opacity = '0.4';
         halfDayWrap.style.pointerEvents = 'none';
-        halfDayBox.checked = false;     // auto-uncheck ตอน range > 1 วัน
+        halfDayBox.checked = false;     // auto-uncheck ถ้าเงื่อนไขไม่ครบ
         halfDayBox.disabled = true;
       }
     }
-    const days = (isSameDay && halfDayBox?.checked) ? 0.5 : calendarDays;
+    const days = (isSameDay && typeAllowsHalf && halfDayBox?.checked) ? 0.5 : calendarDays;
     if (display) display.textContent = String(days);
     if (hidden) hidden.value = String(days);
   };
@@ -11132,7 +11231,7 @@ async function openLeaveRequestForm(id = null, prefilledType = null) {
   $('#leaveStart').addEventListener('change', () => { recalc(); updateHint(); updateBackdate(); });
   $('#leaveEnd').addEventListener('change', () => { recalc(); updateHint(); });
   $('#leaveHalfDay').addEventListener('change', () => { recalc(); updateHint(); });
-  $('#leaveType').addEventListener('change', () => { updateHint(); updateBackdate(); });
+  $('#leaveType').addEventListener('change', () => { recalc(); updateHint(); updateBackdate(); });
   recalc();              // initial calc + setup half-day toggle state
   updateHint();
   updateApprover();
