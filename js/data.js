@@ -2766,6 +2766,34 @@ const DB = {
     return mapped;
   },
 
+  // ─── OVERLAP DETECTION (กันลาซ้ำ + ลาตรงวันชดเชย swap) ───
+  // คืน array ของคำขอลาอื่นๆ ที่ทับซ้อนกับช่วง [startDate, endDate] ของพนักงานคนนี้
+  // ข้าม rejected / cancelled (เพราะไม่มีผลแล้ว) + ข้าม excludeId (กรณี edit)
+  findLeaveOverlap(empId, startDate, endDate, excludeId = null) {
+    if (!empId || !startDate || !endDate) return [];
+    return (this.data.leaveRequests || []).filter(r => {
+      if (r.id === excludeId) return false;
+      if (r.employeeId !== empId) return false;
+      if (r.status === 'rejected' || r.status === 'cancelled') return false;
+      if (!r.startDate || !r.endDate) return false;
+      // overlap = startA <= endB AND startB <= endA
+      return r.startDate <= endDate && startDate <= r.endDate;
+    });
+  },
+
+  // คืน array ของ swap requests ที่ swapToDate ตรงกับช่วงวันลา
+  // (พนักงานได้วันชดเชยวันนั้นอยู่แล้ว — ไม่ควรลา/swap ทับ)
+  findSwapOnDate(empId, startDate, endDate, excludeId = null) {
+    if (!empId || !startDate || !endDate) return [];
+    return (this.data.holidaySwapRequests || []).filter(r => {
+      if (r.id === excludeId) return false;
+      if (r.employeeId !== empId) return false;
+      if (r.status === 'rejected' || r.status === 'cancelled') return false;
+      if (!r.swapToDate) return false;
+      return r.swapToDate >= startDate && r.swapToDate <= endDate;
+    });
+  },
+
   // ตรวจสิทธิ์อนุมัติ: admin/hr → ทุกคำขอ, area_manager/branch_manager → เฉพาะคนที่ตัวเองเป็น approver ของ
   _ensureCanApproveLeave(requestId) {
     if (this.isHR) return; // admin + hr override ได้

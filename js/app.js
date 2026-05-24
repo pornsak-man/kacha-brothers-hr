@@ -9495,6 +9495,28 @@ function openSwapRequestForm(calendarItemId = null) {
         toast(`${emp?.firstName || targetEmpId} มีคำขอ${status}อยู่แล้วสำหรับวันหยุดนี้`, 'warning');
         return;
       }
+      // ─── OVERLAP CHECK — swapToDate ต้องไม่ทับวันลาที่มีอยู่แล้ว ───
+      const overlapLeaves = DB.findLeaveOverlap(targetEmpId, data.swapToDate, data.swapToDate, null);
+      const overlapSwaps  = DB.findSwapOnDate(targetEmpId, data.swapToDate, data.swapToDate, null);
+      if (overlapLeaves.length || overlapSwaps.length) {
+        const leaveDetail = overlapLeaves.map(r => {
+          const typeLabel = DB.LEAVE_TYPES[r.leaveType]?.label || r.leaveType;
+          const range = r.startDate === r.endDate ? r.startDate : `${r.startDate} – ${r.endDate}`;
+          const status = r.status === 'pending' ? 'รออนุมัติ' : r.status === 'approved' ? 'อนุมัติแล้ว' : r.status;
+          return `• ${typeLabel} · ${range} · ${status}`;
+        }).join('\n');
+        const swapDetail = overlapSwaps.map(r => {
+          const status = r.status === 'pending' ? 'รออนุมัติ' : r.status === 'approved' ? 'อนุมัติแล้ว' : r.status;
+          return `• วันชดเชย (swap อื่น) · ${r.swapToDate} · ${status}`;
+        }).join('\n');
+        const detail = [leaveDetail, swapDetail].filter(Boolean).join('\n');
+        if (DB.isHR) {
+          if (!confirm(`⚠️ วันชดเชย ${data.swapToDate} ทับซ้อนกับ:\n\n${detail}\n\nต้องการบันทึกต่อหรือไม่? (HR override)`)) return;
+        } else {
+          toast(`⛔ วันชดเชยทับกับ:\n${detail}\nกรุณาเลือกวันอื่น`, 'error');
+          return;
+        }
+      }
       const autoApprove = canAssignOthers && data.autoApprove === 'on';
       const saved = await DB.saveHolidaySwapRequest({
         calendarItemId: calId,
@@ -11065,6 +11087,30 @@ function openLeaveRequestForm(id = null, prefilledType = null) {
     // กฎ: ห้ามลาย้อนหลัง — เช็คจาก allowBackdate ของแต่ละประเภท (admin แก้ใน config tab ได้)
     if (data.startDate < today && !DB.LEAVE_TYPES[data.leaveType]?.allowBackdate) {
       return toast('ห้ามลาย้อนหลังสำหรับประเภทนี้ (ดู config ที่ tab "ตั้งค่าประเภท")', 'error');
+    }
+    // ─── OVERLAP CHECK — กันลาซ้ำ + ลาตรงวันชดเชย swap ───
+    const overlapLeaves = DB.findLeaveOverlap(data.employeeId, data.startDate, data.endDate, id);
+    const overlapSwaps  = DB.findSwapOnDate(data.employeeId, data.startDate, data.endDate, null);
+    if (overlapLeaves.length || overlapSwaps.length) {
+      const leaveDetail = overlapLeaves.map(r => {
+        const typeLabel = DB.LEAVE_TYPES[r.leaveType]?.label || r.leaveType;
+        const range = r.startDate === r.endDate ? r.startDate : `${r.startDate} – ${r.endDate}`;
+        const status = r.status === 'pending' ? 'รออนุมัติ' : r.status === 'approved' ? 'อนุมัติแล้ว' : r.status;
+        return `• ${typeLabel} · ${range} · ${status}`;
+      }).join('\n');
+      const swapDetail = overlapSwaps.map(r => {
+        const status = r.status === 'pending' ? 'รออนุมัติ' : r.status === 'approved' ? 'อนุมัติแล้ว' : r.status;
+        return `• วันชดเชย (swap) · ${r.swapToDate} · ${status}`;
+      }).join('\n');
+      const detail = [leaveDetail, swapDetail].filter(Boolean).join('\n');
+      if (DB.isHR) {
+        // HR/admin: เตือน + ให้ confirm ทำต่อได้ (override)
+        if (!confirm(`⚠️ พบรายการทับซ้อน:\n\n${detail}\n\nต้องการบันทึกต่อหรือไม่? (HR override)`)) return;
+      } else {
+        // staff/manager: block
+        toast(`⛔ มีรายการทับซ้อนในช่วงวันที่นี้:\n${detail}\nกรุณายกเลิกของเดิมก่อน`, 'error');
+        return;
+      }
     }
     try {
       const payload = { ...data, days: Number(data.days) };
