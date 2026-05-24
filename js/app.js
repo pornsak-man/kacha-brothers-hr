@@ -12673,7 +12673,8 @@ document.addEventListener('submit', async (e) => {
 
 const _leaveCalState = {
   month: null,     // YYYY-MM
-  branchId: null   // null = ของฉัน (auto-scope)
+  branchId: null,  // null = ทุกสาขา (สำหรับ HR/op_manager หรือ area_manager หลายสาขา) | string = สาขาเดียว
+  _branchSet: false  // ใช้ตรวจว่า user ปรับ branchId แล้วหรือยัง
 };
 
 const LEAVE_TYPE_COLOR = {
@@ -12691,13 +12692,18 @@ function leaveTypeColor(t) { return LEAVE_TYPE_COLOR[t] || LEAVE_TYPE_COLOR._def
 
 function initLeaveCalState() {
   if (!_leaveCalState.month) _leaveCalState.month = tz.thisMonth();
-  if (!_leaveCalState.branchId) {
-    if (DB.role === 'branch_manager' || DB.role === 'area_manager' || DB.role === 'branch_staff' || DB.role === 'viewer') {
-      _leaveCalState.branchId = DB._myBranch();
+  if (!_leaveCalState._branchSet) {
+    // HR/admin/op_manager → default "ทุกสาขา" (null)
+    if (DB.isHR || DB.role === 'operation_manager') {
+      _leaveCalState.branchId = null;
+    } else if (DB.role === 'area_manager') {
+      // AM ดูแลหลายสาขา → default ทุกสาขาที่ดูแล (null), 1 สาขา → สาขานั้น
+      const scoped = DB.scopedBranches() || [];
+      _leaveCalState.branchId = scoped.length > 1 ? null : (scoped[0] || null);
     } else {
-      const branches = (DB.data.branches || []).filter(b => b.active);
-      _leaveCalState.branchId = branches[0]?.id || null;
+      _leaveCalState.branchId = DB._myBranch();
     }
+    _leaveCalState._branchSet = true;
   }
 }
 
@@ -12733,16 +12739,26 @@ router.register('leave-calendar', () => {
 
   // ─── สาขา options ตาม scope ───
   let branchOptions;
+  let canSelectAll = false;
   if (DB.isHR || DB.role === 'operation_manager') {
     branchOptions = (DB.data.branches || []).filter(b => b.active);
+    canSelectAll = true;
+  } else if (DB.role === 'area_manager') {
+    const scoped = DB.scopedBranches() || [];
+    branchOptions = (DB.data.branches || []).filter(b => scoped.includes(b.id) && b.active);
+    canSelectAll = branchOptions.length > 1;  // ดูแลหลายสาขาเท่านั้นเห็น "ทุกสาขา"
   } else {
     const scoped = DB.scopedBranches() || [];
     branchOptions = (DB.data.branches || []).filter(b => scoped.includes(b.id) && b.active);
   }
+  const isAllBranches = !branchId && canSelectAll;
+  const allowedBranchIds = isAllBranches
+    ? branchOptions.map(b => b.id)
+    : (branchId ? [branchId] : []);
 
-  // ─── employees ของสาขานี้ (active) ───
+  // ─── employees ของสาขาที่เลือก (active) ───
   const empsInBranch = (DB.data.employees || []).filter(e =>
-    e.branch === branchId && DB.empStatus(e) !== 'resigned'
+    allowedBranchIds.includes(e.branch) && DB.empStatus(e) !== 'resigned'
   );
   const empIds = new Set(empsInBranch.map(e => e.id));
 
@@ -12824,7 +12840,8 @@ router.register('leave-calendar', () => {
     const dots = items.slice(0, maxDots).map(it => {
       const color = it.kind === 'swap' ? '#0891b2' : leaveTypeColor(it.leaveType);
       const opacity = it.status === 'pending' ? 0.5 : 1;
-      const title = `${it.emp?.firstName || '?'} · ${it.kind === 'swap' ? 'ชดเชย' : (DB.LEAVE_TYPES?.[it.leaveType]?.label || it.leaveType)}${it.status === 'pending' ? ' (รออนุมัติ)' : ''}`;
+      const branchTag = isAllBranches && it.emp?.branch ? `[${it.emp.branch}] ` : '';
+      const title = `${branchTag}${it.emp?.firstName || '?'} · ${it.kind === 'swap' ? 'ชดเชย' : (DB.LEAVE_TYPES?.[it.leaveType]?.label || it.leaveType)}${it.status === 'pending' ? ' (รออนุมัติ)' : ''}`;
       return `<span class="lcal-dot" title="${escapeHtml(title)}" style="background:${color};opacity:${opacity}"></span>`;
     }).join('');
     const extra = items.length > maxDots ? `<span class="lcal-more">+${items.length - maxDots}</span>` : '';
@@ -12856,7 +12873,9 @@ router.register('leave-calendar', () => {
         return `<div class="lcal-today-item">
           <span class="lcal-dot lcal-dot-lg" style="background:${color};opacity:${it.status === 'pending' ? 0.5 : 1}"></span>
           <div class="lcal-today-info">
-            <div><strong>${escapeHtml((it.emp?.firstName || '?') + ' ' + (it.emp?.lastName || ''))}</strong>
+            <div>
+              ${isAllBranches && it.emp?.branch ? `<span class="badge" style="font-size:10px;margin-right:4px">${escapeHtml(it.emp.branch)}</span>` : ''}
+              <strong>${escapeHtml((it.emp?.firstName || '?') + ' ' + (it.emp?.lastName || ''))}</strong>
               ${it.emp?.nickname ? `<span class="muted-2">(${escapeHtml(it.emp.nickname)})</span>` : ''}
             </div>
             <div class="muted-2" style="font-size:11px">${escapeHtml(it.emp?.id || '')} · ${escapeHtml(typeLabel)}${it.status === 'pending' ? ' · <span class="badge badge-warning" style="font-size:9px">รออนุมัติ</span>' : ''}</div>
@@ -12889,13 +12908,13 @@ router.register('leave-calendar', () => {
         <div class="sw-stat-icon" style="background:rgba(124,58,237,0.12);color:#7c3aed">∑</div>
         <div class="sw-stat-label">รวมเดือน ${_formatMonthTH(month)}</div>
         <div class="sw-stat-value">${fmt.num(monthTotalLeaveDays)}</div>
-        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">วัน-คน ที่ลาในสาขานี้</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">วัน-คน ที่ลาใน${isAllBranches ? `${allowedBranchIds.length} สาขา` : 'สาขานี้'}</div>
       </div>
       <div class="sw-stat-card">
         <div class="sw-stat-icon" style="background:rgba(22,163,74,0.12);color:var(--success)">👥</div>
-        <div class="sw-stat-label">พนักงานสาขา</div>
+        <div class="sw-stat-label">${isAllBranches ? 'พนักงานทุกสาขา' : 'พนักงานสาขา'}</div>
         <div class="sw-stat-value">${fmt.num(empsInBranch.length)}</div>
-        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">active ในสาขานี้</div>
+        <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">active${isAllBranches ? ` · ${allowedBranchIds.length} สาขา` : ' ในสาขานี้'}</div>
       </div>
     </div>
 
@@ -12908,8 +12927,9 @@ router.register('leave-calendar', () => {
           <div class="lcal-month-label">${_formatMonthTH(month)}</div>
         </div>
         <div style="flex:1"></div>
-        <select class="sw-filter-select" onchange="setLeaveCalBranch(this.value)" ${(branchOptions.length === 1 && !DB.isHR) ? 'disabled' : ''}>
+        <select class="sw-filter-select" onchange="setLeaveCalBranch(this.value)" ${(branchOptions.length === 1 && !canSelectAll) ? 'disabled' : ''}>
           ${branchOptions.length === 0 ? '<option value="">— ไม่มีสาขา —</option>' : ''}
+          ${canSelectAll ? `<option value="" ${isAllBranches ? 'selected' : ''}>📊 ทุกสาขา (${branchOptions.length} สาขา)</option>` : ''}
           ${branchOptions.map(b => `<option value="${escapeHtml(b.id)}" ${branchId === b.id ? 'selected' : ''}>${escapeHtml(b.id)}${b.name ? ' · ' + escapeHtml(b.name) : ''}</option>`).join('')}
         </select>
       </div>
@@ -12950,18 +12970,30 @@ function navLeaveCalToday() {
   router.go('leave-calendar');
 }
 function setLeaveCalBranch(branchId) {
-  _leaveCalState.branchId = branchId || null;
+  _leaveCalState.branchId = branchId || null;  // '' → null = ทุกสาขา
+  _leaveCalState._branchSet = true;
   router.go('leave-calendar');
 }
 
 // Modal — รายละเอียดวันที่เลือก
 function openLeaveDayDetail(dateStr) {
   const branchId = _leaveCalState.branchId;
-  if (!branchId) return;
   const [y, m, d] = parseYMD(dateStr);
   const dayLabel = new Date(y, m - 1, d).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-  const empIds = new Set((DB.data.employees || []).filter(e => e.branch === branchId).map(e => e.id));
+  // คำนวณ allowed branches แบบเดียวกับ render
+  let allowed;
+  if (branchId) {
+    allowed = [branchId];
+  } else {
+    // ทุกสาขาตาม scope
+    if (DB.isHR || DB.role === 'operation_manager') {
+      allowed = (DB.data.branches || []).filter(b => b.active).map(b => b.id);
+    } else {
+      allowed = DB.scopedBranches() || [];
+    }
+  }
+  const empIds = new Set((DB.data.employees || []).filter(e => allowed.includes(e.branch)).map(e => e.id));
   const leaves = (DB.data.leaveRequests || []).filter(r =>
     empIds.has(r.employeeId)
     && (r.status === 'approved' || r.status === 'pending')
@@ -12998,6 +13030,7 @@ function openLeaveDayDetail(dateStr) {
             <span class="lcal-dot lcal-dot-lg" style="background:${color}"></span>
             <div style="flex:1">
               <div>
+                ${e.branch ? `<span class="badge" style="font-size:10px;margin-right:4px">${escapeHtml(e.branch)}</span>` : ''}
                 <strong>${escapeHtml((e.firstName || '?') + ' ' + (e.lastName || ''))}</strong>
                 ${e.nickname ? `<span class="muted-2">(${escapeHtml(e.nickname)})</span>` : ''}
                 <span class="muted-2" style="font-size:11px;margin-left:4px">${escapeHtml(e.id || '')}</span>
