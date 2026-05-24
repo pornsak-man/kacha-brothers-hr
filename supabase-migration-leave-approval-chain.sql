@@ -45,6 +45,11 @@ CREATE INDEX IF NOT EXISTS idx_swap_am_status ON public.holiday_swap_requests(am
 
 -- ─── Backfill ข้อมูลเก่า — กรณีที่อนุมัติแล้ว ──────────────
 -- ถือว่าผ่าน chain ครบทุกขั้นแล้ว (legacy)
+-- ปิด anti-tamper trigger ระหว่าง bulk update เพราะรันใน SQL Editor (ไม่มี jwt user)
+-- → trigger จะมองว่า caller ไม่ใช่ owner/HR/approver → throw exception
+ALTER TABLE public.leave_requests        DISABLE TRIGGER USER;
+ALTER TABLE public.holiday_swap_requests DISABLE TRIGGER USER;
+
 UPDATE public.leave_requests
 SET bm_status = 'endorsed', am_status = 'endorsed',
     final_approver_role = COALESCE(final_approver_role, 'am')
@@ -62,6 +67,10 @@ WHERE status = 'approved' AND bm_status = 'pending';
 UPDATE public.holiday_swap_requests
 SET bm_status = 'declined'
 WHERE status = 'rejected' AND bm_status = 'pending';
+
+-- เปิด trigger กลับให้ทำงานปกติ
+ALTER TABLE public.leave_requests        ENABLE TRIGGER USER;
+ALTER TABLE public.holiday_swap_requests ENABLE TRIGGER USER;
 
 NOTIFY pgrst, 'reload schema';
 
