@@ -10970,7 +10970,23 @@ async function deleteLeaveType(id) {
 }
 
 // ─── Leave request form ───
-function openLeaveRequestForm(id = null, prefilledType = null) {
+async function openLeaveRequestForm(id = null, prefilledType = null) {
+  // Phase 2 lazy load — ถ้า leave_types ยังว่าง (เปิด form ก่อน background load เสร็จ)
+  // → fetch sync ก่อนเปิด เพื่อให้ dropdown มี option ทันที
+  if (Object.keys(DB.LEAVE_TYPES).length === 0) {
+    try {
+      const { data, error } = await DB.client.from('leave_types').select('*').order('sort_order');
+      if (error) throw error;
+      DB.data.leaveTypes = (data || []).map(DB._leaveTypeFromDB);
+    } catch (ex) {
+      toast('โหลดประเภทการลาไม่สำเร็จ: ' + (ex.message || ex), 'error');
+      return;
+    }
+    if (Object.keys(DB.LEAVE_TYPES).length === 0) {
+      toast('ยังไม่มีประเภทการลาในระบบ — กรุณาให้ admin เพิ่มก่อน', 'warning');
+      return;
+    }
+  }
   const editing = id ? DB.getLeaveRequest(id) : null;
   // staff/manager: pre-select ตัวเอง (จาก user_profiles.employee_id), admin/HR: ให้เลือกได้ (ยื่นคำขอแทน)
   let defaultEmpId = editing?.employeeId || '';
