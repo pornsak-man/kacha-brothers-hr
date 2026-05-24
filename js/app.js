@@ -1731,17 +1731,29 @@ router.register('employees', () => {
           const scopedPositions = empState.scope
             ? DB.getPositions().filter(p => !p.scope || p.scope === empState.scope)
             : DB.getPositions();
-          // จัด group ตำแหน่ง (ตามเดิม)
-          const kitchen = [], ops = [], common = [];
-          for (const p of scopedPositions) {
-            const n = (p.name || '').toLowerCase();
-            if (n.includes('chef') || n.includes('barista')) kitchen.push(p);
-            else if (n.includes('part')) common.push(p);
-            else ops.push(p);
-          }
           const byLv = (a, b) => (b.level || 0) - (a.level || 0) || (a.name || '').localeCompare(b.name || '');
-          ops.sort(byLv); kitchen.sort(byLv); common.sort(byLv);
           const posOpt = (arr) => arr.map(p => `<option value="${p.id}" ${empState.position === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+          // ถ้ายังไม่เลือก scope → จัด group แบบ heuristic เดิม (กลุ่ม Operations/ครัว/อื่นๆ)
+          // ถ้าเลือก scope แล้ว → flat list (เพราะ filter ถูกจำกัด scope อยู่แล้ว — label "ฝ่ายปฏิบัติการ"
+          // จะผิดถ้า scope=office หรือ scope=scm)
+          let positionDropdownInner;
+          if (empState.scope) {
+            positionDropdownInner = posOpt(scopedPositions.slice().sort(byLv));
+          } else {
+            const kitchen = [], ops = [], common = [];
+            for (const p of scopedPositions) {
+              const n = (p.name || '').toLowerCase();
+              if (n.includes('chef') || n.includes('barista')) kitchen.push(p);
+              else if (n.includes('part')) common.push(p);
+              else ops.push(p);
+            }
+            ops.sort(byLv); kitchen.sort(byLv); common.sort(byLv);
+            positionDropdownInner = `
+              ${ops.length ? `<optgroup label="ฝ่ายปฏิบัติการ">${posOpt(ops)}</optgroup>` : ''}
+              ${kitchen.length ? `<optgroup label="ฝ่ายครัว">${posOpt(kitchen)}</optgroup>` : ''}
+              ${common.length ? `<optgroup label="อื่นๆ">${posOpt(common)}</optgroup>` : ''}
+            `;
+          }
           return `
             <select class="sw-filter-select" id="empScope" title="กรองตามสายงาน — จะจำกัดตัวเลือก สาขา/ฝ่าย/ตำแหน่ง ให้อยู่ในสายนี้">
               <option value="">— ทุกสายงาน —</option>
@@ -1757,9 +1769,7 @@ router.register('employees', () => {
             </select>
             <select class="sw-filter-select" id="empPosition">
               <option value="">${empState.scope ? '— ตำแหน่งในสายนี้ —' : '— ทุกตำแหน่ง —'}</option>
-              ${ops.length ? `<optgroup label="ฝ่ายปฏิบัติการ">${posOpt(ops)}</optgroup>` : ''}
-              ${kitchen.length ? `<optgroup label="ฝ่ายครัว">${posOpt(kitchen)}</optgroup>` : ''}
-              ${common.length ? `<optgroup label="อื่นๆ">${posOpt(common)}</optgroup>` : ''}
+              ${positionDropdownInner}
             </select>
           `;
         })()}
