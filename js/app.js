@@ -2883,7 +2883,8 @@ function confirmDuplicateNationalId(duplicates) {
         </table>
       </div>
       <div style="font-size:13px;color:var(--text-2);padding:10px 12px;background:rgba(217,119,6,0.08);border:1px solid var(--warning);border-radius:8px">
-        💡 ถ้าพนักงานออกแล้วกลับเข้ามา <strong>ควรกลับไปใช้รหัสเดิม</strong> (ปลดล็อกใน auth + ปรับ termination_date) ไม่ใช่สร้างเป็นพนักงานใหม่<br>
+        💡 <strong>กรณีพนักงานเก่ากลับมาสมัครใหม่</strong> — บริษัทกำหนดให้ <strong>ออกรหัสพนักงานใหม่</strong> ไม่ reuse รหัสเก่า<br>
+        แนะนำให้ HR ตรวจประวัติเดิม (ผลงาน, สาเหตุที่ออก, blacklist) ก่อนรับเข้า<br>
         ถ้าเลข ปชช ป้อนผิด → กดยกเลิกแล้วแก้ก่อน
       </div>
     `, {
@@ -4109,22 +4110,64 @@ function parseImportRow(row) {
 
 function validateImportRows(rows) {
   const errors = [];
+  const warnings = [];
   const idsSeen = new Set();
+  const natIdsSeen = new Map();  // ปชช → row number ใน file
   const deptIds = new Set(DB.getDepartments().map(d => d.id));
   const posIds = new Set(DB.getPositions().map(p => p.id));
+  // index ของพนักงานปัจจุบันในระบบ — เช็คเร็ว
+  const existingEmpIds = new Set(DB.data.employees.map(e => String(e.id)));
+  const existingEmpByNat = new Map();
+  for (const e of DB.data.employees) {
+    const nat = String(e.nationalId || '').replace(/\D/g, '');
+    if (nat) existingEmpByNat.set(nat, e);
+  }
+
   rows.forEach((r, i) => {
     const rowNum = i + 2; // header at row 1
     if (!r.id) { errors.push({ row: rowNum, msg: 'รหัสพนักงานว่าง' }); return; }
     if (idsSeen.has(r.id)) errors.push({ row: rowNum, msg: 'รหัสซ้ำในไฟล์: ' + r.id });
     idsSeen.add(r.id);
     if (!r.firstName) errors.push({ row: rowNum, msg: 'ชื่อว่าง' });
+
+    // ─── classify: insert vs update vs returning-worker ───
+    r._op = existingEmpIds.has(String(r.id)) ? 'update' : 'insert';
+
+    // เช็คเลข ปชช
+    if (r.nationalId) {
+      const nat = String(r.nationalId).replace(/\D/g, '');
+      if (nat.length >= 5) {
+        // ซ้ำในไฟล์เดียวกัน → error (กัน HR ผิดพลาด)
+        if (natIdsSeen.has(nat)) {
+          errors.push({ row: rowNum, msg: `เลขประชาชนซ้ำในไฟล์: ${r.nationalId} (เคยพบในแถว ${natIdsSeen.get(nat)})` });
+        } else {
+          natIdsSeen.set(nat, rowNum);
+        }
+        // ปชช ตรงกับพนักงานในระบบ แต่ id ไม่ตรง = อาจเป็นพนักงานเก่ากลับมา หรือพิมพ์ผิด
+        const existing = existingEmpByNat.get(nat);
+        if (existing && String(existing.id) !== String(r.id)) {
+          const existingName = `${existing.firstName || ''} ${existing.lastName || ''}`.trim() || '(ไม่มีชื่อ)';
+          const statusLabel = existing.status === 'resigned' ? 'พ้นสภาพแล้ว' : 'ปฏิบัติงาน';
+          warnings.push({
+            row: rowNum,
+            type: 'returning_worker',
+            msg: `เลข ปชช ตรงกับพนักงาน "${existingName}" รหัส ${existing.id} (${statusLabel}) — ตรวจประวัติเดิมก่อน`
+          });
+          r._isReturning = true;
+          r._previousId = existing.id;
+          r._previousStatus = existing.status;
+        }
+      }
+    }
+
     // นามสกุลไม่บังคับ — บางกรณีพนักงานมีชื่อเดียว (เช่น แรงงานต่างด้าว)
-    // ฝ่ายไม่มีในระบบ → error เฉพาะถ้า _scope ก็ไม่ระบุ (ถ้ามี scope → จะ auto-create ตอน import)
     if (r.department && !deptIds.has(r.department) && !r._scope)
       errors.push({ row: rowNum, msg: `รหัสฝ่ายไม่มีในระบบ: ${r.department} — เพิ่มคอลัมน์ "สายงาน" (operation/office) ในไฟล์เพื่อให้ระบบสร้างฝ่ายอัตโนมัติ` });
     if (r.position && !posIds.has(r.position))
       errors.push({ row: rowNum, msg: `รหัสระดับตำแหน่งไม่มีในระบบ: ${r.position}` });
   });
+  // คืน errors + warnings (backward compat: ถ้า caller ใช้แค่ errors ก็ยังใช้ได้)
+  errors._warnings = warnings;
   return errors;
 }
 
@@ -4344,7 +4387,12 @@ function openImportEmployees() {
 }
 
 function renderImportPreview(rows, errors) {
+  const warnings = errors._warnings || [];
   const sample = rows.slice(0, 5);
+  // จำแนกแถว
+  const insertCount = rows.filter(r => r._op === 'insert').length;
+  const updateCount = rows.filter(r => r._op === 'update').length;
+  const returningCount = rows.filter(r => r._isReturning).length;
   return `
     <div class="card mt-4">
       <div class="flex items-center gap-2" style="margin-bottom:10px;flex-wrap:wrap">
@@ -4352,22 +4400,63 @@ function renderImportPreview(rows, errors) {
         ${errors.length
           ? `<span class="badge badge-danger">${errors.length} ข้อผิดพลาด</span>`
           : '<span class="badge badge-success">พร้อมนำเข้า</span>'}
+        ${warnings.length ? `<span class="badge badge-warning">${warnings.length} คำเตือน</span>` : ''}
       </div>
+
+      <!-- สถิติ insert vs update -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div style="flex:1;min-width:140px;padding:10px 12px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:8px">
+          <div style="font-size:11.5px;color:var(--text-3);text-transform:uppercase">เพิ่มใหม่</div>
+          <div style="font-size:20px;font-weight:700;color:var(--success);font-variant-numeric:tabular-nums">${insertCount.toLocaleString()}</div>
+          <div style="font-size:11.5px;color:var(--text-3)">รหัสยังไม่มีในระบบ</div>
+        </div>
+        <div style="flex:1;min-width:140px;padding:10px 12px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.3);border-radius:8px">
+          <div style="font-size:11.5px;color:var(--text-3);text-transform:uppercase">อัปเดต</div>
+          <div style="font-size:20px;font-weight:700;color:#2563eb;font-variant-numeric:tabular-nums">${updateCount.toLocaleString()}</div>
+          <div style="font-size:11.5px;color:var(--text-3)">รหัสมีอยู่แล้ว → ข้อมูลใหม่ทับของเดิม</div>
+        </div>
+        ${returningCount > 0 ? `
+        <div style="flex:1;min-width:140px;padding:10px 12px;background:rgba(217,119,6,0.08);border:1px solid var(--warning);border-radius:8px">
+          <div style="font-size:11.5px;color:var(--text-3);text-transform:uppercase">⚠️ น่าสงสัย</div>
+          <div style="font-size:20px;font-weight:700;color:var(--warning);font-variant-numeric:tabular-nums">${returningCount.toLocaleString()}</div>
+          <div style="font-size:11.5px;color:var(--text-3)">เลข ปชช ตรงพนักงานเดิม</div>
+        </div>` : ''}
+      </div>
+
       ${errors.length ? `
         <div style="background:var(--danger-soft);border-radius:8px;padding:12px;max-height:180px;overflow-y:auto;font-size:12.5px;margin-bottom:12px">
-          <strong style="color:var(--danger-text)">ข้อผิดพลาดที่ต้องแก้ก่อน Import:</strong>
+          <strong style="color:var(--danger-text)">❌ ข้อผิดพลาดที่ต้องแก้ก่อน Import:</strong>
           <ul style="margin-top:6px;padding-left:20px">
             ${errors.slice(0, 30).map(e => `<li>แถวที่ ${e.row}: ${escapeHtml(e.msg)}</li>`).join('')}
             ${errors.length > 30 ? `<li>... และอีก ${errors.length - 30} ข้อ</li>` : ''}
           </ul>
         </div>
       ` : ''}
+
+      ${warnings.length ? `
+        <div style="background:rgba(217,119,6,0.06);border:1px solid var(--warning);border-radius:8px;padding:12px;max-height:240px;overflow-y:auto;font-size:12.5px;margin-bottom:12px">
+          <strong style="color:var(--warning)">⚠️ คำเตือน (สามารถ import ต่อได้ — แต่แนะนำตรวจก่อน):</strong>
+          <ul style="margin-top:6px;padding-left:20px">
+            ${warnings.slice(0, 30).map(w => `<li>แถวที่ ${w.row}: ${escapeHtml(w.msg)}</li>`).join('')}
+            ${warnings.length > 30 ? `<li>... และอีก ${warnings.length - 30} ข้อ</li>` : ''}
+          </ul>
+          <div style="margin-top:8px;padding-top:8px;border-top:1px dashed rgba(217,119,6,0.3);font-size:11.5px;color:var(--text-3)">
+            💡 พนักงานเก่ากลับมา → บริษัทกำหนดให้ "ออกรหัสใหม่" — แค่ตรวจประวัติเดิมก่อนรับเข้า
+          </div>
+        </div>
+      ` : ''}
+
       <div style="font-size:12.5px;margin-bottom:6px"><strong>ตัวอย่าง 5 แถวแรก:</strong></div>
       <div class="table-wrap">
         <table class="table" style="font-size:12.5px">
-          <thead><tr><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>ฝ่าย</th><th>ตำแหน่ง</th><th class="num">เงินเดือน</th></tr></thead>
+          <thead><tr><th>การกระทำ</th><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>ฝ่าย</th><th>ตำแหน่ง</th><th class="num">เงินเดือน</th></tr></thead>
           <tbody>
-            ${sample.map(r => `<tr>
+            ${sample.map(r => `<tr ${r._isReturning ? 'style="background:rgba(217,119,6,0.05)"' : ''}>
+              <td>${r._op === 'insert'
+                ? '<span class="badge badge-success" style="font-size:10.5px">+ ใหม่</span>'
+                : '<span class="badge" style="font-size:10.5px;background:rgba(59,130,246,0.15);color:#2563eb">↻ อัปเดต</span>'}
+                ${r._isReturning ? '<br><span class="badge badge-warning" style="font-size:10px;margin-top:2px">⚠️ ปชช ตรงคนเดิม</span>' : ''}
+              </td>
               <td>${escapeHtml(r.id || '-')}</td>
               <td>${escapeHtml(r.firstName + ' ' + r.lastName)}</td>
               <td>${escapeHtml(r.department || '-')}</td>
