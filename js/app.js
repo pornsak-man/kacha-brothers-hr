@@ -14213,16 +14213,13 @@ function fmtWorkDates(arr) {
 }
 
 router.register('borrow-requests', () => {
-  const content = $('#content');
   const list = DB.data.borrowRequests || [];
   const role = DB.role;
-  // แยกตามมุมมอง: คำขอที่ฉันต้อง review (AM source) vs ที่ฉันสร้าง (BM destination)
   const myId = DB.profile?.employee_id;
-  // ผ่าน RLS แล้ว — ทุกตัวที่เห็นคือเกี่ยวข้องกับ user
   const pendingForMe = list.filter(r => r.status === 'pending');
   const totalPending = pendingForMe.length;
 
-  content.innerHTML = `
+  return `
     <div class="sw-page-title">ขอยืมพนักงานข้ามสาขา</div>
     <div class="sw-page-subtitle">
       เมื่อต้องการให้พนักงานสาขาอื่นมาช่วยตารางงาน — ต้องขอ AM ของสาขาแม่อนุมัติก่อน
