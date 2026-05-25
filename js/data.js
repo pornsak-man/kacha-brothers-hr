@@ -4528,6 +4528,7 @@ const DB = {
       workDates: Array.isArray(r.work_dates) ? r.work_dates : [],
       reason: r.reason || '',
       status: r.status,
+      autoApproved: r.auto_approved === true,
       requestedBy: r.requested_by,
       requestedAt: r.requested_at,
       reviewedBy: r.reviewed_by,
@@ -4586,9 +4587,9 @@ const DB = {
       p_reason: reason || null
     });
     if (error) throw error;
-    // reload list (RLS อาจให้เห็นคำขอนี้ทันที)
+    // reload list (RLS อาจให้เห็นคำขอนี้ทันที + auto-approved status)
     await this.loadBorrowRequests();
-    return data;
+    return data;   // { id, status, auto_approved, message }
   },
 
   async reviewBorrowRequest(requestId, decision, note = '') {

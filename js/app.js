@@ -14204,6 +14204,15 @@ const BORROW_STATUS_BADGE = {
   rejected:  { label: '✕ ปฏิเสธ',         cls: 'badge-danger' },
   cancelled: { label: '⊘ ยกเลิก',          cls: 'badge' }
 };
+// แสดง badge เพิ่ม "Auto" ถ้า auto_approved = true
+function _borrowBadgeHtml(r) {
+  const base = BORROW_STATUS_BADGE[r.status] || { label: r.status, cls: 'badge' };
+  let html = `<span class="badge ${base.cls}">${escapeHtml(base.label)}</span>`;
+  if (r.autoApproved) {
+    html += `<br><span class="badge" style="font-size:10px;margin-top:2px;background:rgba(34,197,94,0.12);color:var(--success);border:1px solid rgba(34,197,94,0.3)" title="ระบบอนุมัติอัตโนมัติ เพราะผู้สร้างคำขอมีสิทธิ์ดูแลทั้ง 2 สาขา">⚡ Auto</span>`;
+  }
+  return html;
+}
 
 function fmtWorkDates(arr) {
   if (!Array.isArray(arr) || !arr.length) return '-';
@@ -14256,7 +14265,6 @@ router.register('borrow-requests', () => {
               ${list.map(r => {
                 const emp = DB.getEmployee(r.employeeId);
                 const empName = emp ? `${emp.firstName || ''} ${emp.lastName || ''}`.trim() : r.employeeId;
-                const badge = BORROW_STATUS_BADGE[r.status] || { label: r.status, cls: 'badge' };
                 const note = r.status === 'rejected' ? r.rejectReason : (r.status === 'approved' ? r.approverNote : (r.status === 'cancelled' ? r.cancelReason : ''));
                 // ใครเห็นปุ่มอนุมัติ/ปฏิเสธ?
                 const canReview = r.status === 'pending' && (
@@ -14269,7 +14277,7 @@ router.register('borrow-requests', () => {
                   r.requestedBy === DB.user?.id
                 );
                 return `<tr>
-                  <td><span class="badge ${badge.cls}">${escapeHtml(badge.label)}</span></td>
+                  <td>${_borrowBadgeHtml(r)}</td>
                   <td><strong>${escapeHtml(r.employeeId)}</strong><br>
                     <span class="muted-2" style="font-size:12px">${escapeHtml(empName)}</span></td>
                   <td>
@@ -14453,9 +14461,14 @@ async function openBorrowRequestForm(preset = {}) {
     }
     const btn = $('#borrowReqSubmit'); btn.disabled = true; btn.textContent = 'กำลังส่ง...';
     try {
-      await DB.createBorrowRequest({ employeeId, destinationBranchId: destBranch, workDates, reason });
+      const result = await DB.createBorrowRequest({ employeeId, destinationBranchId: destBranch, workDates, reason });
       modal.close();
-      toast('✓ ส่งคำขอแล้ว — รอ AM สาขาแม่อนุมัติ', 'success');
+      // ★ RPC คืน auto_approved → แสดง toast ต่างกัน
+      if (result && result.auto_approved) {
+        toast('⚡ อนุมัติอัตโนมัติ — ใส่กะให้พนักงานได้ทันที (คุณมีสิทธิ์ดูแลทั้ง 2 สาขา)', 'success');
+      } else {
+        toast('✓ ส่งคำขอแล้ว — รอ AM สาขาแม่อนุมัติ', 'success');
+      }
       router.go('borrow-requests');
     } catch (ex) {
       toast(ex.message || String(ex), 'error');
