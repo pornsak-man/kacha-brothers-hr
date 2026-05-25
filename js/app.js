@@ -14299,33 +14299,54 @@ router.register('borrow-requests', () => {
   `;
 });
 
-async function openBorrowRequestForm() {
+async function openBorrowRequestForm(preset = {}) {
   if (!DB.canCreateScheduleForBranch && typeof DB.canCreateScheduleForBranch !== 'function') {
-    // fallback: เช็คคร่าวๆ
     if (!DB.isHR && DB.role !== 'branch_manager' && DB.role !== 'operation_manager') {
       toast('ต้องเป็น Branch Manager / HR / admin', 'error');
       return;
     }
   }
+  const presetBranch = preset.destBranch || '';
+  const presetEmpId = preset.employeeId || '';
+  const presetDates = Array.isArray(preset.workDates) ? preset.workDates : [];
   const branches = DB.getBranchMaster ? DB.getBranchMaster({ activeOnly: true }) : [];
+  // default วันแรก = วันถัดไป (พรุ่งนี้)
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+
   modal.open('สร้างคำขอยืมพนักงาน', `
     <form id="borrowReqForm" class="form-grid">
       <div class="form-group span-2">
         <label>สาขาปลายทาง (ที่จะใช้พนักงาน) *</label>
         <select name="destBranch" required>
           <option value="">— เลือกสาขา —</option>
-          ${branches.map(b => `<option value="${escapeHtml(b.id)}" title="${escapeHtml(b.name || '')}">${escapeHtml(b.id)}${b.name ? ' · ' + escapeHtml(b.name) : ''}</option>`).join('')}
+          ${branches.map(b => `<option value="${escapeHtml(b.id)}" title="${escapeHtml(b.name || '')}" ${b.id === presetBranch ? 'selected' : ''}>${escapeHtml(b.id)}</option>`).join('')}
         </select>
       </div>
       <div class="form-group span-2">
         <label>พนักงานที่ต้องการยืม (รหัส) *</label>
-        <input name="employeeId" required placeholder="เช่น 65010" autocomplete="off"/>
+        <input name="employeeId" required placeholder="เช่น 65010" autocomplete="off" value="${escapeHtml(presetEmpId)}"/>
         <small class="muted-2" style="font-size:11px;margin-top:4px;display:block">ระบบจะตรวจสาขาแม่ของพนักงานอัตโนมัติ — ถ้าสาขาแม่ตรงกับปลายทาง จะปฏิเสธ</small>
       </div>
       <div class="form-group span-2">
         <label>วันทำงานที่ต้องการ (เลือกได้หลายวัน) *</label>
-        <input name="workDates" type="text" required placeholder="2026-05-27, 2026-05-28, 2026-05-29" />
-        <small class="muted-2" style="font-size:11px;margin-top:4px;display:block">รูปแบบ YYYY-MM-DD คั่นด้วยเครื่องหมายจุลภาค (,) สูงสุดควรไม่เกิน 14 วัน</small>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <input type="date" id="borrowDateInput" value="${tomorrowStr}" min="${tomorrowStr.slice(0,10)}" style="flex:1"/>
+          <button type="button" class="btn btn-secondary btn-sm" id="borrowDateAdd">+ เพิ่ม</button>
+        </div>
+        <!-- Quick presets -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+          <button type="button" class="btn btn-ghost btn-sm" data-preset="weekend" style="font-size:11.5px;padding:3px 10px">เสาร์-อาทิตย์</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-preset="next7" style="font-size:11.5px;padding:3px 10px">7 วันถัดไป</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-preset="weekdays" style="font-size:11.5px;padding:3px 10px">จันทร์-ศุกร์ สัปดาห์หน้า</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="borrowDateClear" style="font-size:11.5px;padding:3px 10px;color:var(--danger)">ล้างทั้งหมด</button>
+        </div>
+        <!-- Selected chips -->
+        <div id="borrowDateChips" style="display:flex;gap:6px;flex-wrap:wrap;min-height:36px;padding:8px;background:var(--surface-2);border-radius:8px;border:1px dashed var(--border)">
+          <span class="muted-2" id="borrowDateEmpty" style="font-size:12px;align-self:center">ยังไม่ได้เลือกวัน — ใช้ปุ่ม "+ เพิ่ม" หรือกดปุ่มลัดด้านบน</span>
+        </div>
+        <small class="muted-2" style="font-size:11px;margin-top:4px;display:block">สูงสุด 14 วันต่อคำขอ — คลิก × ที่แต่ละวันเพื่อเอาออก</small>
       </div>
       <div class="form-group span-2">
         <label>เหตุผลที่ขอยืม</label>
@@ -14336,19 +14357,98 @@ async function openBorrowRequestForm() {
     size: 'sm',
     footer: '<button class="btn btn-secondary" data-close>ยกเลิก</button><button class="btn btn-primary" id="borrowReqSubmit">ส่งคำขอ</button>'
   });
+
+  // ─── Multi-date picker logic ───
+  const selectedDates = new Set(presetDates.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)));
+  const renderChips = () => {
+    const wrap = document.getElementById('borrowDateChips');
+    const empty = document.getElementById('borrowDateEmpty');
+    if (!wrap) return;
+    if (selectedDates.size === 0) {
+      wrap.innerHTML = '<span class="muted-2" id="borrowDateEmpty" style="font-size:12px;align-self:center">ยังไม่ได้เลือกวัน — ใช้ปุ่ม "+ เพิ่ม" หรือกดปุ่มลัดด้านบน</span>';
+      return;
+    }
+    const sorted = [...selectedDates].sort();
+    wrap.innerHTML = sorted.map(d => `
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:12.5px">
+        ${escapeHtml(fmt.date(d))}
+        <button type="button" data-remove-date="${escapeHtml(d)}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;padding:0;line-height:1" title="เอาออก">×</button>
+      </span>
+    `).join('');
+    // wire remove buttons
+    wrap.querySelectorAll('[data-remove-date]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedDates.delete(btn.dataset.removeDate);
+        renderChips();
+      });
+    });
+  };
+  const addDate = (d) => {
+    if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    if (selectedDates.size >= 14) {
+      toast('สูงสุด 14 วันต่อคำขอ', 'warning');
+      return;
+    }
+    selectedDates.add(d);
+    renderChips();
+  };
+  // ถ้า preset มาก่อน → render chips ครั้งแรก
+  if (selectedDates.size > 0) renderChips();
+  document.getElementById('borrowDateAdd').addEventListener('click', () => {
+    const inp = document.getElementById('borrowDateInput');
+    if (inp.value) {
+      addDate(inp.value);
+      // เลื่อนวันถัดไปอัตโนมัติเพื่อกดเร็วๆ
+      const nx = new Date(inp.value + 'T00:00:00');
+      nx.setDate(nx.getDate() + 1);
+      inp.value = nx.toLocaleDateString('en-CA');
+    }
+  });
+  document.getElementById('borrowDateClear').addEventListener('click', () => {
+    selectedDates.clear();
+    renderChips();
+  });
+  // Quick presets
+  document.querySelectorAll('[data-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const preset = btn.dataset.preset;
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      if (preset === 'weekend') {
+        // เสาร์-อาทิตย์ที่ใกล้สุดในอนาคต
+        const dow = today.getDay();   // 0=Sun, 6=Sat
+        const daysToSat = (6 - dow + 7) % 7 || 7;
+        const sat = new Date(today); sat.setDate(today.getDate() + daysToSat);
+        const sun = new Date(sat); sun.setDate(sat.getDate() + 1);
+        addDate(sat.toLocaleDateString('en-CA'));
+        addDate(sun.toLocaleDateString('en-CA'));
+      } else if (preset === 'next7') {
+        for (let i = 1; i <= 7; i++) {
+          const d = new Date(today); d.setDate(today.getDate() + i);
+          addDate(d.toLocaleDateString('en-CA'));
+        }
+      } else if (preset === 'weekdays') {
+        // จันทร์-ศุกร์ของสัปดาห์หน้า
+        const dow = today.getDay();
+        const daysToMon = (1 - dow + 7) % 7 || 7;
+        for (let i = 0; i < 5; i++) {
+          const d = new Date(today); d.setDate(today.getDate() + daysToMon + i);
+          addDate(d.toLocaleDateString('en-CA'));
+        }
+      }
+    });
+  });
+
   $('#borrowReqSubmit').addEventListener('click', async () => {
     const form = $('#borrowReqForm');
     if (!form.checkValidity()) { form.reportValidity(); return; }
     const fd = new FormData(form);
     const destBranch = (fd.get('destBranch') || '').toString().trim();
     const employeeId = (fd.get('employeeId') || '').toString().trim();
-    const datesRaw = (fd.get('workDates') || '').toString().trim();
     const reason = (fd.get('reason') || '').toString().trim();
-    // parse dates
-    const workDates = datesRaw.split(',').map(s => s.trim()).filter(Boolean);
-    const invalid = workDates.filter(d => !/^\d{4}-\d{2}-\d{2}$/.test(d));
-    if (invalid.length) {
-      toast('รูปแบบวันที่ไม่ถูก: ' + invalid.join(', '), 'error');
+    const workDates = [...selectedDates].sort();
+    if (workDates.length === 0) {
+      toast('ต้องเลือกวันทำงานอย่างน้อย 1 วัน', 'error');
       return;
     }
     const btn = $('#borrowReqSubmit'); btn.disabled = true; btn.textContent = 'กำลังส่ง...';
@@ -15004,16 +15104,12 @@ function openShiftPicker(empId, workDate, entryId) {
       });
       $('#borrowQuickCreate').addEventListener('click', () => {
         modal.close();
-        openBorrowRequestForm();
-        // pre-fill ค่า (ลอง — ใช้ setTimeout ให้ form render เสร็จก่อน)
-        setTimeout(() => {
-          const form = document.getElementById('borrowReqForm');
-          if (form) {
-            if (form.destBranch) form.destBranch.value = branchId;
-            if (form.employeeId) form.employeeId.value = empId;
-            if (form.workDates) form.workDates.value = workDate;
-          }
-        }, 100);
+        // ส่ง preset ตรงเข้า function — เปิด modal มาพร้อมข้อมูลเลย
+        openBorrowRequestForm({
+          destBranch: branchId,
+          employeeId: empId,
+          workDates: [workDate]
+        });
       });
       return;
     }
