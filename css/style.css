@@ -1423,7 +1423,10 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   padding: 8px 12px; font-size: 13px;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 8px; color: var(--text);
-  cursor: pointer; min-width: 160px;
+  cursor: pointer;
+  min-width: auto;        /* code-only (GE/KMB) ไม่ต้องการ 160px */
+  width: auto;            /* ปรับขนาดตาม content */
+  max-width: 100%;
   transition: border-color var(--transition);
 }
 .sw-filter-select:hover { border-color: var(--border-strong); }
@@ -4364,7 +4367,12 @@ a:hover .badge, button:hover .badge, .sw-recent-item:hover .badge {
 }
 .btn.btn-icon-only { padding: 6px 10px; min-width: 36px; }
 .schedule-date-jump { width: 150px; }
-.schedule-branch-select { min-width: 200px; }
+.schedule-branch-select {
+  /* code-only label (GE/KMB/...) → ไม่ต้องการ 200px
+     ใช้ auto + min ~110px เผื่อ "ทุกสาขา (32 สาขา)" */
+  min-width: 110px;
+  width: auto;
+}
 .schedule-week-range {
   font-size: 14px; font-weight: 600; color: var(--text);
   padding: 6px 12px; background: var(--surface-2); border-radius: 6px;
