@@ -37,7 +37,8 @@ const DB = {
     // ─── ตารางงานพนักงาน (Work Schedule) ───
     shifts: [],            // กะตั้งต้น HR CRUD
     scheduleWeeks: [],     // 1 สาขา × 1 สัปดาห์ = 1 แถว
-    scheduleEntries: []    // เซลล์ใน grid: พนักงาน × วัน × กะ
+    scheduleEntries: [],   // เซลล์ใน grid: พนักงาน × วัน × กะ
+    borrowRequests: []     // ขอยืมพนักงานข้ามสาขา (Phase 3 Level 3)
   },
 
   // ─── INDEX CACHES (O(1) lookup; rebuild lazily after data change) ───
@@ -784,11 +785,12 @@ const DB = {
       timed('shifts',                  this._fetchAllPages('shifts', 'sort_order', true).catch(() => [])),
       timed('schedule_weeks',          this._fetchAllPages('schedule_weeks', 'week_start', false).catch(() => [])),
       timed('schedule_entries',        this._fetchAllPages('schedule_entries', 'work_date', true).catch(() => [])),
+      timed('borrow_requests',         this._fetchAllPages('cross_branch_borrow_requests', 'created_at', false).catch(() => [])),
       timed('employees_archive',       fetchEmployeesArchive().catch(() => []))
     ]).then(([cal, comp, leaves, lvTypes, swapReqs,
               loans, advs, allow, evals, sal, appls,
               uniItems, uniReqs, uniIssues, uniSched,
-              shifts, schedWeeks, schedEntries,
+              shifts, schedWeeks, schedEntries, borrowReqs,
               oldEmps]) => {
       // ใหม่: ตาราง critical-but-not-dashboard ที่ย้ายมา
       this.data.calendar = ((cal && cal.data) || []).map(this._calFromDB);
@@ -810,6 +812,7 @@ const DB = {
       this.data.shifts = (shifts || []).map(this._shiftFromDB);
       this.data.scheduleWeeks = (schedWeeks || []).map(this._schedWeekFromDB);
       this.data.scheduleEntries = (schedEntries || []).map(this._schedEntryFromDB);
+      this.data.borrowRequests = (borrowReqs || []).map(this._borrowFromDB);
       // Merge employees เก่าเข้ากับ active employees (เรียง id เพื่อให้ stable)
       if (oldEmps.length) {
         const existingIds = new Set(this.data.employees.map(e => e.id));
@@ -887,7 +890,8 @@ const DB = {
       company_announcements: { list: 'announcements', from: this._annFromDB },
       shifts: { list: 'shifts', from: this._shiftFromDB },
       schedule_weeks: { list: 'scheduleWeeks', from: this._schedWeekFromDB },
-      schedule_entries: { list: 'scheduleEntries', from: this._schedEntryFromDB }
+      schedule_entries: { list: 'scheduleEntries', from: this._schedEntryFromDB },
+      cross_branch_borrow_requests: { list: 'borrowRequests', from: this._borrowFromDB }
     };
     const m = map[table];
     if (!m) return;
@@ -4512,6 +4516,116 @@ const DB = {
     const idx = this.data.scheduleWeeks.findIndex(w => w.id === weekId);
     if (idx >= 0) this.data.scheduleWeeks[idx] = mapped;
     return mapped;
+  },
+
+  // ─── CROSS-BRANCH BORROW REQUESTS (Phase 3 Level 3 workflow) ───
+  _borrowFromDB(r) {
+    return {
+      id: r.id,
+      employeeId: r.employee_id,
+      sourceBranchId: r.source_branch_id,
+      destinationBranchId: r.destination_branch_id,
+      workDates: Array.isArray(r.work_dates) ? r.work_dates : [],
+      reason: r.reason || '',
+      status: r.status,
+      requestedBy: r.requested_by,
+      requestedAt: r.requested_at,
+      reviewedBy: r.reviewed_by,
+      reviewedAt: r.reviewed_at,
+      approverNote: r.approver_note || '',
+      rejectReason: r.reject_reason || '',
+      cancelledAt: r.cancelled_at,
+      cancelReason: r.cancel_reason || '',
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    };
+  },
+
+  async loadBorrowRequests() {
+    const { data, error } = await this.client
+      .from('cross_branch_borrow_requests')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.warn('loadBorrowRequests failed:', error);
+      this.data.borrowRequests = [];
+      return [];
+    }
+    this.data.borrowRequests = (data || []).map(this._borrowFromDB);
+    return this.data.borrowRequests;
+  },
+
+  // คืนคำขอที่เกี่ยวข้องกับ user ปัจจุบัน (filtered by RLS แล้ว)
+  getBorrowRequests({ status = null, sourceBranch = null, destBranch = null, employeeId = null } = {}) {
+    let list = this.data.borrowRequests || [];
+    if (status) list = list.filter(r => r.status === status);
+    if (sourceBranch) list = list.filter(r => r.sourceBranchId === sourceBranch);
+    if (destBranch) list = list.filter(r => r.destinationBranchId === destBranch);
+    if (employeeId) list = list.filter(r => r.employeeId === employeeId);
+    return list;
+  },
+
+  // เช็คว่ามี approved borrow request ที่ครอบคลุม emp + date + branch ไหม
+  hasApprovedBorrowFor(employeeId, destinationBranchId, workDate) {
+    return (this.data.borrowRequests || []).some(r =>
+      r.status === 'approved' &&
+      r.employeeId === employeeId &&
+      r.destinationBranchId === destinationBranchId &&
+      r.workDates.includes(workDate)
+    );
+  },
+
+  async createBorrowRequest({ employeeId, destinationBranchId, workDates, reason }) {
+    if (!employeeId || !destinationBranchId || !Array.isArray(workDates) || !workDates.length) {
+      throw new Error('ข้อมูลคำขอไม่ครบ — ต้องมี employee_id, destination_branch_id, work_dates');
+    }
+    const { data, error } = await this.client.rpc('create_borrow_request', {
+      p_employee_id: employeeId,
+      p_destination_branch_id: destinationBranchId,
+      p_work_dates: workDates,
+      p_reason: reason || null
+    });
+    if (error) throw error;
+    // reload list (RLS อาจให้เห็นคำขอนี้ทันที)
+    await this.loadBorrowRequests();
+    return data;
+  },
+
+  async reviewBorrowRequest(requestId, decision, note = '') {
+    if (!['approved', 'rejected'].includes(decision)) {
+      throw new Error('decision ต้องเป็น approved หรือ rejected');
+    }
+    const { data, error } = await this.client.rpc('review_borrow_request', {
+      p_request_id: requestId,
+      p_decision: decision,
+      p_note: note || null
+    });
+    if (error) throw error;
+    // update local cache
+    const idx = (this.data.borrowRequests || []).findIndex(r => r.id === requestId);
+    if (idx >= 0) {
+      this.data.borrowRequests[idx].status = decision;
+      this.data.borrowRequests[idx].reviewedAt = new Date().toISOString();
+      this.data.borrowRequests[idx].reviewedBy = this.user?.id || null;
+      if (decision === 'approved') this.data.borrowRequests[idx].approverNote = note;
+      else this.data.borrowRequests[idx].rejectReason = note;
+    }
+    return data;
+  },
+
+  async cancelBorrowRequest(requestId, reason = '') {
+    const { data, error } = await this.client.rpc('cancel_borrow_request', {
+      p_request_id: requestId,
+      p_reason: reason || null
+    });
+    if (error) throw error;
+    const idx = (this.data.borrowRequests || []).findIndex(r => r.id === requestId);
+    if (idx >= 0) {
+      this.data.borrowRequests[idx].status = 'cancelled';
+      this.data.borrowRequests[idx].cancelledAt = new Date().toISOString();
+      this.data.borrowRequests[idx].cancelReason = reason;
+    }
+    return data;
   },
 
   async submitScheduleWeek(weekId) {

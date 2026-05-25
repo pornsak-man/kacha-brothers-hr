@@ -765,6 +765,7 @@ const auth = {
     if (typeof updateSSOBadge === 'function') updateSSOBadge();
     if (typeof updateAnnouncementBadge === 'function') updateAnnouncementBadge();
     if (typeof updateScheduleBadge === 'function') updateScheduleBadge();
+    if (typeof updateBorrowBadge === 'function') updateBorrowBadge();
     if (typeof renderNotifBell === 'function') renderNotifBell();
     this.refreshImpersonateUI();
     // ซ่อนเมนูตาม role:
@@ -1268,6 +1269,10 @@ window.onRealtimeChange = (payload) => {
 
   // อัปเดต badge ตารางงาน — เมื่อมีสัปดาห์ขอ/อนุมัติเปลี่ยนสถานะ
   if (table === 'schedule_weeks' && typeof updateScheduleBadge === 'function') updateScheduleBadge();
+  if (table === 'cross_branch_borrow_requests' && typeof updateBorrowBadge === 'function') {
+    updateBorrowBadge();
+    if (router.current === 'borrow-requests') router.go('borrow-requests');
+  }
 
   // อัปเดต badge ประกันสังคม เมื่อ employees เปลี่ยน — เสมอ (ไม่ขึ้นกับหน้าปัจจุบัน)
   if (table === 'employees' && typeof updateSSOBadge === 'function') updateSSOBadge();
@@ -14190,6 +14195,225 @@ function initScheduleStateIfNeeded() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// CROSS-BRANCH BORROW REQUESTS (Phase 3 Level 3) — หน้า "ขอยืมพนักงาน"
+// ═══════════════════════════════════════════════════════════
+const BORROW_STATUS_BADGE = {
+  pending:   { label: '⏳ รออนุมัติ',     cls: 'badge-warning' },
+  approved:  { label: '✓ อนุมัติแล้ว',   cls: 'badge-success' },
+  rejected:  { label: '✕ ปฏิเสธ',         cls: 'badge-danger' },
+  cancelled: { label: '⊘ ยกเลิก',          cls: 'badge' }
+};
+
+function fmtWorkDates(arr) {
+  if (!Array.isArray(arr) || !arr.length) return '-';
+  if (arr.length === 1) return fmt.date(arr[0]);
+  if (arr.length <= 3) return arr.map(d => fmt.date(d)).join(', ');
+  return `${fmt.date(arr[0])} … ${fmt.date(arr[arr.length-1])} (${arr.length} วัน)`;
+}
+
+router.register('borrow-requests', () => {
+  const content = $('#content');
+  const list = DB.data.borrowRequests || [];
+  const role = DB.role;
+  // แยกตามมุมมอง: คำขอที่ฉันต้อง review (AM source) vs ที่ฉันสร้าง (BM destination)
+  const myId = DB.profile?.employee_id;
+  // ผ่าน RLS แล้ว — ทุกตัวที่เห็นคือเกี่ยวข้องกับ user
+  const pendingForMe = list.filter(r => r.status === 'pending');
+  const totalPending = pendingForMe.length;
+
+  content.innerHTML = `
+    <div class="sw-page-title">ขอยืมพนักงานข้ามสาขา</div>
+    <div class="sw-page-subtitle">
+      เมื่อต้องการให้พนักงานสาขาอื่นมาช่วยตารางงาน — ต้องขอ AM ของสาขาแม่อนุมัติก่อน
+    </div>
+
+    <div class="card mt-4">
+      <div class="flex items-center" style="justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <span class="badge badge-warning" style="font-size:13px;padding:6px 12px">⏳ รออนุมัติ ${totalPending}</span>
+          <span class="badge" style="font-size:13px;padding:6px 12px">รวมทั้งหมด ${list.length}</span>
+        </div>
+        <button class="btn btn-primary" onclick="openBorrowRequestForm()">+ สร้างคำขอใหม่</button>
+      </div>
+
+      ${list.length === 0 ? `
+        <div class="empty-state" style="padding:32px">
+          <div class="icon">👥</div>
+          <div>ยังไม่มีคำขอยืมพนักงาน</div>
+          <div class="muted-2" style="font-size:13px;margin-top:6px">กด "+ สร้างคำขอใหม่" เมื่อต้องการดึงพนักงานสาขาอื่นมาช่วย</div>
+        </div>
+      ` : `
+        <div class="table-wrap">
+          <table class="table" style="font-size:13px">
+            <thead><tr>
+              <th>สถานะ</th>
+              <th>พนักงาน</th>
+              <th>สาขาแม่ → ปลายทาง</th>
+              <th>วันที่ขอยืม</th>
+              <th>เหตุผล</th>
+              <th>หมายเหตุ</th>
+              <th>การกระทำ</th>
+            </tr></thead>
+            <tbody>
+              ${list.map(r => {
+                const emp = DB.getEmployee(r.employeeId);
+                const empName = emp ? `${emp.firstName || ''} ${emp.lastName || ''}`.trim() : r.employeeId;
+                const badge = BORROW_STATUS_BADGE[r.status] || { label: r.status, cls: 'badge' };
+                const note = r.status === 'rejected' ? r.rejectReason : (r.status === 'approved' ? r.approverNote : (r.status === 'cancelled' ? r.cancelReason : ''));
+                // ใครเห็นปุ่มอนุมัติ/ปฏิเสธ?
+                const canReview = r.status === 'pending' && (
+                  DB.isHR ||
+                  (role === 'area_manager' && (DB._managedBranches || []).includes(r.sourceBranchId)) ||
+                  (role === 'operation_manager')
+                );
+                const canCancel = ['pending', 'approved'].includes(r.status) && (
+                  DB.isHR ||
+                  r.requestedBy === DB.user?.id
+                );
+                return `<tr>
+                  <td><span class="badge ${badge.cls}">${escapeHtml(badge.label)}</span></td>
+                  <td><strong>${escapeHtml(r.employeeId)}</strong><br>
+                    <span class="muted-2" style="font-size:12px">${escapeHtml(empName)}</span></td>
+                  <td>
+                    <code>${escapeHtml(r.sourceBranchId)}</code>
+                    <span class="muted-2"> → </span>
+                    <code>${escapeHtml(r.destinationBranchId)}</code>
+                  </td>
+                  <td style="font-size:12px">${escapeHtml(fmtWorkDates(r.workDates))}</td>
+                  <td style="max-width:240px;word-break:break-word">${escapeHtml(r.reason || '-')}</td>
+                  <td style="max-width:200px;word-break:break-word;font-size:12px">${escapeHtml(note || '-')}</td>
+                  <td>
+                    ${canReview ? `
+                      <button class="btn btn-success btn-sm" onclick="reviewBorrowUI('${escapeHtml(r.id)}', 'approved')">✓ อนุมัติ</button>
+                      <button class="btn btn-danger btn-sm" onclick="reviewBorrowUI('${escapeHtml(r.id)}', 'rejected')">✕ ปฏิเสธ</button>
+                    ` : ''}
+                    ${canCancel ? `
+                      <button class="btn btn-ghost btn-sm" onclick="cancelBorrowUI('${escapeHtml(r.id)}')">ยกเลิก</button>
+                    ` : ''}
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `}
+    </div>
+  `;
+});
+
+async function openBorrowRequestForm() {
+  if (!DB.canCreateScheduleForBranch && typeof DB.canCreateScheduleForBranch !== 'function') {
+    // fallback: เช็คคร่าวๆ
+    if (!DB.isHR && DB.role !== 'branch_manager' && DB.role !== 'operation_manager') {
+      toast('ต้องเป็น Branch Manager / HR / admin', 'error');
+      return;
+    }
+  }
+  const branches = DB.getBranchMaster ? DB.getBranchMaster({ activeOnly: true }) : [];
+  modal.open('สร้างคำขอยืมพนักงาน', `
+    <form id="borrowReqForm" class="form-grid">
+      <div class="form-group span-2">
+        <label>สาขาปลายทาง (ที่จะใช้พนักงาน) *</label>
+        <select name="destBranch" required>
+          <option value="">— เลือกสาขา —</option>
+          ${branches.map(b => `<option value="${escapeHtml(b.id)}" title="${escapeHtml(b.name || '')}">${escapeHtml(b.id)}${b.name ? ' · ' + escapeHtml(b.name) : ''}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group span-2">
+        <label>พนักงานที่ต้องการยืม (รหัส) *</label>
+        <input name="employeeId" required placeholder="เช่น 65010" autocomplete="off"/>
+        <small class="muted-2" style="font-size:11px;margin-top:4px;display:block">ระบบจะตรวจสาขาแม่ของพนักงานอัตโนมัติ — ถ้าสาขาแม่ตรงกับปลายทาง จะปฏิเสธ</small>
+      </div>
+      <div class="form-group span-2">
+        <label>วันทำงานที่ต้องการ (เลือกได้หลายวัน) *</label>
+        <input name="workDates" type="text" required placeholder="2026-05-27, 2026-05-28, 2026-05-29" />
+        <small class="muted-2" style="font-size:11px;margin-top:4px;display:block">รูปแบบ YYYY-MM-DD คั่นด้วยเครื่องหมายจุลภาค (,) สูงสุดควรไม่เกิน 14 วัน</small>
+      </div>
+      <div class="form-group span-2">
+        <label>เหตุผลที่ขอยืม</label>
+        <textarea name="reason" rows="3" placeholder="เช่น พนักงานสาขาเราลาเร่งด่วน 2 คน — ต้องการคนช่วยช่วงเทศกาล"></textarea>
+      </div>
+    </form>
+  `, {
+    size: 'sm',
+    footer: '<button class="btn btn-secondary" data-close>ยกเลิก</button><button class="btn btn-primary" id="borrowReqSubmit">ส่งคำขอ</button>'
+  });
+  $('#borrowReqSubmit').addEventListener('click', async () => {
+    const form = $('#borrowReqForm');
+    if (!form.checkValidity()) { form.reportValidity(); return; }
+    const fd = new FormData(form);
+    const destBranch = (fd.get('destBranch') || '').toString().trim();
+    const employeeId = (fd.get('employeeId') || '').toString().trim();
+    const datesRaw = (fd.get('workDates') || '').toString().trim();
+    const reason = (fd.get('reason') || '').toString().trim();
+    // parse dates
+    const workDates = datesRaw.split(',').map(s => s.trim()).filter(Boolean);
+    const invalid = workDates.filter(d => !/^\d{4}-\d{2}-\d{2}$/.test(d));
+    if (invalid.length) {
+      toast('รูปแบบวันที่ไม่ถูก: ' + invalid.join(', '), 'error');
+      return;
+    }
+    const btn = $('#borrowReqSubmit'); btn.disabled = true; btn.textContent = 'กำลังส่ง...';
+    try {
+      await DB.createBorrowRequest({ employeeId, destinationBranchId: destBranch, workDates, reason });
+      modal.close();
+      toast('✓ ส่งคำขอแล้ว — รอ AM สาขาแม่อนุมัติ', 'success');
+      router.go('borrow-requests');
+    } catch (ex) {
+      toast(ex.message || String(ex), 'error');
+      btn.disabled = false; btn.textContent = 'ส่งคำขอ';
+    }
+  });
+}
+
+async function reviewBorrowUI(requestId, decision) {
+  const action = decision === 'approved' ? 'อนุมัติ' : 'ปฏิเสธ';
+  const note = await modal.prompt(`${action}คำขอยืมพนักงาน`, `กรอกหมายเหตุ (ทางเลือก):`, '');
+  if (note === null) return;
+  try {
+    await DB.reviewBorrowRequest(requestId, decision, note);
+    toast(`✓ ${action}คำขอแล้ว`, 'success');
+    router.go('borrow-requests');
+  } catch (ex) {
+    toast(ex.message || String(ex), 'error');
+  }
+}
+
+async function cancelBorrowUI(requestId) {
+  const reason = await modal.prompt('ยกเลิกคำขอยืม', 'เหตุผลที่ยกเลิก (ทางเลือก):', '');
+  if (reason === null) return;
+  try {
+    await DB.cancelBorrowRequest(requestId, reason);
+    toast('ยกเลิกคำขอแล้ว', 'success');
+    router.go('borrow-requests');
+  } catch (ex) {
+    toast(ex.message || String(ex), 'error');
+  }
+}
+
+// Badge: นับคำขอที่ user คนนี้ต้อง review (rolling)
+function updateBorrowBadge() {
+  const badge = document.getElementById('navBadgeBorrow');
+  if (!badge) return;
+  const list = DB.data.borrowRequests || [];
+  // ถ้าเป็น HR — นับทั้งหมด, ถ้าเป็น AM/OM — นับเฉพาะ source ที่ตัวเองดูแล
+  let pending = 0;
+  if (DB.isHR) {
+    pending = list.filter(r => r.status === 'pending').length;
+  } else if (DB.role === 'area_manager' || DB.role === 'operation_manager') {
+    const managed = DB._managedBranches || [];
+    pending = list.filter(r => r.status === 'pending' && managed.includes(r.sourceBranchId)).length;
+  }
+  if (pending > 0) {
+    badge.textContent = String(pending);
+    badge.style.display = 'inline-block';
+    badge.title = `${pending} คำขอยืมพนักงานรออนุมัติ`;
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
 router.register('schedule', () => {
   initScheduleStateIfNeeded();
   const weekStart = _scheduleState.weekStart;
@@ -14759,6 +14983,43 @@ function openShiftPicker(empId, workDate, entryId) {
   if (week && week.status === 'approved' && !DB.isHR) {
     toast('ตารางอนุมัติแล้ว — ติดต่อ HR เพื่อเปิดให้แก้ไข', 'warning');
     return;
+  }
+  // ─── [Phase 3] Cross-branch borrow check ───
+  // ถ้าพนักงานสังกัดสาขาอื่น → ต้องมี approved borrow request วันนี้
+  // (HR/admin bypass — memory rule)
+  const isCrossBranchEmp = emp.branch && emp.branch !== branchId;
+  if (isCrossBranchEmp && !DB.isHR) {
+    const hasApproval = DB.hasApprovedBorrowFor && DB.hasApprovedBorrowFor(empId, branchId, workDate);
+    if (!hasApproval) {
+      const empName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+      modal.open('⚠️ ต้องขอยืมพนักงานก่อน', `
+        <p>พนักงาน <strong>${escapeHtml(empName)}</strong> (รหัส ${escapeHtml(empId)})
+        สังกัดสาขา <code>${escapeHtml(emp.branch)}</code> ไม่ใช่ <code>${escapeHtml(branchId)}</code></p>
+        <p>ก่อนจัดตารางวันที่ <strong>${escapeHtml(fmt.date(workDate))}</strong> ต้องส่งคำขอ
+        ให้ <strong>AM ของสาขา ${escapeHtml(emp.branch)}</strong> อนุมัติก่อน</p>
+        <div style="padding:10px 12px;background:rgba(217,119,6,0.08);border:1px solid var(--warning);border-radius:8px;margin-top:10px;font-size:13px">
+          💡 นี่คือ Workflow ใหม่เพื่อให้ AM ของสาขาแม่ทราบและอนุมัติการดึงพนักงานไปช่วยที่อื่น
+        </div>
+      `, {
+        size: 'sm',
+        footer: `<button class="btn btn-secondary" data-close>ปิด</button>
+                 <button class="btn btn-primary" id="borrowQuickCreate">+ ขอยืมตอนนี้</button>`
+      });
+      $('#borrowQuickCreate').addEventListener('click', () => {
+        modal.close();
+        openBorrowRequestForm();
+        // pre-fill ค่า (ลอง — ใช้ setTimeout ให้ form render เสร็จก่อน)
+        setTimeout(() => {
+          const form = document.getElementById('borrowReqForm');
+          if (form) {
+            if (form.destBranch) form.destBranch.value = branchId;
+            if (form.employeeId) form.employeeId.value = empId;
+            if (form.workDates) form.workDates.value = workDate;
+          }
+        }, 100);
+      });
+      return;
+    }
   }
 
   const existingEntry = entryId ? (DB.data.scheduleEntries || []).find(e => e.id === entryId) : null;
