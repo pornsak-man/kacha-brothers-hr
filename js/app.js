@@ -14736,7 +14736,12 @@ function openShiftPicker(empId, workDate, entryId) {
           setTimeout(() => {
             if (router.current === 'schedule') router.go('schedule');
           }, 0);
-          toast('บันทึกกะแล้ว', 'success');
+          // [Nuke dedup] guard ระดับ window — block ทุก toast call ของ save shift
+          // จากทุก source ภายใน 3 วินาที (รวม listener ที่ attached ซ้ำ, race condition)
+          if (!window.__lastScheduleSaveToast || Date.now() - window.__lastScheduleSaveToast > 3000) {
+            window.__lastScheduleSaveToast = Date.now();
+            toast('บันทึกกะแล้ว', 'success');
+          }
         } catch (ex) {
           // [PERF] Revert optimistic UI ถ้า save fail
           if (cellEl && oldHtml !== null) {
