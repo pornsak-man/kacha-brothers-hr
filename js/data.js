@@ -665,6 +665,31 @@ const DB = {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     })();
     // _fetchAllPagesFiltered: เหมือน _fetchAllPages แต่รับ extra filter callback
+    // [PERF] Phase 1 ดึง minimal + financial cols (~28 cols)
+    //        - Always need: id, name, branch, position, dates, status (dashboard/list/schedule)
+    //        - Need for list table column "เงินเดือน": salary, allowance_*, bank, bank_account
+    //          (DB mask อยู่แล้ว — non-HR เห็น NULL; HR เห็นค่าจริง)
+    //        - Lazy (ดึงตอนเปิด form/detail): nationalId, passportNumber, work_permit, sso_*,
+    //          email, phone, address, sub_district, district, province, postal_code,
+    //          religion, nationality, education, termination_reason, termination_note
+    //          → ผ่าน DB.ensureFullEmployee(id) ใน app.js
+    const SLIM_COLS = [
+      // identity / display
+      'id', 'first_name', 'last_name', 'title', 'nickname',
+      'branch', 'department', 'position', 'position_title',
+      // dates + status
+      'hire_date', 'dob', 'termination_date', 'status',
+      'gender', 'employee_type', 'photo_url', 'note',
+      // financial (for list table "เงินเดือน" column + salary summary report)
+      // DB CASE WHEN is_hr_or_admin() → non-HR ได้ NULL อยู่แล้ว → ปลอดภัย
+      'salary',
+      'allowance_position', 'allowance_travel', 'allowance_food',
+      'allowance_per_diem', 'allowance_language', 'allowance_phone', 'allowance_other',
+      'bank', 'bank_account',
+      // sso dates — ใช้ filter ในหน้า "ประกันสังคม" (รอแจ้งเข้า / รอแจ้งออก)
+      // ถ้าไม่มี → filter ทำงานผิด → list ผิด
+      'sso_enrolled_date', 'sso_terminated_date'
+    ].join(', ');
     const fetchEmployeesActive = async () => {
       const PAGE = 1000;
       const all = [];
@@ -673,11 +698,13 @@ const DB = {
         // [Security M1] อ่านผ่าน employees_view ที่ mask sensitive cols (salary, ปชช, bank, ฯลฯ)
         // สำหรับ non-HR → DB คืน NULL, HR คืนค่าจริง (CASE ใน view)
         const { data, error } = await this.client.from('employees_view')
-          .select('*').order('id', { ascending: true })
+          .select(SLIM_COLS).order('id', { ascending: true })
           .or(`termination_date.is.null,termination_date.gte.${oneYearAgo}`)
           .range(from, from + PAGE - 1);
         if (error) throw error;
         if (!data || data.length === 0) break;
+        // mark slim เพื่อให้ ensureFullEmployee รู้ว่าต้อง fetch full ตอนเปิด form/detail
+        for (const r of data) r._isSlim = true;
         all.push(...data);
         if (data.length < PAGE) break;
         from += PAGE;
@@ -722,6 +749,13 @@ const DB = {
 
     this._invalidateIndex();
 
+    // [PERF] enrich employee ของ user ที่ login (เพื่อ Personal Dashboard ใช้ ssoNo, nationalId ฯลฯ ทันที)
+    // — fire-and-forget, ไม่ block boot — Personal Dashboard render ครั้งแรกจาก slim, ค่อย enrich ในพื้นหลัง
+    const myEmpId = this.profile?.employee_id;
+    if (myEmpId) {
+      this.ensureFullEmployee(myEmpId).catch(() => {});
+    }
+
     // ─── PERF: log boot timings ทันทีหลัง Phase 1 เสร็จ (dashboard render ต่อ) ───
     // เปิด DevTools Console เห็นว่า query ไหนช้า / ส่ง screenshot/log มาบอกได้
     try {
@@ -747,13 +781,15 @@ const DB = {
       let from = 0;
       while (true) {
         // [Security M1] ผ่าน view เช่นเดียวกับ active fetch
+        // [PERF] slim columns เช่นกัน — archive view แสดงแค่ name + termination
         const { data, error } = await this.client.from('employees_view')
-          .select('*').order('id', { ascending: true })
+          .select(SLIM_COLS).order('id', { ascending: true })
           .not('termination_date', 'is', null)
           .lt('termination_date', oneYearAgo)
           .range(from, from + PAGE - 1);
         if (error) throw error;
         if (!data || data.length === 0) break;
+        for (const r of data) r._isSlim = true;
         all.push(...data);
         if (data.length < PAGE) break;
         from += PAGE;
@@ -982,7 +1018,10 @@ const DB = {
       ssoEnrolledDate: hr ? (r.sso_enrolled_date || '') : '',
       ssoTerminatedDate: hr ? (r.sso_terminated_date || '') : '',
       ssoHospital: hr ? (r.sso_hospital || '') : '',
-      status: r.status || 'active', note: r.note || ''
+      status: r.status || 'active', note: r.note || '',
+      // [PERF] slim flag — boot Phase 1 ดึงเฉพาะ minimal cols
+      // → form/detail call DB.ensureFullEmployee(id) เพื่อ fetch full field ที่ขาด
+      _isSlim: r._isSlim === true
     };
   },
   _empToDB: (e) => ({
@@ -1450,6 +1489,62 @@ const DB = {
       for (const e of this.data.employees) this._empIndex.set(e.id, e);
     }
     return this._empIndex.get(id);
+  },
+
+  // [PERF] ดึง employee พร้อม field ครบ (ถ้า cache มีแค่ slim)
+  // ใช้ใน app.js ก่อนเปิด form/detail/personal dashboard ที่ต้องการ salary/ปชช/bank/allowance/sso/ที่อยู่/พาสปอร์ต
+  // คืน emp object เดียวกันใน cache (mutate in place) เพื่อให้ DB.getEmployee() ที่อื่นได้ค่าใหม่ด้วย
+  async ensureFullEmployee(id) {
+    const emp = this.getEmployee(id);
+    if (!emp) return null;
+    if (emp._isSlim !== true) return emp;  // already full
+
+    try {
+      const { data, error } = await this.client.from('employees_view')
+        .select('*').eq('id', id).maybeSingle();
+      if (error || !data) return emp;  // fallback — return slim
+      const full = this._empFromDB(data);
+      // mutate in place — keep reference เดียวกันใน cache
+      Object.assign(emp, full);
+      emp._isSlim = false;
+      return emp;
+    } catch (e) {
+      console.warn('[ensureFullEmployee] fetch failed for', id, e);
+      return emp;
+    }
+  },
+
+  // [PERF] bulk version — ดึง full record ของหลาย employees ในครั้งเดียว
+  // ใช้ก่อน export (CSV/XLSX) หรือ ก่อน backup ก่อน import override
+  // bulk fetch ครั้งเดียวด้วย IN (...) — แทน fetch ทีละคน
+  async ensureFullEmployees(ids) {
+    if (!Array.isArray(ids) || ids.length === 0) return;
+    const need = [];
+    for (const id of ids) {
+      const e = this.getEmployee(id);
+      if (e && e._isSlim === true) need.push(id);
+    }
+    if (need.length === 0) return;
+
+    // chunk ทีละ 200 ids เพื่อไม่ให้ URL ยาวเกิน (Supabase IN จะ encode ใน query string)
+    const CHUNK = 200;
+    for (let i = 0; i < need.length; i += CHUNK) {
+      const slice = need.slice(i, i + CHUNK);
+      try {
+        const { data, error } = await this.client.from('employees_view')
+          .select('*').in('id', slice);
+        if (error || !data) continue;
+        for (const r of data) {
+          const emp = this.getEmployee(r.id);
+          if (!emp) continue;
+          const full = this._empFromDB(r);
+          Object.assign(emp, full);
+          emp._isSlim = false;
+        }
+      } catch (e) {
+        console.warn('[ensureFullEmployees] chunk fetch failed', e);
+      }
+    }
   },
 
   // เช็คว่ารหัสพนักงานนี้มีอยู่แล้วในระบบหรือยัง — เช็คทั้ง cache + DB

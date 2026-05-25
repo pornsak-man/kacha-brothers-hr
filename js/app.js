@@ -2972,8 +2972,11 @@ function confirmDuplicateNationalId(duplicates) {
   });
 }
 
-function openEmployeeForm(id = null, init = null, onSaved = null) {
+async function openEmployeeForm(id = null, init = null, onSaved = null) {
   if (!requireHR()) return;
+  // [PERF] slim cache → ดึง full record (salary, ปชช, bank, sso, allowance, ที่อยู่ ฯลฯ) ก่อนเปิด form
+  // (ครั้งแรกจะใช้ ~50-100ms; ถ้าเปิดอีกครั้งจะ cache hit ทันที)
+  if (id) await DB.ensureFullEmployee(id);
   // init: pre-fill values (เช่นจาก applicant). ถ้า init.skipAutoId = true → ID ว่าง (user กรอกเอง)
   // onSaved(savedEmp): callback หลัง save สำเร็จ (เช่น update applicant status)
   const defaults = {
@@ -3695,7 +3698,9 @@ async function deleteEmployee(id) {
   } catch (ex) { toast('ลบไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
 }
 
-function viewEmployee(id) {
+async function viewEmployee(id) {
+  // [PERF] slim cache → ดึง full record ก่อน render detail (salary, ปชช, bank, allowance, sso, ที่อยู่)
+  await DB.ensureFullEmployee(id);
   const e = DB.getEmployee(id);
   if (!e) return;
   // 🔒 RBAC: out-of-scope ดูข้อมูลพนักงานคนนี้ไม่ได้
@@ -4726,6 +4731,13 @@ async function downloadImportBackup(affectedEmployees) {
   if (typeof XLSX === 'undefined') {
     try { await loadXLSX(); } catch (e) { toast(e.message, 'error'); return false; }
   }
+  // [PERF] slim cache → bulk fetch lazy fields (nationalId, passport, address, sso ฯลฯ) ก่อน backup
+  if (affectedEmployees.some(e => e._isSlim)) {
+    toast('กำลังเตรียมข้อมูลครบทุก field...', 'info');
+    await DB.ensureFullEmployees(affectedEmployees.map(e => e.id));
+    // re-resolve จาก cache เพื่อเอา object ที่เพิ่ง enrich
+    affectedEmployees = affectedEmployees.map(e => DB.getEmployee(e.id) || e);
+  }
   const cs = csvSafe;
   const rows = affectedEmployees.map(e => ({
     'รหัส': excelNum(e.id), 'คำนำหน้า': cs(e.title), 'ชื่อ': cs(e.firstName), 'นามสกุล': cs(e.lastName),
@@ -5294,6 +5306,11 @@ async function exportEmployeesXLSX(opts = null) {
   if (employees.length === 0) {
     toast('ไม่มีพนักงานในเกณฑ์ที่เลือก', 'warning');
     return;
+  }
+  // [PERF] slim cache → bulk fetch lazy fields (nationalId, passport, address, sso ฯลฯ) ก่อน export
+  if (employees.some(e => e._isSlim)) {
+    toast('กำลังเตรียมข้อมูลครบทุก field...', 'info');
+    await DB.ensureFullEmployees(employees.map(e => e.id));
   }
   // text fields ผ่าน csvSafe() เพื่อกัน CSV-injection (ชื่อขึ้นต้น = + - @ จะถูก prefix ด้วย ')
   const cs = csvSafe;
@@ -7441,6 +7458,8 @@ function setSSOTab(tab) {
 
 async function markSSO(empId, tab) {
   if (!requireHR()) return;
+  // [PERF] slim cache → fetch full record ก่อน เพราะใช้ nationalId, ssoNo ใน modal
+  await DB.ensureFullEmployee(empId);
   const emp = DB.getEmployee(empId);
   if (!emp) return;
   const isEnroll = tab === 'enroll';
@@ -9691,7 +9710,7 @@ function openMultiSheetExportModal() {
   });
 }
 
-function doMultiSheetExport(opts) {
+async function doMultiSheetExport(opts) {
   if (typeof XLSX === 'undefined') { toast('กำลังโหลด...', 'warning'); setTimeout(() => doMultiSheetExport(opts), 800); return; }
   const cs = csvSafe;
   // ── Apply filters to employees ──
@@ -9705,6 +9724,14 @@ function doMultiSheetExport(opts) {
   if (opts.hireTo)     emps = emps.filter(e => (e.hireDate || '') <= opts.hireTo);
 
   if (emps.length === 0) { toast('ไม่พบพนักงานที่ตรงกับตัวกรอง', 'warning'); return; }
+
+  // [PERF] slim cache → bulk fetch lazy fields (nationalId, address, sso ฯลฯ) ก่อน export
+  if (emps.some(e => e._isSlim)) {
+    toast('กำลังเตรียมข้อมูลครบทุก field...', 'info');
+    await DB.ensureFullEmployees(emps.map(e => e.id));
+    // re-resolve เพื่อ point ไปยัง enriched objects
+    emps = emps.map(e => DB.getEmployee(e.id) || e);
+  }
 
   const mask = (v) => opts.includeSalary ? Number(v || 0) : '***';
   const empSet = new Set(emps.map(e => e.id));
