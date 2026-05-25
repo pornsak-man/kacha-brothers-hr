@@ -272,6 +272,8 @@ const DB = {
   // หลัง Phase 3 ค่อย refactor แต่ละหน้าให้เรียก hasPermission() แทน
   _permCache: null,             // Set<string> ของ permission keys ที่ user มี (null = ยังไม่ load)
   _permLoadPromise: null,
+  _permLoadFailed: false,       // [M5] true = RPC fail (matrix migration ยังไม่รัน หรือ network)
+  _permLoadErrorMsg: '',
 
   async _loadPermissions() {
     if (!this.user) return;
@@ -282,16 +284,32 @@ const DB = {
         const { data, error } = await this.client.rpc('user_permissions_list');
         if (error) throw error;
         this._permCache = new Set((data || []).map(r => r.permission_key));
+        this._permLoadFailed = false;
+        this._permLoadErrorMsg = '';
       } catch (ex) {
-        // ถ้า RPC ยังไม่มี (migration ยังไม่รัน) หรือ network fail
-        // → cache เป็น null → hasPermission() จะ fallback ไป _legacyPermission
-        console.warn('[perm] load failed, using legacy fallback:', ex?.message || ex);
+        // [M5] ก่อนหน้านี้ silent fallback → ตอนนี้ track failure เพื่อให้ UI เตือน
+        // และ hasPermission() ยังคง fallback ไป _legacyPermission ได้
+        // (ไม่ fail-closed เด็ดขาดเพราะ legacy rules ก็ถูกต้องโดย default)
+        // แต่ถ้า RPC fail ระบบจะ:
+        //   1. แสดง banner เตือนใน UI (ผ่าน _permLoadFailed flag)
+        //   2. ใช้ legacy rules (ปลอดภัย — กฎ default เดิมที่ matrix override)
         this._permCache = null;
+        this._permLoadFailed = true;
+        this._permLoadErrorMsg = ex?.message || String(ex);
+        console.warn('[perm] load failed — legacy fallback active. UI should warn admin.', this._permLoadErrorMsg);
       } finally {
         this._permLoadPromise = null;
       }
     })();
     return this._permLoadPromise;
+  },
+
+  // [M5] ให้ UI เช็ค flag → แสดง banner เตือนว่า matrix ยังไม่ load (admin จะรู้)
+  isPermissionLoadFailed() {
+    return !!this._permLoadFailed;
+  },
+  getPermissionLoadError() {
+    return this._permLoadErrorMsg;
   },
 
   hasPermission(key) {

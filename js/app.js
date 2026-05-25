@@ -130,12 +130,21 @@ function excelNum(s) {
 // CSV Injection guard — ถ้าค่าขึ้นต้นด้วยอักขระสูตร Excel จะรันสูตร (อาจเป็นมัลแวร์)
 // เช่น =1+cmd|'/c calc'!A1 → Excel เปิดเครื่องคิดเลข; @SUM(A:A) → คำนวณ
 // แก้โดย prefix อะพอสทรอฟี ' (Excel แสดงค่าเป็น text)
+// [M2] ปรับให้ครอบคลุม:
+//   - Unicode direction override (U+202E RLO etc.) — กันสลับอักษรไปรันสูตร
+//   - BOM/ZWSP (U+FEFF, U+200B-200D) — กัน hidden char นำหน้า
+//   - Multi-line value ที่มี = ตามบรรทัด (Excel parse \n เป็น row ใหม่)
 function csvSafe(v) {
   if (v == null || v === '') return v;
-  if (typeof v !== 'string') return v;
-  // อักขระอันตราย: = + - @ และ \t (tab) \r (CR)
-  if (/^[=+\-@\t\r]/.test(v)) return "'" + v;
-  return v;
+  if (typeof v !== 'string') v = String(v);
+  // strip BOM/ZWSP/RLO/LRO ที่ตำแหน่งต้น (ป้องกัน hidden char นำหน้า formula char)
+  // ﻿=BOM, ​-‍=ZWSP/ZWNJ/ZWJ, ‪-‮=bidi override
+  const stripped = v.replace(/^[﻿​-‍‪-‮]+/, '');
+  // อักขระอันตราย: = + - @ และ \t \r \n (Excel/LibreOffice formula trigger)
+  if (/^[=+\-@\t\r\n]/.test(stripped)) return "'" + stripped;
+  // เช็ค newline กลางๆ — ถ้ามี row ที่ขึ้นด้วย formula char ให้ prefix ทั้งค่า
+  if (/[\r\n][=+\-@]/.test(stripped)) return "'" + stripped;
+  return stripped;
 }
 
 // Excel file size limit (MB) — ป้องกัน user upload ไฟล์ใหญ่ทำ browser ค้าง
