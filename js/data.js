@@ -855,6 +855,35 @@ const DB = {
 
   _applyChange(payload) {
     const { table, eventType, new: newRow, old: oldRow } = payload;
+    // [F1] user_profiles — ถ้า role ของฉันถูกแก้ → refresh session ทันที
+    // ป้องกัน user ต้อง logout/login เมื่อ admin เปลี่ยน role ของเขา
+    if (table === 'user_profiles') {
+      const ref = newRow || oldRow;
+      if (ref?.user_id === this.user?.id) {
+        if (eventType === 'UPDATE' && newRow) {
+          this.profile = newRow;
+          this.role = newRow.role || 'viewer';
+          this.isAdmin = this.role === 'admin';
+          this.isHR = this.role === 'admin' || this.role === 'hr';
+          this._managedBranches = Array.isArray(newRow.managed_branches)
+            ? newRow.managed_branches.filter(Boolean) : [];
+          this._permCache = null;            // invalidate — load ใหม่ใน hasPermission()
+          this._permLoadPromise = null;
+          this._loadPermissions();           // pre-warm cache
+          // broadcast ให้ UI re-evaluate role-dependent elements
+          if (window.onProfileChange) {
+            try { window.onProfileChange(this.profile); } catch (e) {}
+          }
+        } else if (eventType === 'DELETE') {
+          // profile ของฉันถูกลบ — force logout
+          this.signOut();
+          if (window.location) window.location.reload();
+        }
+      }
+      // refresh cache list ของ user_profiles (สำหรับหน้า "ผู้ใช้และสิทธิ์")
+      if (this._userProfiles) this._userProfiles = null;   // lazy reload ครั้งถัดไป
+      return;
+    }
     // announcement_reads — update local set (เฉพาะ rows ของตัวเอง)
     if (table === 'announcement_reads') {
       const myEmpId = this.profile?.employee_id;
@@ -2657,6 +2686,13 @@ const DB = {
     });
     if (error) throw error;
     await this.refetchUserProfiles();
+    // [F2] ถ้า admin/HR แก้ role ของ *ตัวเอง* → invalidate permission cache + refresh profile
+    // เพื่อให้สิทธิ์ใหม่มีผลทันที (เช่น admin downgrade ตัวเองเป็น HR เพื่อทดสอบ)
+    if (employeeId === this.profile?.employee_id) {
+      this._permCache = null;
+      this._permLoadPromise = null;
+      try { await this.loadProfile(); } catch (e) { /* not fatal */ }
+    }
     return data;
   },
 

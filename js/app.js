@@ -768,16 +768,8 @@ const auth = {
     if (typeof updateBorrowBadge === 'function') updateBorrowBadge();
     if (typeof renderNotifBell === 'function') renderNotifBell();
     this.refreshImpersonateUI();
-    // ซ่อนเมนูตาม role:
-    //   .nav-admin-only  → เฉพาะ admin (ตั้งค่าระบบ)
-    //   .nav-hr-only     → admin + hr (ปรับค่าจ้าง, กู้, audit log)
-    //   .nav-staff-hide  → ซ่อนสำหรับ branch_staff / viewer (เมนูที่ไม่จำเป็นต่อพนักงานสาขา)
-    $$('.nav-admin-only').forEach(el => { el.style.display = DB.isAdmin ? '' : 'none'; });
-    $$('.nav-hr-only').forEach(el => { el.style.display = DB.isHR ? '' : 'none'; });
-    const isStaffOnly = (DB.role === 'branch_staff' || DB.role === 'viewer');
-    // ใช้ ternary 2 ทางเพื่อ reset display ตอน login ใหม่เป็น role ที่ต่างจากเดิม
-    // (ก่อนหน้านี้ใช้ if-only — ทำให้ inline display:none ค้างเมื่อ login จาก staff → admin)
-    $$('.nav-staff-hide').forEach(el => { el.style.display = isStaffOnly ? 'none' : ''; });
+    // ★ ใช้ helper function — share logic กับ onProfileChange handler
+    refreshRoleDependentUI();
     router.go('dashboard');
     // ─── PERF log: showApp render + first paint + grand total ───
     const _tAfterRender = performance.now();
@@ -802,6 +794,52 @@ const auth = {
         }
       } catch (e) {}
     }));
+  }
+};
+
+// ─── [F3] re-evaluate role-dependent UI ───
+// แชร์ระหว่าง showApp() (ตอน login) และ window.onProfileChange (ตอน realtime role change)
+function refreshRoleDependentUI() {
+  // sidebar visibility ตาม role
+  $$('.nav-admin-only').forEach(el => { el.style.display = DB.isAdmin ? '' : 'none'; });
+  $$('.nav-hr-only').forEach(el => { el.style.display = DB.isHR ? '' : 'none'; });
+  const isStaffOnly = (DB.role === 'branch_staff' || DB.role === 'viewer');
+  $$('.nav-staff-hide').forEach(el => { el.style.display = isStaffOnly ? 'none' : ''; });
+  // user info (mini card บน sidebar)
+  const displayName = DB.profile?.name || DB.user?.email?.split('@')[0] || 'User';
+  const userNameEl = $('#userName');
+  if (userNameEl) userNameEl.textContent = displayName;
+  const userAvatarEl = $('#userAvatar');
+  if (userAvatarEl) userAvatarEl.textContent = displayName.charAt(0).toUpperCase();
+  const roleLabel = DB.isAdmin ? 'ผู้ดูแลระบบ'
+    : DB.role === 'hr' ? 'เจ้าหน้าที่บุคคล'
+    : DB.role === 'area_manager' ? 'ผู้จัดการเขต'
+    : DB.role === 'branch_manager' ? 'ผู้จัดการสาขา'
+    : DB.role === 'operation_manager' ? 'ผู้จัดการฝ่ายปฏิบัติการ'
+    : DB.role === 'branch_staff' ? 'พนักงานสาขา'
+    : 'ผู้ใช้งานทั่วไป';
+  const roleEl = $('.user-role');
+  if (roleEl) roleEl.textContent = roleLabel;
+}
+
+// [F1+F3] realtime: ถ้า admin เปลี่ยน role ของ user ปัจจุบัน → refresh UI ทันที
+// — broadcast จาก data.js _applyChange() เมื่อ user_profiles UPDATE ของตัวเอง
+window.onProfileChange = (newProfile) => {
+  refreshRoleDependentUI();
+  // toast แจ้ง user
+  if (typeof toast === 'function') {
+    const roleLabel = DB.role === 'admin' ? 'ผู้ดูแลระบบ'
+      : DB.role === 'hr' ? 'เจ้าหน้าที่บุคคล'
+      : DB.role === 'area_manager' ? 'ผู้จัดการเขต'
+      : DB.role === 'branch_manager' ? 'ผู้จัดการสาขา'
+      : DB.role === 'operation_manager' ? 'ผู้จัดการฝ่ายปฏิบัติการ'
+      : DB.role === 'branch_staff' ? 'พนักงานสาขา'
+      : 'ผู้ใช้งานทั่วไป';
+    toast(`✓ สิทธิ์ของคุณถูกอัปเดต — ${roleLabel}`, 'info');
+  }
+  // re-render หน้าปัจจุบันถ้าอยู่ในหน้าที่ขึ้นกับ role
+  if (router.current && router.pages[router.current]) {
+    router.go(router.current);
   }
 };
 
