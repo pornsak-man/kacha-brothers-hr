@@ -14410,7 +14410,7 @@ function renderScheduleGrid(branchId, weekStart, canEdit) {
           const timeText = shift.isOffDay
             ? 'OFF'
             : `${(shift.startTime || '').slice(0, 5)}–${(shift.endTime || '').slice(0, 5)}`;
-          cellContent = `<span class="shift-badge" style="background:${escapeHtml(shift.color)}1f;color:${escapeHtml(shift.color)};border-color:${escapeHtml(shift.color)}33">
+          cellContent = `<span class="shift-badge" style="background:${escapeHtml(shift.color)}33;color:${escapeHtml(shift.color)};border-color:${escapeHtml(shift.color)}66">
             <strong>${escapeHtml(shift.code)}</strong>
             <span class="shift-badge-time">${escapeHtml(timeText)}</span>
           </span>`;
@@ -14657,8 +14657,26 @@ function openShiftPicker(empId, workDate, entryId) {
         return;
       }
       const shiftId = btn.dataset.shiftId;
-      // ปิด modal ทันที + save แบบ async (ไม่ block UI) → ลด lag
       modal.close();
+
+      // [PERF] Optimistic UI — แสดงผลทันทีก่อนรอ network
+      // ป้องกัน user รู้สึก lag ระหว่าง 200-500ms ของ Supabase round-trip
+      const cellEl = document.getElementById(`cell-${empId}-${workDate}`);
+      const oldHtml = cellEl ? cellEl.innerHTML : null;
+      const oldCls = cellEl ? cellEl.className : null;
+      if (cellEl) {
+        const sh = DB.getShift(shiftId);
+        if (sh) {
+          const timeText = sh.isOffDay ? 'OFF' : `${(sh.startTime || '').slice(0,5)}–${(sh.endTime || '').slice(0,5)}`;
+          cellEl.innerHTML = `<span class="shift-badge shift-badge-pending" style="background:${sh.color}33;color:${sh.color};border-color:${sh.color}66">
+            <strong>${escapeHtml(sh.code)}</strong>
+            <span class="shift-badge-time">${escapeHtml(timeText)}</span>
+          </span>`;
+          // เพิ่ม class แสดงว่ากำลัง save (subtle pulse)
+          cellEl.classList.add('schedule-cell-pending');
+        }
+      }
+
       (async () => {
         try {
           const w = await DB.ensureScheduleWeek(branchId, weekStart);
@@ -14677,11 +14695,21 @@ function openShiftPicker(empId, workDate, entryId) {
             customBreakMinutes: 0,
             customLabel: ''
           });
-          if (router.current === 'schedule') router.go('schedule');
+          // [PERF] ลบ pending state — realtime subscription หรือ next render
+          // จะ replace cell ด้วยข้อมูลจริง (รวม totals + row summary)
+          if (cellEl) cellEl.classList.remove('schedule-cell-pending');
+          // defer re-render to next idle tick — ไม่ block toast
+          setTimeout(() => {
+            if (router.current === 'schedule') router.go('schedule');
+          }, 0);
           toast('บันทึกกะแล้ว', 'success');
         } catch (ex) {
+          // [PERF] Revert optimistic UI ถ้า save fail
+          if (cellEl && oldHtml !== null) {
+            cellEl.innerHTML = oldHtml;
+            cellEl.className = oldCls;
+          }
           toast(ex.message || String(ex), 'error');
-          if (router.current === 'schedule') router.go('schedule');
         }
       })();
     });
