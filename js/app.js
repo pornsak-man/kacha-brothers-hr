@@ -334,15 +334,15 @@ function renderBranchPicker({ name, branches, selected = [], pickerId = null } =
       </div>
       <div class="branch-picker-grid" data-branch-grid>
         ${branches.map(b => {
-          const hasName = b.name && b.name.trim() && b.name.trim() !== b.id;
+          // [UI] ทุก dropdown/picker สาขา แสดงเฉพาะรหัส (ไม่ใส่ชื่อแบรนด์)
+          // เก็บ data-search ไว้เพื่อ search ตามชื่อก็ยังหาเจอ + title hover เห็นชื่อเต็มได้
           const searchKey = (b.id + ' ' + (b.name || '')).toLowerCase();
           return `
-            <label class="branch-chip${hasName ? '' : ' is-codeonly'}" data-branch-chip data-search="${escapeHtml(searchKey)}">
+            <label class="branch-chip is-codeonly" data-branch-chip data-search="${escapeHtml(searchKey)}" title="${escapeHtml(b.name || '')}">
               <input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(b.id)}" ${sel.has(b.id) ? 'checked' : ''}/>
               <span class="branch-chip-indicator" aria-hidden="true"></span>
               <span class="branch-chip-content">
                 <span class="branch-chip-code">${escapeHtml(b.id)}</span>
-                ${hasName ? `<span class="branch-chip-name" title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</span>` : ''}
               </span>
             </label>`;
         }).join('')}
@@ -2947,7 +2947,7 @@ function openEmployeeForm(id = null, init = null, onSaved = null) {
         <h3>การทำงาน</h3>
         <div class="form-grid">
           <div class="form-group"><label>ฝ่าย *</label><select name="department" id="empFormDept" required><option value="" ${!emp.department ? 'selected' : ''}>— เลือกฝ่าย —</option>${depts.map(d => `<option value="${d.id}" data-scope="${escapeHtml(d.scope || '')}" ${emp.department === d.id ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}</select></div>
-          <div class="form-group"><label>สาขา</label><input name="branch" list="dl-emp-branches" value="${escapeHtml(emp.branch)}" placeholder="เช่น KMB, GE" autocomplete="off"/><datalist id="dl-emp-branches">${DB.getBranchMaster({ activeOnly: true }).map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name || b.id)}</option>`).join('')}</datalist></div>
+          <div class="form-group"><label>สาขา</label><input name="branch" list="dl-emp-branches" value="${escapeHtml(emp.branch)}" placeholder="เช่น KMB, GE" autocomplete="off"/><datalist id="dl-emp-branches">${DB.getBranchMaster({ activeOnly: true }).map(b => `<option value="${escapeHtml(b.id)}"></option>`).join('')}</datalist></div>
           <div class="form-group"><label>ระดับตำแหน่งงาน *</label>${(() => {
             // filter ตาม scope ของฝ่าย (ถ้ามี): operation → ตำแหน่ง operation + ไม่ระบุ, office → office + ไม่ระบุ
             const filtered = DB.getPositionsForDepartment(emp.department || '');
@@ -14151,7 +14151,7 @@ function openAllBranchesOverview() {
               ? `ส่ง ${fmt.date(r.week.submittedAt)}`
               : '<span class="muted-2">—</span>';
             return `<tr class="${!r.hasWeek ? 'muted-row' : ''}">
-              <td><strong>${escapeHtml(r.branch.id)}</strong>${r.branch.name ? ` <span class="muted-2">· ${escapeHtml(r.branch.name)}</span>` : ''}</td>
+              <td title="${escapeHtml(r.branch.name || '')}"><strong>${escapeHtml(r.branch.id)}</strong></td>
               <td><span class="badge ${badge.cls}">${escapeHtml(badge.label)}</span></td>
               <td class="num">${r.empCount > 0 ? `${fmt.num(r.empCount)} / ${fmt.num(r.empsTotal)}` : `<span class="muted-2">0 / ${fmt.num(r.empsTotal)}</span>`}</td>
               <td class="num">${r.shiftCount > 0 ? fmt.num(r.shiftCount) : '<span class="muted-2">0</span>'}</td>
@@ -14263,7 +14263,7 @@ function openShiftEditor(shiftId) {
         <label>เฉพาะสาขา <span class="muted-2">(ว่าง = ทุกสาขา)</span></label>
         <select name="branchId">
           <option value="">— ทุกสาขา —</option>
-          ${branches.map(b => `<option value="${escapeHtml(b.id)}" ${cur.branchId === b.id ? 'selected' : ''}>${escapeHtml(b.name || b.id)}</option>`).join('')}
+          ${branches.map(b => `<option value="${escapeHtml(b.id)}" ${cur.branchId === b.id ? 'selected' : ''} title="${escapeHtml(b.name || '')}">${escapeHtml(b.id)}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
