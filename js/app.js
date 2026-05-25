@@ -12698,6 +12698,136 @@ const _permMatrixState = {
   loading: false, error: null
 };
 
+// ─── Auto-detect permission keys ที่ใช้ใน code แต่ไม่อยู่ใน DB matrix ───
+// สแกน script (inline + external same-origin) หา hasPermission/requirePermission/user_has_permission
+// cache ผลไว้ใน module level — รัน fetch แค่ครั้งแรก (text ของ script ไม่เปลี่ยน)
+let _cachedUsedPerms = null;
+async function _scanScriptsForPerms() {
+  if (_cachedUsedPerms) return _cachedUsedPerms;
+  const usedKeys = new Set();
+  const patterns = [
+    /\bhasPermission\(\s*['"`]([a-z_]+\.[a-z_]+)['"`]\s*\)/g,
+    /\brequirePermission\(\s*['"`]([a-z_]+\.[a-z_]+)['"`]/g,
+    /\buser_has_permission\(\s*['"`]([a-z_]+\.[a-z_]+)['"`]\s*\)/g
+  ];
+  const scriptPromises = [];
+  for (const script of document.scripts) {
+    let inlineText = script.textContent || '';
+    if (inlineText) {
+      scriptPromises.push(Promise.resolve(inlineText));
+    } else if (script.src) {
+      // fetch external scripts ที่เป็น same-origin (กัน CORS ของ CDN)
+      try {
+        const url = new URL(script.src, window.location.href);
+        if (url.origin === window.location.origin) {
+          scriptPromises.push(
+            fetch(url.toString())
+              .then(r => r.ok ? r.text() : '')
+              .catch(() => '')
+          );
+        }
+      } catch (e) { /* invalid URL — skip */ }
+    }
+  }
+  const texts = await Promise.all(scriptPromises);
+  for (const text of texts) {
+    if (!text) continue;
+    for (const re of patterns) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        if (m[1]) usedKeys.add(m[1]);
+      }
+    }
+  }
+  _cachedUsedPerms = usedKeys;
+  return usedKeys;
+}
+
+async function diagnosePermissions(dbKeys) {
+  const dbSet = new Set(dbKeys || []);
+  const usedKeys = await _scanScriptsForPerms();
+  const missing = [...usedKeys].filter(k => !dbSet.has(k)).sort();
+  return { missing, usedKeys: [...usedKeys].sort(), dbKeys: [...dbSet] };
+}
+
+// แสดง modal ลงทะเบียน permission ที่ขาด — เรียก RPC register_permission
+async function openRegisterPermissionModal(key) {
+  // เดา scope จาก prefix
+  const prefix = key.split('.')[0];
+  const guessScope =
+    ['employee', 'applicant', 'blacklist', 'uniform', 'sso'].includes(prefix) ? 'employee'
+    : ['payroll', 'salary', 'loan', 'advance', 'allowance', 'evaluation', 'report'].includes(prefix) ? 'payroll'
+    : ['leave', 'holiday', 'holiday_swap', 'schedule', 'leave_calendar'].includes(prefix) ? 'leave'
+    : 'system';
+  return new Promise((resolve) => {
+    modal.open(`ลงทะเบียน permission ใหม่`, `
+      <div class="form-grid">
+        <div class="form-group span-2">
+          <label>Permission key</label>
+          <input value="${escapeHtml(key)}" readonly style="font-family:monospace;background:var(--surface-2)"/>
+        </div>
+        <div class="form-group span-2">
+          <label>ชื่อแสดงผล (ภาษาไทย)</label>
+          <input id="regPermLabel" required placeholder="เช่น เห็นเมนูตารางงาน" />
+        </div>
+        <div class="form-group">
+          <label>กลุ่ม</label>
+          <select id="regPermScope">
+            <option value="employee" ${guessScope === 'employee' ? 'selected' : ''}>employee</option>
+            <option value="payroll" ${guessScope === 'payroll' ? 'selected' : ''}>payroll</option>
+            <option value="leave" ${guessScope === 'leave' ? 'selected' : ''}>leave</option>
+            <option value="system" ${guessScope === 'system' ? 'selected' : ''}>system</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>ความอันตราย</label>
+          <select id="regPermDanger">
+            <option value="false">ปกติ</option>
+            <option value="true">DANGER (สิทธิ์เสี่ยง)</option>
+          </select>
+        </div>
+        <div class="form-group span-2">
+          <label>คำอธิบาย (ทางเลือก)</label>
+          <textarea id="regPermDesc" rows="2" placeholder="อธิบายว่า permission นี้ใช้ทำอะไร"></textarea>
+        </div>
+      </div>
+      <div style="font-size:12.5px;color:var(--text-2);padding:10px;background:var(--surface-2);border-radius:8px;margin-top:8px">
+        💡 หลังลงทะเบียน — admin จะถูกตั้งเป็น "เปิด" โดย default (ปลอดภัย) — เปิดให้ role อื่นใน matrix
+      </div>
+    `, {
+      size: 'sm',
+      footer: '<button class="btn btn-secondary" data-cancel>ยกเลิก</button><button class="btn btn-primary" data-ok>ลงทะเบียน</button>'
+    });
+    const root = document.getElementById('modalRoot');
+    root.querySelector('[data-ok]').addEventListener('click', async () => {
+      const label = document.getElementById('regPermLabel').value.trim();
+      const scope = document.getElementById('regPermScope').value;
+      const danger = document.getElementById('regPermDanger').value === 'true';
+      const desc = document.getElementById('regPermDesc').value.trim();
+      if (!label) { toast('กรอกชื่อก่อน', 'error'); return; }
+      try {
+        const { error } = await DB.client.rpc('register_permission', {
+          p_key: key,
+          p_scope: scope,
+          p_label_th: label,
+          p_description: desc,
+          p_is_dangerous: danger,
+          p_sort_order: 9000
+        });
+        if (error) throw error;
+        modal.close();
+        toast(`✓ ลงทะเบียน ${key} แล้ว — รีโหลดตารางสิทธิ์`, 'success');
+        renderPermMatrix();
+        resolve(true);
+      } catch (ex) {
+        toast('ลงทะเบียนไม่สำเร็จ: ' + (ex.message || ex), 'error');
+      }
+    });
+    root.querySelector('[data-cancel]').addEventListener('click', () => { modal.close(); resolve(false); });
+  });
+}
+
 async function renderPermMatrix() {
   if (!DB.isAdmin) return;
   const box = document.getElementById('permMatrixBox');
@@ -12726,8 +12856,46 @@ async function renderPermMatrix() {
     }
     _permMatrixState.loading = false;
     _permMatrixState.error = null;
-    box.innerHTML = _renderMatrixHtml();
+    // ─── [Auto-detect] สแกน code หา permission ที่ขาด ───
+    const dbKeys = perms.map(p => p.key);
+    const diagnosis = await diagnosePermissions(dbKeys);
+    let diagBanner = '';
+    if (diagnosis.missing.length > 0) {
+      diagBanner = `
+        <div class="card" style="border:2px solid var(--warning);background:rgba(217,119,6,0.04);margin-bottom:14px;padding:14px">
+          <div style="display:flex;gap:10px;align-items:flex-start">
+            <div style="font-size:24px;line-height:1">🔔</div>
+            <div style="flex:1">
+              <div style="font-weight:700;color:var(--warning);font-size:14px;margin-bottom:4px">
+                พบ permission key ใน code ที่ยังไม่อยู่ใน matrix (${diagnosis.missing.length} ตัว)
+              </div>
+              <div class="muted-2" style="font-size:12.5px;margin-bottom:10px">
+                Auto-detect สแกน <code>hasPermission()</code> / <code>requirePermission()</code> ใน script
+                แล้วเทียบกับฐานข้อมูล — ฟีเจอร์ใหม่ที่เพิ่ม code แต่ลืม seed จะขึ้นที่นี่
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+                ${diagnosis.missing.map(k => `
+                  <button type="button" class="btn btn-warning btn-sm" data-register-perm="${escapeHtml(k)}" style="font-family:monospace;font-size:12px;padding:4px 10px">
+                    + ${escapeHtml(k)}
+                  </button>
+                `).join('')}
+              </div>
+              <div class="muted-2" style="font-size:11.5px">
+                💡 คลิก permission แต่ละตัวเพื่อ "ลงทะเบียน" เข้าระบบ — แล้วจะเปิด/ปิดสิทธิ์ใน matrix ด้านล่างได้
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    box.innerHTML = diagBanner + _renderMatrixHtml();
     _wireMatrixEvents();
+    // wire up register buttons
+    document.querySelectorAll('[data-register-perm]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        openRegisterPermissionModal(btn.dataset.registerPerm);
+      });
+    });
   } catch (ex) {
     _permMatrixState.error = ex?.message || String(ex);
     box.innerHTML = `<div class="empty-state" style="padding:24px">
