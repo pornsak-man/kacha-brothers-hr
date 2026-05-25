@@ -14732,16 +14732,12 @@ function openShiftPicker(empId, workDate, entryId) {
           // [PERF] ลบ pending state — realtime subscription หรือ next render
           // จะ replace cell ด้วยข้อมูลจริง (รวม totals + row summary)
           if (cellEl) cellEl.classList.remove('schedule-cell-pending');
-          // defer re-render to next idle tick — ไม่ block toast
+          // defer re-render to next idle tick
           setTimeout(() => {
             if (router.current === 'schedule') router.go('schedule');
           }, 0);
-          // [Nuke dedup] guard ระดับ window — block ทุก toast call ของ save shift
-          // จากทุก source ภายใน 3 วินาที (รวม listener ที่ attached ซ้ำ, race condition)
-          if (!window.__lastScheduleSaveToast || Date.now() - window.__lastScheduleSaveToast > 3000) {
-            window.__lastScheduleSaveToast = Date.now();
-            toast('บันทึกกะแล้ว', 'success');
-          }
+          // ★ ไม่ต้องมี toast — cell update ทันที (optimistic) เป็น visual feedback ที่ชัดเจนแล้ว
+          // (เคยลอง toast แต่มีปัญหา "2 ครั้ง" จาก source ที่ตรวจไม่เจอ — ลบทิ้งดีกว่า)
         } catch (ex) {
           // [PERF] Revert optimistic UI ถ้า save fail
           if (cellEl && oldHtml !== null) {
