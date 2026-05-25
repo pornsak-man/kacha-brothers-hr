@@ -4168,6 +4168,18 @@ function validateImportRows(rows) {
   });
   // คืน errors + warnings (backward compat: ถ้า caller ใช้แค่ errors ก็ยังใช้ได้)
   errors._warnings = warnings;
+  // ─── ตรวจ "Excel แบบบาง" — ขาด column สำคัญหลายตัว ───
+  const headers = rows._originalHeaders || [];
+  if (headers.length > 0) {
+    const partial = detectPartialExcel(headers);
+    errors._partial = partial;
+    if (partial.severity === 'block') {
+      errors.push({
+        row: 0,
+        msg: `Excel ขาดคอลัมน์สำคัญ ${partial.missingCount} ตัว (${Math.round(partial.ratio*100)}%) — ฟิลด์ที่ไม่มีในไฟล์จะถูกล้างเป็นค่าว่าง. แนะนำ Export ก่อนแล้วแก้ไฟล์เดิม`
+      });
+    }
+  }
   return errors;
 }
 
@@ -4189,13 +4201,39 @@ async function readExcelFile(file) {
         const sheetName = wb.SheetNames.find(n => n.includes('พนักงาน')) || wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
         await new Promise(r => setTimeout(r, 0));
-        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        resolve(rows.map(parseImportRow));
+        const rawRows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        // ─── เก็บ original headers ของ Excel (ใช้ detect partial Excel) ───
+        const headers = rawRows.length > 0 ? Object.keys(rawRows[0]) : [];
+        const parsed = rawRows.map(parseImportRow);
+        // attach metadata เพื่อให้ validate function ใช้ได้
+        Object.defineProperty(parsed, '_originalHeaders', { value: headers, enumerable: false });
+        resolve(parsed);
       } catch (ex) { reject(ex); }
     };
     reader.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
     reader.readAsArrayBuffer(file);
   });
+}
+
+// คอลัมน์ที่ทุก Excel ควรมี (subset ของ IMPORT_COLUMNS) — ขาดเยอะ = "Excel แบบบาง" → เตือน
+const CRITICAL_IMPORT_COLUMNS = [
+  'คำนำหน้า', 'ชื่อ', 'นามสกุล', 'ชื่อเล่น',
+  'เพศ', 'วันเกิด', 'เลขประชาชน', 'สัญชาติ',
+  'เบอร์โทร', 'ที่อยู่', 'แขวง/ตำบล', 'เขต/อำเภอ', 'จังหวัด',
+  'รหัสฝ่าย', 'สาขา', 'ตำแหน่ง', 'ประเภทพนักงาน',
+  'วันเริ่มงาน', 'ธนาคาร', 'เลขบัญชี',
+  'เงินเดือน', 'ค่าตำแหน่ง', 'ค่าเดินทาง', 'ค่าอาหาร'
+];
+
+// คืน { missingCount, missingList, severity: 'ok'|'warn'|'block' }
+function detectPartialExcel(headers) {
+  const have = new Set(headers);
+  const missing = CRITICAL_IMPORT_COLUMNS.filter(c => !have.has(c));
+  const ratio = missing.length / CRITICAL_IMPORT_COLUMNS.length;
+  let severity = 'ok';
+  if (ratio >= 0.5) severity = 'block';      // ขาด ≥ 50% = อันตรายมาก
+  else if (ratio >= 0.2) severity = 'warn';  // ขาด 20-50% = เตือน
+  return { missingCount: missing.length, missingList: missing, severity, ratio };
 }
 
 function openImportEmployees() {
@@ -4539,6 +4577,7 @@ async function downloadImportBackup(affectedEmployees) {
 
 function renderImportPreview(rows, errors) {
   const warnings = errors._warnings || [];
+  const partial = errors._partial || null;
   const sample = rows.slice(0, 5);
   // จำแนกแถว
   const insertCount = rows.filter(r => r._op === 'insert').length;
@@ -4546,7 +4585,42 @@ function renderImportPreview(rows, errors) {
   const returningCount = rows.filter(r => r._isReturning).length;
   const needsBackup = updateCount > 0;
   const isLargeBatch = rows.length >= 50;
+
+  // (Banner ถูกประกอบในตัวแปร partialBanner ด้านล่าง — แล้ว inject ตอนต้น return)
+  // ─── Partial Excel warning banner — แสดงเด่นที่สุดเหนือ stats ───
+  const partialBanner = (partial && partial.severity !== 'ok') ? `
+    <div class="card mt-4" style="border:2px solid ${partial.severity === 'block' ? 'var(--danger)' : 'var(--warning)'};background:${partial.severity === 'block' ? 'rgba(239,68,68,0.05)' : 'rgba(217,119,6,0.05)'}">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="font-size:28px;line-height:1">${partial.severity === 'block' ? '🛑' : '⚠️'}</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:15px;color:${partial.severity === 'block' ? 'var(--danger)' : 'var(--warning)'};margin-bottom:4px">
+            ${partial.severity === 'block' ? 'อันตราย: Excel แบบบาง — ขาดคอลัมน์สำคัญ ' : 'เตือน: Excel ขาดคอลัมน์สำคัญ '}${partial.missingCount} ตัว
+          </div>
+          <div style="font-size:13px;color:var(--text-2);margin-bottom:8px">
+            ระบบนำเข้าจะ <strong>เขียนทับทั้ง row</strong> — คอลัมน์ที่ไม่มีในไฟล์จะถูกล้างเป็นค่าว่าง<br>
+            ตัวอย่างเช่น ถ้าไฟล์ไม่มีคอลัมน์ "เงินเดือน" — เงินเดือนของพนักงานทุกคนใน import จะกลายเป็น 0
+          </div>
+          <details style="margin-bottom:8px">
+            <summary style="cursor:pointer;font-size:12.5px;color:var(--text-3)">ดูคอลัมน์ที่ขาด (${partial.missingCount} ตัว)</summary>
+            <div style="margin-top:6px;padding:8px;background:var(--surface);border-radius:6px;font-size:12px;font-family:monospace">
+              ${partial.missingList.map(c => escapeHtml(c)).join(', ')}
+            </div>
+          </details>
+          <div style="font-size:13px;padding:10px 12px;background:var(--surface);border-radius:8px">
+            ✅ <strong>วิธีที่ถูกต้อง — Export ก่อน แล้วแก้ไฟล์เดิม:</strong>
+            <ol style="margin:6px 0 0 20px;padding:0;font-size:12.5px;color:var(--text-2)">
+              <li>กดปิดหน้านี้ → ไปหน้า "ทะเบียนพนักงาน" → "Export Excel"</li>
+              <li>เปิดไฟล์ที่ download มา → แก้เฉพาะเซลล์ที่ต้องการเปลี่ยน (เช่น คอลัมน์ "ที่อยู่")</li>
+              <li>Save → กลับมาที่นี่ → upload ไฟล์ที่แก้แล้ว</li>
+              <li>ระบบจะเห็นทุกคอลัมน์ครบ → import ปลอดภัย</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+  ` : '';
   return `
+    ${partialBanner}
     <div class="card mt-4">
       <div class="flex items-center gap-2" style="margin-bottom:10px;flex-wrap:wrap">
         <strong>พบ ${rows.length.toLocaleString()} แถว</strong>
