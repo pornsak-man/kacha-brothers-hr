@@ -4707,25 +4707,19 @@ a:hover .badge, button:hover .badge, .sw-recent-item:hover .badge {
 /* weekend column tint via :nth-child needs JS — ใช้ pure-CSS แบบอื่นไม่ได้ — keep header แค่ */
 
 .monthly-shift {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  display: inline-block;
   min-width: 54px;
-  padding: 3px 4px;
+  padding: 6px 6px;
   border-radius: 5px;
-  line-height: 1.05;
-  letter-spacing: 0.02em;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
   filter: saturate(1.5) contrast(1.1);
   color: #111827;
   border: 1px solid rgba(0,0,0,0.1);
   box-shadow: 0 1px 1px rgba(0,0,0,0.04);
-}
-.monthly-shift-code { font-size: 11px; font-weight: 900; }
-.monthly-shift-time {
-  font-size: 9px; font-weight: 700;
-  opacity: 0.78; margin-top: 1px;
-  font-variant-numeric: tabular-nums;
 }
 [data-theme="dark"] .monthly-shift {
   color: #1f2937;
