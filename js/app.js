@@ -7634,6 +7634,14 @@ const UNIFORM_STATUS = {
   issued:     { label: 'จัดส่งแล้ว',  cls: 'badge-success' },
   cancelled:  { label: 'ยกเลิก',     cls: 'badge-danger' }
 };
+// [Feat] ประเภทคำขอจัดชุด — กำหนดว่าฟรีหรือจ่ายเอง
+const UNIFORM_REQUEST_TYPES = {
+  new_hire: { label: 'พนักงานใหม่',  cls: 'badge-success', isFree: true,  hint: 'รับเข้าใหม่ — บริษัทออกค่าใช้จ่าย' },
+  damaged:  { label: 'ชุดเสีย',       cls: 'badge-info',    isFree: true,  hint: 'ฟรี (ถ้าเกิดจากการทำงาน)' },
+  lost:     { label: 'ชุดหาย',        cls: 'badge-warning', isFree: false, hint: 'พนักงานจ่ายเอง' },
+  periodic: { label: 'ครบรอบเปลี่ยน', cls: 'badge-success', isFree: true,  hint: 'ฟรี (เช่น ครบ 1 ปี)' },
+  extra:    { label: 'ขอเพิ่ม',       cls: 'badge-warning', isFree: false, hint: 'พนักงานจ่ายเอง' }
+};
 const _uniformState = { tab: 'requests', filter: '' };
 const DAY_NAMES_TH = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
 const DAY_NAMES_SHORT = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
@@ -7815,7 +7823,7 @@ function renderUniformRequestsTable() {
   return `
     <div class="table-wrap"><table class="table table-compact uniform-req-table">
       <thead><tr>
-        <th>วันที่แจ้ง</th><th>พนักงาน / ผู้สมัคร</th><th>สาขา</th><th>แจ้งโดย</th>
+        <th>วันที่แจ้ง</th><th>พนักงาน / ผู้สมัคร</th><th>ประเภท</th><th>สาขา</th><th>แจ้งโดย</th>
         <th>ต้องการก่อน</th><th>สถานะ</th><th class="num">ค่าชุดรวม</th><th>รายละเอียด</th><th></th>
       </tr></thead>
       <tbody>
@@ -7833,9 +7841,14 @@ function renderUniformRequestsTable() {
             refBadge = `<span class="badge badge-warning" style="font-size:10.5px;margin-left:6px">ผู้สมัคร</span>`;
             branch = ap.branch || '-';
           }
+          const typeInfo = UNIFORM_REQUEST_TYPES[r.requestType];
+          const typeBadge = typeInfo
+            ? `<span class="badge ${typeInfo.cls}" style="font-size:10px" title="${typeInfo.hint}">${typeInfo.label}${typeInfo.isFree ? ' 🆓' : ' 💰'}</span>`
+            : `<span class="muted-2" style="font-size:10.5px">—</span>`;
           return `<tr>
             <td>${fmt.date(r.requestedDate)}</td>
             <td><strong>${escapeHtml(name)}</strong>${refBadge}</td>
+            <td>${typeBadge}</td>
             <td>${escapeHtml(branch)}</td>
             <td>${escapeHtml(r.requestedBy || '-')}</td>
             <td>${r.neededBy ? fmt.date(r.neededBy) : '-'}</td>
@@ -7985,7 +7998,8 @@ function openUniformRequestForm(id = null) {
   if (!requireHR()) return;
   const r = id ? DB.getUniformRequest(id) : {
     id: '', employeeId: '', requestedBy: DB.profile?.name || DB.user?.email || '',
-    requestedDate: tz.today(), neededBy: '', status: 'pending', note: ''
+    requestedDate: tz.today(), neededBy: '', status: 'pending', note: '',
+    requestType: 'new_hire', requestReason: ''
   };
   const emps = DB.getEmployees({ status: 'active' });
   modal.open(id ? 'แก้ไขคำขอจัดชุด' : 'คำขอจัดชุด (HR แจ้ง → ส่งต่อ HR จัดชุด)', `
@@ -7993,13 +8007,25 @@ function openUniformRequestForm(id = null) {
       <div class="form-grid">
         <div class="form-group span-2"><label>พนักงาน *</label>${employeePicker({ name: 'employeeId', emps, selected: r.employeeId, required: true })}</div>
         <div class="form-group span-2" id="uniSchedHint" style="display:none;padding:10px 14px;background:var(--success-soft);border-radius:8px;font-size:13px;color:var(--success-text);border:1px solid var(--border)"></div>
+
+        <div class="form-group span-2">
+          <label>ประเภทคำขอ *</label>
+          <select name="requestType" id="uniReqType" required>
+            ${Object.entries(UNIFORM_REQUEST_TYPES).map(([k, v]) =>
+              `<option value="${k}" ${r.requestType === k ? 'selected' : ''}>${v.label} ${v.isFree ? '(ฟรี)' : '(จ่ายเอง)'}</option>`
+            ).join('')}
+          </select>
+          <small class="muted-2" id="uniReqTypeHint" style="font-size:11px;display:block;margin-top:4px"></small>
+        </div>
+
         <div class="form-group"><label>วันที่แจ้ง *</label><input name="requestedDate" type="date" value="${r.requestedDate || tz.today()}" required/></div>
-        <div class="form-group"><label>ต้องการก่อน (วันเริ่มงาน) <span class="muted-2" style="font-weight:normal;font-size:11px" id="uniNeededHint"></span></label><input name="neededBy" id="uniNeededByInput" type="date" value="${r.neededBy || ''}"/></div>
+        <div class="form-group"><label>ต้องการก่อน <span class="muted-2" style="font-weight:normal;font-size:11px" id="uniNeededHint"></span></label><input name="neededBy" id="uniNeededByInput" type="date" value="${r.neededBy || ''}"/></div>
         <div class="form-group"><label>แจ้งโดย</label><input name="requestedBy" value="${escapeHtml(r.requestedBy)}" placeholder="ชื่อ HR คนแจ้ง"/></div>
         <div class="form-group"><label>สถานะ</label>
           <select name="status">${Object.entries(UNIFORM_STATUS).map(([k, v]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
         </div>
-        <div class="form-group span-2"><label>หมายเหตุ / รายละเอียดที่ต้องการ</label><textarea name="note" rows="2" placeholder="เช่น ต้องการเสื้อ M กางเกง L หมวก 1 ใบ">${escapeHtml(r.note)}</textarea></div>
+        <div class="form-group span-2"><label>เหตุผล / รายละเอียดเพิ่มเติม</label><textarea name="requestReason" rows="2" placeholder="เช่น เสื้อขาดจากอุบัติเหตุ, ลืมที่ทำงาน, ใช้งานนานชำรุด ฯลฯ">${escapeHtml(r.requestReason || '')}</textarea></div>
+        <div class="form-group span-2"><label>รายละเอียดที่ต้องการ</label><textarea name="note" rows="2" placeholder="เช่น ต้องการเสื้อ M กางเกง L หมวก 1 ใบ">${escapeHtml(r.note)}</textarea></div>
       </div>
       <div class="form-actions">
         <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
@@ -8007,6 +8033,21 @@ function openUniformRequestForm(id = null) {
       </div>
     </form>
   `);
+  // hint ตาม type
+  const typeSelect = $('#uniReqType');
+  const typeHint = $('#uniReqTypeHint');
+  const updateTypeHint = () => {
+    const v = typeSelect?.value;
+    const cfg = UNIFORM_REQUEST_TYPES[v];
+    if (cfg && typeHint) {
+      typeHint.textContent = cfg.hint;
+      typeHint.style.color = cfg.isFree ? 'var(--success-text)' : 'var(--warning-text)';
+    }
+  };
+  if (typeSelect) {
+    typeSelect.addEventListener('change', updateTypeHint);
+    updateTypeHint();
+  }
   // เมื่อเลือกพนักงาน → แสดงข้อมูลรอบการจัดส่งของสาขานั้น + auto-suggest needed_by
   wireEmployeePickers('#uniReqForm', (emp) => {
     const hint = $('#uniSchedHint');

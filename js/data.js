@@ -1305,7 +1305,9 @@ const DB = {
     neededBy: r.needed_by || '',
     status: r.status || 'pending',
     totalCost: Number(r.total_cost || 0),
-    note: r.note || ''
+    note: r.note || '',
+    requestType: r.request_type || '',       // [Feat] ประเภทคำขอ
+    requestReason: r.request_reason || ''    // [Feat] เหตุผล/รายละเอียดเพิ่ม
   }),
   _uniReqToDB: (r) => ({
     employee_id: r.employeeId || null,
@@ -1315,7 +1317,9 @@ const DB = {
     needed_by: r.neededBy || null,
     status: r.status || 'pending',
     total_cost: Number(r.totalCost || 0),
-    note: r.note || null
+    note: r.note || null,
+    request_type: r.requestType || null,
+    request_reason: r.requestReason || null
   }),
   _uniIssueFromDB: (r) => ({
     id: r.id,
