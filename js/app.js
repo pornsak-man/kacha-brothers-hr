@@ -14773,10 +14773,38 @@ router.register('schedule-monthly', () => {
     branchOptions = (DB.data.branches || []).filter(b => scoped.includes(b.id) && b.active);
   }
 
-  // employees ใน branch (active)
-  const emps = (DB.data.employees || []).filter(e =>
+  // เดือน range: 1 ถึงสิ้นเดือน
+  const lastDay = new Date(year, month, 0).getDate();
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  const dates = Array.from({ length: lastDay }, (_, i) =>
+    `${year}-${String(month).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`
+  );
+  const dayLabels = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+
+  // employees ใน branch (active) + helper (พนักงานข้ามสาขาที่มี entry ในเดือน)
+  const empsInBranch = (DB.data.employees || []).filter(e =>
     e.branch === branchId && DB.empStatus(e) !== 'resigned'
-  ).sort((a, b) => {
+  );
+  const weekIdsOfBranch = new Set(
+    (DB.data.scheduleWeeks || []).filter(w => w.branchId === branchId).map(w => w.id)
+  );
+  // index entries by empId|date
+  const entriesByKey = new Map();
+  for (const e of (DB.data.scheduleEntries || [])) {
+    if (e.workDate < monthStart || e.workDate > monthEnd) continue;
+    if (e.branchId !== branchId && !(!e.branchId && weekIdsOfBranch.has(e.scheduleWeekId))) continue;
+    entriesByKey.set(`${e.employeeId}|${e.workDate}`, e);
+  }
+  // หา helper employees (มี entry แต่ไม่อยู่ในสาขานี้)
+  const helperIds = new Set();
+  for (const key of entriesByKey.keys()) {
+    const empId = key.split('|')[0];
+    if (!empsInBranch.find(e => e.id === empId)) helperIds.add(empId);
+  }
+  const helperEmps = [...helperIds].map(id => DB.getEmployee(id)).filter(Boolean);
+
+  const sortEmps = (list) => list.slice().sort((a, b) => {
     const pa = DB.getPosition(a.position);
     const pb = DB.getPosition(b.position);
     const la = pa ? Number(pa.level || 0) : 0;
@@ -14784,30 +14812,84 @@ router.register('schedule-monthly', () => {
     if (la !== lb) return lb - la;
     return (a.firstName || '').localeCompare(b.firstName || '', 'th');
   });
+  const allEmps = [...sortEmps(empsInBranch), ...sortEmps(helperEmps)];
 
-  // คำนวณสรุปแต่ละพนักงาน
-  const rows = emps.map(emp => {
-    const s = DB.calcScheduleMonthSummary(branchId, year, month, emp.id);
-    return { emp, ...s };
-  });
+  // วันลา + holiday overlay
+  const leavesByKey = new Map();
+  for (const lv of (DB.data.leaveRequests || [])) {
+    if (lv.status !== 'approved') continue;
+    if (lv.endDate < monthStart || lv.startDate > monthEnd) continue;
+    let d = lv.startDate > monthStart ? lv.startDate : monthStart;
+    const ed = lv.endDate < monthEnd ? lv.endDate : monthEnd;
+    while (d <= ed) {
+      leavesByKey.set(`${lv.employeeId}|${d}`, lv);
+      d = addDaysYMD(d, 1);
+    }
+  }
+  const holidayDates = new Set(
+    (DB.data.calendarItems || [])
+      .filter(c => c.type === 'holiday' && c.date >= monthStart && c.date <= monthEnd)
+      .map(c => c.date)
+  );
 
-  const totals = rows.reduce((acc, r) => ({
-    hours: acc.hours + r.hours,
-    shiftCount: acc.shiftCount + r.shiftCount,
-    offDays: acc.offDays + r.offDays,
-    leaveDays: acc.leaveDays + r.leaveDays
+  // คำนวณ summary ต่อพนักงาน
+  const summaries = new Map();
+  for (const emp of allEmps) {
+    summaries.set(emp.id, DB.calcScheduleMonthSummary(branchId, year, month, emp.id));
+  }
+  const totals = [...summaries.values()].reduce((acc, s) => ({
+    hours: acc.hours + s.hours,
+    shiftCount: acc.shiftCount + s.shiftCount,
+    offDays: acc.offDays + s.offDays,
+    leaveDays: acc.leaveDays + s.leaveDays
   }), { hours: 0, shiftCount: 0, offDays: 0, leaveDays: 0 });
+
+  // render shift badge ใน cell
+  const renderCell = (emp, dateYmd) => {
+    const ent = entriesByKey.get(`${emp.id}|${dateYmd}`);
+    const lv = leavesByKey.get(`${emp.id}|${dateYmd}`);
+    const isHoliday = holidayDates.has(dateYmd);
+    const cellCls = ['monthly-cell'];
+    if (isHoliday) cellCls.push('monthly-cell-holiday');
+    if (lv) cellCls.push('monthly-cell-leave');
+
+    if (lv) {
+      return `<td class="${cellCls.join(' ')}" title="ลา: ${escapeHtml(lv.leaveType || '')}"><span class="monthly-leave">ลา</span></td>`;
+    }
+    if (!ent) {
+      return `<td class="${cellCls.join(' ')}"></td>`;
+    }
+    // กะปกติ
+    if (ent.shiftId) {
+      const sh = DB.getShift(ent.shiftId);
+      if (sh) {
+        const code = sh.code || sh.shortName || sh.name?.substring(0, 4) || '?';
+        const bg = sh.color || '#dbeafe';
+        const isOff = sh.isOffDay;
+        return `<td class="${cellCls.join(' ')}" title="${escapeHtml(sh.name || code)} ${sh.startTime || ''}-${sh.endTime || ''}">
+          <span class="monthly-shift" style="background:${bg};${isOff ? 'opacity:0.7' : ''}">${escapeHtml(code)}</span>
+        </td>`;
+      }
+    }
+    // custom shift
+    if (ent.customStartTime && ent.customEndTime) {
+      const code = ent.customStartTime.replace(':', '').slice(0, 4);
+      return `<td class="${cellCls.join(' ')}" title="${ent.customStartTime}-${ent.customEndTime}">
+        <span class="monthly-shift" style="background:#fef3c7">${code}</span>
+      </td>`;
+    }
+    return `<td class="${cellCls.join(' ')}"></td>`;
+  };
 
   const ymValue = `${year}-${String(month).padStart(2, '0')}`;
   const thMonths = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
   const monthLabel = `${thMonths[month]} ${year + 543}`;
-  const holidayCount = rows[0]?.holidayDays || 0;
 
   return `
     <div class="sw-page-header">
       <div>
-        <div class="sw-page-title">รายงานตารางงานรายเดือน</div>
-        <div class="sw-page-subtitle">สรุปชั่วโมง · กะ · OFF · ลา ของพนักงานต่อเดือน</div>
+        <div class="sw-page-title">ตารางงานรายเดือน — ${escapeHtml(monthLabel)}</div>
+        <div class="sw-page-subtitle">ดูกะรายวันจากวันที่ 1 ถึงสิ้นเดือน · พนักงาน ${allEmps.length} คน</div>
       </div>
       <div class="sw-page-actions">
         <button class="btn btn-secondary" onclick="router.go('schedule')">${icon('calendar')} กลับไปตารางสัปดาห์</button>
@@ -14821,7 +14903,6 @@ router.register('schedule-monthly', () => {
           <button class="btn btn-secondary" onclick="(function(){var d=new Date();_monthlyState.year=d.getFullYear();_monthlyState.month=d.getMonth()+1;router.go('schedule-monthly');})()">เดือนนี้</button>
           <button class="btn btn-ghost btn-icon-only" onclick="navMonthlyMonth(1)" title="เดือนถัดไป">▶</button>
           <input type="month" class="sw-filter-input schedule-date-jump" value="${ymValue}" onchange="setMonthlyYearMonth(this.value)" />
-          <div class="schedule-week-range">${escapeHtml(monthLabel)}</div>
         </div>
         <div class="schedule-controls-spacer"></div>
         <select class="sw-filter-select schedule-branch-select" onchange="setMonthlyBranch(this.value)">
@@ -14830,58 +14911,73 @@ router.register('schedule-monthly', () => {
       </div>
     </div>
 
-    <div class="sw-chart-card" style="margin-top:14px">
-      <div class="sw-chart-title">${escapeHtml(monthLabel)} — สาขา ${escapeHtml(branchId || '-')}</div>
-      <div class="sw-chart-sub">
-        พนักงาน ${rows.length} คน · วันหยุดประเพณีในเดือน ${holidayCount} วัน
-      </div>
-      ${rows.length === 0 ? `
-        <div class="empty-state" style="margin-top:20px">
+    ${allEmps.length === 0 ? `
+      <div class="sw-chart-card" style="margin-top:14px">
+        <div class="empty-state">
           ${icon('users', { size: 48 })}
           <div class="title">ไม่มีพนักงานในสาขานี้</div>
         </div>
-      ` : `
-        <div class="table-wrap" style="margin-top:14px">
-          <table class="table table-compact">
-            <thead>
-              <tr>
-                <th style="width:90px">รหัส</th>
-                <th>ชื่อ - นามสกุล</th>
-                <th>ตำแหน่ง</th>
-                <th class="num">จำนวนกะ</th>
-                <th class="num">วัน OFF</th>
-                <th class="num">วันลา</th>
-                <th class="num">ชั่วโมงรวม</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.map(r => {
-                const pos = DB.getPosition(r.emp.position);
-                return `
-                <tr>
-                  <td><strong>${escapeHtml(r.emp.id)}</strong></td>
-                  <td>${escapeHtml((r.emp.title || '') + r.emp.firstName + ' ' + (r.emp.lastName || ''))}${r.emp.nickname ? ` <span class="muted-2">(${escapeHtml(r.emp.nickname)})</span>` : ''}</td>
-                  <td class="muted-2">${escapeHtml(r.emp.positionTitle || pos?.name || '-')}</td>
-                  <td class="num">${fmt.num(r.shiftCount)}</td>
-                  <td class="num">${fmt.num(r.offDays)}</td>
-                  <td class="num">${r.leaveDays ? `<strong style="color:var(--warning)">${fmt.num(r.leaveDays)}</strong>` : '0'}</td>
-                  <td class="num"><strong>${fmt.num(Math.round(r.hours * 10) / 10)}</strong></td>
-                </tr>`;
+      </div>
+    ` : `
+      <div class="sw-chart-card monthly-grid-wrap" style="margin-top:14px;overflow:auto">
+        <table class="table monthly-grid">
+          <thead>
+            <tr>
+              <th class="monthly-emp-head" style="position:sticky;left:0;background:var(--card-bg, #fff);z-index:2">พนักงาน</th>
+              ${dates.map(d => {
+                const day = new Date(d).getDay();
+                const dayNum = parseInt(d.slice(-2), 10);
+                const isWeekend = day === 0 || day === 6;
+                const isHoliday = holidayDates.has(d);
+                return `<th class="monthly-date-head ${isWeekend ? 'weekend' : ''} ${isHoliday ? 'holiday' : ''}" title="${d}">
+                  <div class="monthly-dow">${dayLabels[day]}</div>
+                  <div class="monthly-daynum">${dayNum}</div>
+                </th>`;
               }).join('')}
-            </tbody>
-            <tfoot>
-              <tr style="font-weight:700;background:rgba(0,0,0,0.04)">
-                <td colspan="3"><strong>รวมทั้งสาขา (${rows.length} คน)</strong></td>
-                <td class="num"><strong>${fmt.num(totals.shiftCount)}</strong></td>
-                <td class="num"><strong>${fmt.num(totals.offDays)}</strong></td>
-                <td class="num"><strong>${fmt.num(totals.leaveDays)}</strong></td>
-                <td class="num"><strong>${fmt.num(Math.round(totals.hours * 10) / 10)} ชม.</strong></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      `}
-    </div>
+              <th class="num monthly-sum-head">รวม</th>
+              <th class="num monthly-sum-head">OFF</th>
+              <th class="num monthly-sum-head">ลา</th>
+              <th class="num monthly-sum-head">ชม.</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${allEmps.map(emp => {
+              const isHelper = !empsInBranch.find(e => e.id === emp.id);
+              const s = summaries.get(emp.id) || { hours: 0, shiftCount: 0, offDays: 0, leaveDays: 0 };
+              const pos = DB.getPosition(emp.position);
+              return `<tr ${isHelper ? 'class="schedule-row-helper"' : ''}>
+                <th class="monthly-emp-cell" style="position:sticky;left:0;background:var(--card-bg, #fff);z-index:1">
+                  <div class="monthly-emp-name">
+                    <span class="schedule-emp-id">${escapeHtml(emp.id)}</span>
+                    <span class="schedule-emp-fullname">${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName || '')}</span>
+                    ${emp.nickname ? `<span class="muted-2">(${escapeHtml(emp.nickname)})</span>` : ''}
+                    ${isHelper ? `<span class="badge badge-info" style="font-size:9px">⇄ ${escapeHtml(emp.branch || '')}</span>` : ''}
+                  </div>
+                  <div class="monthly-emp-pos muted-2">${escapeHtml(emp.positionTitle || pos?.name || '')}</div>
+                </th>
+                ${dates.map(d => renderCell(emp, d)).join('')}
+                <td class="num monthly-sum-cell">${fmt.num(s.shiftCount)}</td>
+                <td class="num monthly-sum-cell">${fmt.num(s.offDays)}</td>
+                <td class="num monthly-sum-cell">${s.leaveDays ? `<strong style="color:var(--warning)">${fmt.num(s.leaveDays)}</strong>` : '0'}</td>
+                <td class="num monthly-sum-cell"><strong>${fmt.num(Math.round(s.hours * 10) / 10)}</strong></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700;background:rgba(0,0,0,0.04)">
+              <th class="monthly-emp-cell" style="position:sticky;left:0;background:rgba(0,0,0,0.04);z-index:1">
+                <strong>รวม ${allEmps.length} คน</strong>
+              </th>
+              <td colspan="${dates.length}"></td>
+              <td class="num"><strong>${fmt.num(totals.shiftCount)}</strong></td>
+              <td class="num"><strong>${fmt.num(totals.offDays)}</strong></td>
+              <td class="num"><strong>${fmt.num(totals.leaveDays)}</strong></td>
+              <td class="num"><strong>${fmt.num(Math.round(totals.hours * 10) / 10)}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `}
   `;
 });
 

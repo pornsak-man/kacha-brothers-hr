@@ -4639,6 +4639,43 @@ a:hover .badge, button:hover .badge, .sw-recent-item:hover .badge {
   border-color: #9ca3af !important;
 }
 
+/* === MONTHLY GRID (31-column view) === */
+.monthly-grid-wrap { max-height: 75vh; overflow: auto; }
+.monthly-grid { font-size: 11px; border-collapse: separate; border-spacing: 0; }
+.monthly-grid th, .monthly-grid td { padding: 4px 2px; border: 1px solid var(--border, #e5e7eb); text-align: center; }
+.monthly-emp-head, .monthly-emp-cell {
+  min-width: 180px; max-width: 220px;
+  text-align: left !important; padding: 6px 10px !important;
+}
+.monthly-emp-name { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 12px; }
+.monthly-emp-pos { font-size: 10px; margin-top: 2px; }
+.monthly-date-head {
+  min-width: 38px; max-width: 42px;
+  background: var(--card-bg, #f9fafb);
+  position: sticky; top: 0; z-index: 1;
+}
+.monthly-date-head.weekend { background: rgba(59,130,246,0.06); }
+.monthly-date-head.holiday { background: rgba(239,68,68,0.10); color: #dc2626; }
+.monthly-dow { font-size: 9px; opacity: 0.7; font-weight: 500; }
+.monthly-daynum { font-size: 13px; font-weight: 700; }
+.monthly-cell { min-width: 38px; max-width: 42px; height: 32px; padding: 2px !important; }
+.monthly-cell-holiday { background: rgba(239,68,68,0.04); }
+.monthly-cell-leave { background: rgba(245,158,11,0.12); }
+.monthly-shift {
+  display: inline-block; padding: 2px 4px; border-radius: 4px;
+  font-size: 10px; font-weight: 800; line-height: 1.2;
+  filter: saturate(1.3); color: #1f2937;
+}
+[data-theme="dark"] .monthly-shift { color: #1f2937; filter: saturate(1.4) brightness(1.1); }
+.monthly-leave { font-size: 10px; color: #d97706; font-weight: 700; }
+.monthly-sum-head, .monthly-sum-cell { min-width: 44px; background: rgba(0,0,0,0.02); font-size: 11px; }
+[data-theme="dark"] .monthly-sum-head, [data-theme="dark"] .monthly-sum-cell { background: rgba(255,255,255,0.04); }
+.monthly-grid tfoot { position: sticky; bottom: 0; }
+@media print {
+  .monthly-grid-wrap { max-height: none; overflow: visible; }
+  .sw-page-actions, .schedule-controls { display: none; }
+}
+
 .shift-picker-custom {
   grid-column: 1 / -1;
   border: 1px dashed #6b7280 !important;
