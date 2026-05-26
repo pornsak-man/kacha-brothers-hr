@@ -4185,7 +4185,7 @@ function parseImportRow(row) {
   };
 }
 
-function validateImportRows(rows) {
+async function validateImportRows(rows) {
   const errors = [];
   const warnings = [];
   const idsSeen = new Set();
@@ -4194,6 +4194,12 @@ function validateImportRows(rows) {
   const posIds = new Set(DB.getPositions().map(p => p.id));
   // index ของพนักงานปัจจุบันในระบบ — เช็คเร็ว
   const existingEmpIds = new Set(DB.data.employees.map(e => String(e.id)));
+  // [PERF] slim cache → bulk fetch lazy fields (nationalId) ก่อน duplicate check
+  // เพื่อให้ deduplicate by nationalId แม่นยำ
+  const cachedIds = DB.data.employees.filter(e => e._isSlim).map(e => e.id);
+  if (cachedIds.length > 0) {
+    await DB.ensureFullEmployees(cachedIds);
+  }
   const existingEmpByNat = new Map();
   for (const e of DB.data.employees) {
     const nat = String(e.nationalId || '').replace(/\D/g, '');
@@ -4526,7 +4532,7 @@ function openImportEmployees() {
     backupDownloaded = false;
     try {
       parsedRows = await readExcelFile(file);
-      validationErrors = validateImportRows(parsedRows);
+      validationErrors = await validateImportRows(parsedRows);
       isLargeBatch = parsedRows.length >= 50;
       $('#importBody').innerHTML = renderImportPreview(parsedRows, validationErrors);
       wireSafetyHandlers();

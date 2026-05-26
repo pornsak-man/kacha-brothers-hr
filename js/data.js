@@ -749,11 +749,15 @@ const DB = {
 
     this._invalidateIndex();
 
-    // [PERF] enrich employee ของ user ที่ login (เพื่อ Personal Dashboard ใช้ ssoNo, nationalId ฯลฯ ทันที)
-    // — fire-and-forget, ไม่ block boot — Personal Dashboard render ครั้งแรกจาก slim, ค่อย enrich ในพื้นหลัง
+    // [PERF] enrich employee ของ user ที่ login ก่อน render dashboard
+    // — Personal Dashboard เรียก ssoNo, nationalId, phone ฯลฯ ของตัวเอง (sync rendering)
+    // — ราคา: เพิ่ม ~100ms ที่ Boot Phase 1 แต่ปลอดภัย (ไม่ flash ค่าผิด)
+    // — เฉพาะ user ตัวเอง — 1 row × full cols, ไม่หนัก
     const myEmpId = this.profile?.employee_id;
     if (myEmpId) {
-      this.ensureFullEmployee(myEmpId).catch(() => {});
+      try {
+        await this.ensureFullEmployee(myEmpId);
+      } catch (e) { /* non-blocking — dashboard fallback เป็น slim */ }
     }
 
     // ─── PERF: log boot timings ทันทีหลัง Phase 1 เสร็จ (dashboard render ต่อ) ───
