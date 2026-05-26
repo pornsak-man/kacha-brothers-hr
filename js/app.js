@@ -10215,6 +10215,7 @@ router.register('calendar', () => {
         </td>
         <td>
           <span class="badge ${STATUS.cls}" style="font-size:10.5px;white-space:nowrap">${STATUS.label}</span>
+          ${DB.isSwapExpired(r) ? `<span class="badge badge-danger" style="font-size:10px;white-space:nowrap;margin-left:4px" title="คำขอนี้ pending แต่ผ่าน deadline แล้ว — HR ควร reject หรือพิจารณา override">⏰ หมดสิทธิ์</span>` : ''}
           <div style="margin-top:4px">${renderApprovalChain(r)}</div>
         </td>
         <td style="font-size:11.5px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap">${r.requestedAt ? new Date(r.requestedAt).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short' }) : '-'}</td>
@@ -10724,9 +10725,24 @@ function openSwapRequestDetail(requestId) {
           <div style="font-size:15px;font-weight:600">${escapeHtml(holiday?.title || '—')}</div>
           <div class="muted-2" style="font-size:12.5px;margin-top:2px">${fmt.date(holiday?.date)} → <strong style="color:var(--text)">${fmt.date(req.swapToDate)}</strong></div>
         </div>
-        <span class="badge ${STATUS.cls}">${STATUS.label}</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+          <span class="badge ${STATUS.cls}">${STATUS.label}</span>
+          ${DB.isSwapExpired(req) ? `<span class="badge badge-danger" style="font-size:11px">⏰ หมดสิทธิ์</span>` : ''}
+        </div>
       </div>
     </div>
+    ${DB.isSwapExpired(req) ? `
+      <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12.5px">
+        <strong>⚠ คำขอนี้ผ่าน deadline แล้ว</strong> — กฎบริษัทกำหนดให้ใช้สิทธิ์ภายในกรอบเวลา
+        ${(() => {
+          const cal = (DB.data.calendarItems || []).find(c => c.id === req.calendarItemId);
+          if (!cal?.date) return '';
+          const [hY, hM] = cal.date.split('-').map(Number);
+          const dl = hM === 12 ? `31 มี.ค. ${hY + 1 + 543}` : `31 ธ.ค. ${hY + 543}`;
+          return `<div class="muted-2" style="margin-top:4px">deadline: ${dl} · พิจารณา reject หรือ approve override</div>`;
+        })()}
+      </div>
+    ` : ''}
     <div style="font-size:13px;line-height:1.7">
       <div><strong>ผู้ยื่น:</strong> ${escapeHtml((requester?.firstName || '') + ' ' + (requester?.lastName || ''))} (${escapeHtml(req.employeeId)})</div>
       <div><strong>เวลา:</strong> ${req.requestedAt ? new Date(req.requestedAt).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : '-'}</div>

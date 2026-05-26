@@ -1221,6 +1221,22 @@ const DB = {
       status: s.status || 'pending'
     };
   },
+  // [Feature] เช็คว่าคำขอ swap หมดสิทธิ์หรือยัง — pending + ผ่าน deadline
+  // กฎ: วันหยุดเดือน ธ.ค. → ชดเชยถึง 31 มี.ค. ปีถัดไป
+  //     เดือนอื่น           → ชดเชยถึง 31 ธ.ค. ปีเดียวกัน
+  isSwapExpired(req) {
+    if (!req || req.status !== 'pending') return false;
+    const cal = (this.data.calendarItems || []).find(c => c.id === req.calendarItemId);
+    if (!cal?.date) return false;
+    const [hYearStr, hMonthStr] = cal.date.split('-');
+    const hYear = parseInt(hYearStr, 10);
+    const hMonth = parseInt(hMonthStr, 10);
+    const deadline = hMonth === 12
+      ? `${hYear + 1}-03-31`
+      : `${hYear}-12-31`;
+    const today = new Date().toISOString().slice(0, 10);
+    return today > deadline;
+  },
   _applFromDB: (r) => ({
     id: r.id,
     firstName: r.first_name || '',
