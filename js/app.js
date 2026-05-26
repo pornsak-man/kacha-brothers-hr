@@ -805,6 +805,10 @@ function refreshRoleDependentUI() {
   $$('.nav-hr-only').forEach(el => { el.style.display = DB.isHR ? '' : 'none'; });
   const isStaffOnly = (DB.role === 'branch_staff' || DB.role === 'viewer');
   $$('.nav-staff-hide').forEach(el => { el.style.display = isStaffOnly ? 'none' : ''; });
+  // "ขอชุดของฉัน" — แสดงเฉพาะ user ที่ผูกกับพนักงาน (มี employee_id)
+  // ทุก role ที่มี employee_id ก็ใช้ได้ (HR เห็นทั้ง 2 เมนู: "จัดชุดพนักงาน" + "ขอชุดของฉัน")
+  const myUniEl = document.getElementById('navMyUniform');
+  if (myUniEl) myUniEl.style.display = DB.profile?.employee_id ? '' : 'none';
   // user info (mini card บน sidebar)
   const displayName = DB.profile?.name || DB.user?.email?.split('@')[0] || 'User';
   const userNameEl = $('#userName');
@@ -7705,6 +7709,167 @@ function switchUniformTab(tab) {
   _uniformState.tab = tab;
   // re-render ทั้งหน้า — update tab button states + content พร้อมกัน
   router.go('uniform');
+}
+
+// ═══════════════════════════════════════════════════════
+//  PAGE: MY UNIFORM REQUESTS (Self-service สำหรับพนักงาน)
+// ═══════════════════════════════════════════════════════
+router.register('my-uniform', () => {
+  const myId = DB.profile?.employee_id;
+  if (!myId) {
+    return `<div class="empty-state" style="margin-top:60px">
+      <div class="icon">${ICON.users}</div>
+      <div class="title">ยังไม่ได้ผูกบัญชีกับพนักงาน</div>
+      <div class="hint">กรุณาติดต่อ admin เพื่อผูกบัญชีของคุณกับข้อมูลพนักงาน</div>
+    </div>`;
+  }
+  const emp = DB.getEmployee(myId);
+  // คำขอของฉัน (ทุก status) — เรียง pending → preparing → issued → cancelled
+  const myReqs = (DB.data.uniformRequests || [])
+    .filter(r => r.employeeId === myId)
+    .sort((a, b) => {
+      const order = { pending: 0, preparing: 1, issued: 2, cancelled: 3 };
+      const d = (order[a.status] ?? 9) - (order[b.status] ?? 9);
+      if (d !== 0) return d;
+      return (b.requestedDate || '').localeCompare(a.requestedDate || '');
+    });
+  const active = myReqs.filter(r => r.status === 'pending' || r.status === 'preparing');
+  const history = myReqs.filter(r => r.status === 'issued' || r.status === 'cancelled');
+
+  return `
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">ขอชุดของฉัน</div>
+        <div class="sw-page-subtitle">ยื่นขอชุดเครื่องแบบ · ดูสถานะ · ดูประวัติ</div>
+      </div>
+      <div class="sw-page-actions">
+        <button class="btn btn-primary" onclick="openMyUniformRequestForm()">+ ขอชุดใหม่</button>
+      </div>
+    </div>
+
+    <div class="sw-chart-card" style="margin-top:18px;background:linear-gradient(135deg, rgba(196,165,116,0.06), transparent 55%)">
+      <div style="font-size:14px;color:var(--text-2)">
+        ${escapeHtml((emp?.title || '') + (emp?.firstName || '') + ' ' + (emp?.lastName || ''))} ·
+        <span class="muted-2">รหัส ${escapeHtml(myId)}${emp?.branch ? ' · สาขา ' + escapeHtml(emp.branch) : ''}</span>
+      </div>
+      <div class="sw-chart-sub" style="margin-top:6px">
+        💡 <strong>เงื่อนไขบริษัท:</strong>
+        ชุดเสีย/ครบรอบเปลี่ยน → <strong style="color:var(--success-text)">ฟรี</strong> ·
+        ชุดหาย/ขอเพิ่ม → <strong style="color:var(--warning-text)">หักจากเงินเดือน</strong>
+      </div>
+    </div>
+
+    <div style="margin-top:24px">
+      <div class="sw-section-label">📦 คำขอที่ค้าง (${active.length})</div>
+      ${active.length === 0
+        ? `<div class="empty-state" style="margin-top:14px"><div class="hint">ไม่มีคำขอค้าง — กดปุ่ม "+ ขอชุดใหม่" ด้านบนเพื่อยื่นคำขอ</div></div>`
+        : renderMyUniformList(active)
+      }
+    </div>
+
+    <div style="margin-top:32px">
+      <div class="sw-section-label">📋 ประวัติ (${history.length})</div>
+      ${history.length === 0
+        ? `<div class="empty-state" style="margin-top:14px"><div class="hint">ยังไม่มีประวัติการเบิกชุด</div></div>`
+        : renderMyUniformList(history)
+      }
+    </div>
+  `;
+});
+
+function renderMyUniformList(reqs) {
+  return `<div class="table-wrap" style="margin-top:10px"><table class="table table-compact">
+    <thead><tr>
+      <th>วันที่แจ้ง</th>
+      <th>ประเภท</th>
+      <th>รายละเอียด</th>
+      <th>สถานะ</th>
+      <th class="num">ค่าชุด</th>
+    </tr></thead>
+    <tbody>
+      ${reqs.map(r => {
+        const type = UNIFORM_REQUEST_TYPES[r.requestType];
+        const status = UNIFORM_STATUS[r.status] || UNIFORM_STATUS.pending;
+        return `<tr>
+          <td>${fmt.date(r.requestedDate)}</td>
+          <td>${type ? `<span class="badge ${type.cls}" style="font-size:10.5px">${type.label}${type.isFree ? ' 🆓' : ' 💰'}</span>` : '-'}</td>
+          <td>
+            ${r.requestReason ? `<div style="font-size:12.5px">${escapeHtml(r.requestReason)}</div>` : ''}
+            ${r.note ? `<div class="muted-2" style="font-size:11px;margin-top:2px">${escapeHtml(r.note)}</div>` : ''}
+          </td>
+          <td><span class="badge ${status.cls}">${status.label}</span></td>
+          <td class="num">${r.totalCost > 0 ? `<strong style="color:var(--warning-text)">${fmt.money(r.totalCost)}</strong>` : '<span class="muted-2">—</span>'}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+async function openMyUniformRequestForm() {
+  const myId = DB.profile?.employee_id;
+  if (!myId) { toast('ยังไม่ได้ผูกบัญชีกับพนักงาน — ติดต่อ admin', 'error'); return; }
+  modal.open('ขอชุดเครื่องแบบ', `
+    <form id="myUniReqForm">
+      <div class="form-grid">
+        <div class="form-group span-2">
+          <label>ประเภทคำขอ *</label>
+          <select name="requestType" id="myUniType" required>
+            ${Object.entries(UNIFORM_REQUEST_TYPES).filter(([k]) => k !== 'new_hire').map(([k, v]) =>
+              `<option value="${k}">${v.label} ${v.isFree ? '(ฟรี 🆓)' : '(หักจากเงินเดือน 💰)'}</option>`
+            ).join('')}
+          </select>
+          <small class="muted-2" id="myUniTypeHint" style="font-size:11.5px;display:block;margin-top:6px;padding:8px 12px;border-radius:6px"></small>
+        </div>
+        <div class="form-group span-2">
+          <label>เหตุผล / รายละเอียด *</label>
+          <textarea name="requestReason" rows="2" required placeholder="เช่น เสื้อขาดจากการทำงาน, ลืมที่ทำงาน, ทำงานครบ 1 ปี ฯลฯ"></textarea>
+        </div>
+        <div class="form-group span-2">
+          <label>รายการที่ต้องการ *</label>
+          <textarea name="note" rows="2" required placeholder="เช่น เสื้อโปโล size M 1 ตัว, กางเกง L 1 ตัว, หมวก 1 ใบ"></textarea>
+        </div>
+        <div class="form-group span-2">
+          <label>ต้องการก่อน (ถ้ามี)</label>
+          <input name="neededBy" type="date" value=""/>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
+        <button type="submit" class="btn btn-primary">ส่งคำขอ</button>
+      </div>
+    </form>
+  `);
+  const typeSelect = $('#myUniType');
+  const hint = $('#myUniTypeHint');
+  const updateHint = () => {
+    const cfg = UNIFORM_REQUEST_TYPES[typeSelect?.value];
+    if (cfg && hint) {
+      hint.textContent = cfg.hint;
+      hint.style.background = cfg.isFree ? 'var(--success-soft)' : 'var(--warning-soft)';
+      hint.style.color = cfg.isFree ? 'var(--success-text)' : 'var(--warning-text)';
+    }
+  };
+  if (typeSelect) {
+    typeSelect.addEventListener('change', updateHint);
+    updateHint();
+  }
+  $('#myUniReqForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      await DB.requestUniformForSelf({
+        requestType: data.requestType,
+        requestReason: data.requestReason,
+        note: data.note,
+        neededBy: data.neededBy || null
+      });
+      modal.close();
+      toast('ส่งคำขอแล้ว — รอ HR อนุมัติและจัดส่ง', 'success');
+      router.go('my-uniform');
+    } catch (ex) {
+      toast('ส่งคำขอไม่สำเร็จ: ' + (ex.message || ex), 'error');
+    }
+  });
 }
 
 function renderUniformTab() {

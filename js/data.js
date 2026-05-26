@@ -2534,6 +2534,37 @@ const DB = {
     this.data.uniformIssues.forEach(i => { if (i.requestId === req.id) i.employeeId = employeeId; });
     return mapped;
   },
+  // [Feat] Self-service: พนักงานยื่นคำขอชุดสำหรับตัวเอง
+  // - auto employee_id = self
+  // - status = 'pending' บังคับ
+  // - requestedBy = ตัวเอง
+  async requestUniformForSelf({ requestType, requestReason = '', note = '', neededBy = null } = {}) {
+    if (!this.user || !this.profile?.employee_id) {
+      throw new Error('ต้องผูกบัญชีกับพนักงานก่อน');
+    }
+    if (!requestType) throw new Error('ต้องเลือกประเภทคำขอ');
+    const emp = this.getEmployee(this.profile.employee_id);
+    const myName = emp ? `${emp.firstName || ''} ${emp.lastName || ''}`.trim() : (this.user.email || 'พนักงาน');
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const row = {
+      employee_id: this.profile.employee_id,
+      applicant_id: null,
+      requested_by: myName,
+      requested_date: today,
+      needed_by: neededBy || null,
+      status: 'pending',           // บังคับ pending — รอ HR/BM อนุมัติ + จัดส่ง
+      total_cost: 0,
+      note: note || null,
+      request_type: requestType,
+      request_reason: requestReason || null
+    };
+    const { data, error } = await this.client.from('uniform_requests').insert(row).select().single();
+    if (error) throw error;
+    const mapped = this._uniReqFromDB(data);
+    this.data.uniformRequests.unshift(mapped);
+    return mapped;
+  },
+
   async saveUniformRequest(req) {
     const row = this._uniReqToDB(req);
     if (req.id) row.id = req.id;
