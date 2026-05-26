@@ -14925,7 +14925,6 @@ function renderScheduleGrid(branchId, weekStart, canEdit) {
         </div>
         <div class="schedule-emp-meta">
           ${escapeHtml(pos?.name || emp.position || '')}
-          ${emp.employeeType ? ` · ${escapeHtml(emp.employeeType)}` : ''}
         </div>
         ${emp.hireDate ? `<div class="schedule-emp-meta schedule-emp-tenure" title="วันเริ่มงาน ${fmt.date(emp.hireDate)}">เริ่ม ${fmt.date(emp.hireDate)}${tenureText ? ` · ${tenureText}` : ''}</div>` : ''}
       </th>
