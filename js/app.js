@@ -2259,11 +2259,17 @@ function renderDashboardCharts(s, monthly, trailing12) {
   // ── Turnover Rate ของทุกสาขา — horizontal bar (clean editorial) ──
   if ($('#chartTurnoverByBranch') && s.turnoverByBranch?.length) {
     const data = s.turnoverByBranch;
-    // สีตามระดับ turnover — ใช้สีอ่อนลง ดูสะอาดตา
+    // ★ ใช้ percentile แทน absolute threshold — กระจาย 3 สีเสมอ
+    //   ถ้าทุกสาขา turnover สูงเกินกัน absolute threshold จะให้สีเดียวหมด
+    //   percentile-based: top 1/3 = แดง, mid 1/3 = อำพัน, bottom 1/3 = เขียว
+    const sortedRates = data.map(d => d.turnover).sort((a, b) => a - b);
+    const n = sortedRates.length;
+    const p33 = sortedRates[Math.floor(n / 3)] ?? 0;
+    const p66 = sortedRates[Math.floor((n * 2) / 3)] ?? 0;
     const colorFor = (rate) => {
-      if (rate >= 20) return { bg: '#ef4444', hover: '#dc2626' };  // red soft (danger)
-      if (rate >= 10) return { bg: '#f59e0b', hover: '#d97706' };  // amber (warning)
-      return                  { bg: '#10b981', hover: '#059669' };  // emerald (good)
+      if (rate >= p66) return { bg: '#ef4444', hover: '#dc2626' };  // red — top 1/3 (worst)
+      if (rate >= p33) return { bg: '#f59e0b', hover: '#d97706' };  // amber — middle
+      return                   { bg: '#10b981', hover: '#059669' };  // emerald — bottom 1/3 (best)
     };
     // gradient fill — สีเข้มทางขวา, จางลงทางซ้าย
     const makeBarGradient = (ctx, color) => {
@@ -2271,12 +2277,11 @@ function renderDashboardCharts(s, monthly, trailing12) {
       if (!c) return color;
       const w = ctx.chart.width || 800;
       const g = c.createLinearGradient(0, 0, w, 0);
-      // hex → rgb + alpha gradient (อ่อน → เข้ม)
       const hex = color.replace('#', '');
       const r = parseInt(hex.slice(0, 2), 16);
       const gg = parseInt(hex.slice(2, 4), 16);
       const b = parseInt(hex.slice(4, 6), 16);
-      g.addColorStop(0, `rgba(${r},${gg},${b},0.65)`);
+      g.addColorStop(0, `rgba(${r},${gg},${b},0.55)`);
       g.addColorStop(1, `rgba(${r},${gg},${b},1)`);
       return g;
     };
