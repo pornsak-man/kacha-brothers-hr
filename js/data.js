@@ -2192,15 +2192,28 @@ const DB = {
   // getEmpId: function ที่ดึง employee_id จาก record
   _filterByScope(records, getEmpId) {
     if (!this.role) return records;
+    // HR / admin override — ทุกกรณี (defensive: ใช้ this.isHR ถ้ามี)
+    if (this.isHR || this.isAdmin) return records;
     if (this.role === 'admin' || this.role === 'hr' || this.role === 'operation_manager') return records;
     if (this.role === 'branch_staff' || this.role === 'viewer') {
       const myId = this.profile?.employee_id;
       return records.filter(r => getEmpId(r) === myId);
     }
-    // branch_manager / area_manager
+    // branch_manager / area_manager — รองรับ records ที่ getEmpId คืน null (เช่น applicant)
+    // → resolve ไป applicant.branch ถ้ามี r.applicantId
     const scoped = this.scopedBranches() || [];
+    const scopedSet = new Set(scoped);
     const scopedEmpIds = new Set(this.data.employees.filter(e => scoped.includes(e.branch)).map(e => e.id));
-    return records.filter(r => scopedEmpIds.has(getEmpId(r)));
+    return records.filter(r => {
+      const empId = getEmpId(r);
+      if (empId && scopedEmpIds.has(empId)) return true;
+      // fallback: ถ้า record มี applicantId + applicant อยู่ในสาขา scope
+      if (!empId && r && r.applicantId) {
+        const ap = (this.data.applicants || []).find(a => a.id === r.applicantId);
+        if (ap && ap.branch && scopedSet.has(ap.branch)) return true;
+      }
+      return false;
+    });
   },
 
   // ─── LOANS ───
