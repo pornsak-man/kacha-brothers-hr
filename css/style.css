@@ -3211,13 +3211,62 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 
 /* Swap requests table — premium row layout */
-.sw-swap-table tbody tr td {
-  padding-top: 14px;
-  padding-bottom: 14px;
-  vertical-align: middle;
+.sw-swap-table {
+  table-layout: auto;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
 }
-.sw-swap-table tbody tr {
-  transition: background var(--transition);
+.sw-swap-table thead th {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-3);
+  padding: 12px 14px;
+  border-bottom: 1.5px solid var(--border);
+  background: rgba(0,0,0,0.015);
+}
+[data-theme="dark"] .sw-swap-table thead th { background: rgba(255,255,255,0.02); }
+.sw-swap-table tbody tr td {
+  padding: 14px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.sw-swap-table tbody tr:last-child td { border-bottom: none; }
+.sw-swap-table tbody tr:hover td {
+  background: rgba(99,102,241,0.04);
+  transition: background 0.12s;
+}
+[data-theme="dark"] .sw-swap-table tbody tr:hover td { background: rgba(99,102,241,0.08); }
+/* วันหยุดเดิม (column 2) — wrap คำยาว */
+.sw-swap-table tbody tr td:nth-child(2) {
+  word-break: break-word;
+  white-space: normal;
+  max-width: 0;
+  line-height: 1.5;
+}
+.sw-swap-table tbody tr td:nth-child(2) > div:first-child {
+  white-space: normal !important;   /* override inline style ใน row template */
+}
+/* Mobile / จอเล็ก — เปลี่ยนเป็น card */
+@media (max-width: 900px) {
+  .sw-swap-table thead { display: none; }
+  .sw-swap-table tbody tr {
+    display: block;
+    margin-bottom: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  .sw-swap-table tbody tr td {
+    display: block;
+    padding: 6px 0;
+    border: none;
+  }
+  .sw-swap-table tbody tr td:nth-child(2) { max-width: 100%; }
+  .sw-swap-table tbody tr td:last-child { text-align: left; padding-top: 10px; }
 }
 
 /* ═══════════════════════════════════════════════════════════
