@@ -3667,11 +3667,10 @@ async function openEmployeeForm(id = null, init = null, onSaved = null) {
                </div>
                <div style="display:flex;gap:12px;align-items:center">
                  <div style="min-width:80px;color:var(--text-2);font-size:13px">Password</div>
-                 <code style="font-size:14px;font-weight:600;color:var(--primary)">${escapeHtml(newAccountInfo.password)}</code>
-                 <span class="muted-2" style="font-size:12px">(${escapeHtml(newAccountInfo.source)})</span>
+                 <code style="font-size:14px;font-weight:600;color:var(--primary)">${escapeHtml(newAccountInfo.password_hint || 'เลขบัตรประชาชน (13 หลัก)')}</code>
                </div>
              </div>
-             <p class="muted-2" style="font-size:12.5px">พนักงานสามารถ login ด้วย <strong>รหัสพนักงาน</strong> (ไม่ต้องพิมพ์ @kacha.local) + รหัสผ่านด้านบน</p>
+             <p class="muted-2" style="font-size:12.5px">พนักงานสามารถ login ด้วย <strong>รหัสพนักงาน</strong> (ไม่ต้องพิมพ์ @kacha.local) + รหัสผ่านตามที่ระบุ — ระบบจะบังคับให้เปลี่ยน password ตอน login ครั้งแรก</p>
            </div>`,
           { footer: '<button class="btn btn-primary" data-close>เข้าใจแล้ว</button>' }
         );
@@ -13765,7 +13764,8 @@ async function createOneAccount(empId) {
   if (!requirePermission('user.create_account', 'สร้างบัญชีผู้ใช้')) return;
   try {
     const res = await DB.createEmployeeAccount(empId);
-    toast(`✓ สำเร็จ · email: ${res.email} · รหัส: ${res.password} (${res.source})`, 'success');
+    // [Security H-A3] ไม่แสดง password ใน toast — แสดง hint แทน
+    toast(`✓ สำเร็จ · email: ${res.email} · password: ${res.password_hint}`, 'success');
     renderEmpAccounts();
   } catch (ex) { toast('สร้างไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
 }
@@ -13795,7 +13795,10 @@ async function resetEmpPassword(empId) {
   if (newPwd === null) return;
   try {
     const res = await DB.resetEmployeePassword(empId, newPwd.trim() || null);
-    toast(`✓ รีเซ็ตแล้ว · รหัสใหม่: ${res.password}`, 'success');
+    // [Security C2] reset_employee_password ไม่ return plaintext password อีกแล้ว
+    // — ถ้า newPwd ว่าง → default = เลขบัตรประชาชน (ระบบรู้, HR ก็รู้ได้จากข้อมูลพนักงาน)
+    const hint = newPwd.trim() ? '(ตามที่ระบุ)' : (res.password_hint || 'เลขบัตรประชาชน');
+    toast(`✓ รีเซ็ตแล้ว · ระบบจะบังคับให้พนักงานเปลี่ยน password ตอน login ครั้งหน้า · default: ${hint}`, 'success');
   } catch (ex) { toast('รีเซ็ตไม่สำเร็จ: ' + (ex.message || ex), 'error'); }
 }
 

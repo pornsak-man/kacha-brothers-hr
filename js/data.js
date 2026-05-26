@@ -2729,18 +2729,24 @@ const DB = {
     // refresh local user_profiles cache (handle_new_user trigger สร้าง row ใหม่ใน DB แล้ว)
     await this.refetchUserProfiles();
 
+    // [Security H-A3] ไม่ return plaintext password
+    // ฝั่ง UI แสดง hint แทน (NID หรือ employee_id) — user ต้องเปลี่ยน password ตอน first login
     return {
       user_id: data?.user_id,
       email: data?.email || email,
-      password,
       source,
       created: true,
+      needs_change: data?.needs_change !== false,
+      password_hint: data?.password_hint || (source === 'natid' ? 'เลขบัตรประชาชน (13 หลัก)' : 'รหัสพนักงาน'),
       message: data?.message || 'สร้างบัญชีสำเร็จ'
     };
   },
 
   async bulkCreateEmployeeAccounts() {
     if (!this.isHR) throw new Error('ต้องเป็น admin หรือ HR');
+    // [Security H-A3] ไม่เก็บ password ใน result — กันรั่วผ่าน DOM/screenshot/Excel export
+    // HR เห็นแค่ list ที่สร้างสำเร็จ + ใช้ default = เลขบัตรประชาชน 13 หลัก
+    // (ตัว user ต้องเปลี่ยน password ตอน first login ผ่าน force_password_change modal)
     const profiles = await this.refetchUserProfiles();
     const linked = new Set((profiles || []).filter(p => p.employee_id).map(p => p.employee_id));
     const todo = this.data.employees.filter(e => this.empStatus(e) !== 'resigned' && !linked.has(e.id));
@@ -2748,7 +2754,15 @@ const DB = {
     for (const emp of todo) {
       try {
         const res = await this.createEmployeeAccount(emp.id);
-        results.push({ employee_id: emp.id, email: res.email, password: res.password, source: res.source, created: !!res.created, message: res.message });
+        results.push({
+          employee_id: emp.id,
+          email: res.email,
+          source: res.source,
+          created: !!res.created,
+          needs_change: res.needs_change !== false,
+          password_hint: res.password_hint || 'เลขบัตรประชาชน (13 หลัก)',
+          message: res.message
+        });
       } catch (ex) {
         results.push({ employee_id: emp.id, email: `${emp.id.toLowerCase()}@kacha.local`, created: false, message: 'ERROR: ' + (ex.message || String(ex)) });
       }
