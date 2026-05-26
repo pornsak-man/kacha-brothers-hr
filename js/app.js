@@ -15025,7 +15025,22 @@ router.register('schedule', () => {
           <span class="muted-2">ผู้จัดตาราง:</span>
           ${creators.length
             ? creators.map(e => `<strong title="ผู้จัดการสาขา">${escapeHtml(e.id)} · ${escapeHtml(e.firstName)} ${escapeHtml(e.lastName || '')}</strong>`).join('<span class="muted-2">, </span>')
-            : '<span class="badge badge-warning" title="ยังไม่มีพนักงานที่ตั้งสิทธิ์ role=ผู้จัดการสาขา ที่ดูแลสาขานี้">⚠ ยังไม่ตั้งผู้จัดการสาขา</span>'}
+            : (() => {
+                const profCount = (DB._userProfiles || []).length;
+                const bmCount = (DB._userProfiles || []).filter(p => p.role === 'branch_manager').length;
+                // ถ้าเห็น profile <= 1 แสดงว่า RLS ยังบล็อก (read_own_or_admin policy เก่า)
+                if (profCount <= 1) {
+                  return `<span class="badge badge-danger" title="ต้องรัน SQL migration: supabase-migration-user-profiles-public-read.sql">⚠ RLS บล็อก (เห็นแค่ ${profCount} โปรไฟล์) — รัน SQL ก่อน</span>
+                          <button class="btn btn-ghost btn-icon-only" onclick="refreshScheduleApprovers()" title="โหลด user_profiles ใหม่หลังรัน SQL">🔄</button>`;
+                }
+                // ถ้าเห็น profile หลายคนแล้ว แต่ไม่มี BM
+                if (bmCount === 0) {
+                  return `<span class="badge badge-warning" title="ไม่มีพนักงานคนใดถูกตั้ง role=ผู้จัดการสาขา ใน DB">⚠ ยังไม่ตั้งผู้จัดการสาขาในระบบ (มี ${profCount} โปรไฟล์, BM=0)</span>`;
+                }
+                // มี BM แต่ไม่ตรงสาขานี้
+                return `<span class="badge badge-warning" title="มี BM ${bmCount} คน แต่ไม่มีใครดูแลสาขานี้">⚠ ยังไม่ตั้ง BM สาขานี้ (มี BM อื่น ${bmCount} คน)</span>
+                        <button class="btn btn-ghost btn-icon-only" onclick="refreshScheduleApprovers()" title="โหลด user_profiles ใหม่">🔄</button>`;
+              })()}
         </div>
         <div class="schedule-approver-cell">
           <span class="muted-2">ผู้อนุมัติ:</span>
@@ -15374,6 +15389,23 @@ function setScheduleWeekFromDate(ymd) {
 function setScheduleBranch(branchId) {
   _scheduleState.branchId = branchId || null;
   router.go('schedule');
+}
+
+// โหลด user_profiles ใหม่ (ใช้หลังรัน SQL migration เปิด RLS user_profiles)
+// — แทนที่ต้อง refresh ทั้งหน้า ทำให้เห็น BM/AM ทันที
+async function refreshScheduleApprovers() {
+  try {
+    showToast('กำลังโหลดโปรไฟล์ผู้ใช้...', 'info');
+    await DB.refetchUserProfiles();
+    const count = (DB._userProfiles || []).length;
+    const bmCount = (DB._userProfiles || []).filter(p => p.role === 'branch_manager').length;
+    const amCount = (DB._userProfiles || []).filter(p => p.role === 'area_manager').length;
+    showToast(`โหลดแล้ว ${count} โปรไฟล์ (BM: ${bmCount}, AM: ${amCount})`, 'success');
+    router.go('schedule');
+  } catch (e) {
+    console.error('[refreshScheduleApprovers]', e);
+    showToast('โหลดโปรไฟล์ไม่สำเร็จ: ' + (e.message || e), 'error');
+  }
 }
 
 // === GRID RENDERING ===
