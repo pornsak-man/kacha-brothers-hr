@@ -14650,6 +14650,7 @@ router.register('schedule', () => {
         <div class="schedule-controls-spacer"></div>
         <select class="sw-filter-select schedule-branch-select" onchange="setScheduleBranch(this.value)" ${(branchOptions.length === 1 && !DB.isHR) ? 'disabled' : ''} title="พิมพ์อักษรแรกของชื่อย่อเพื่อกระโดด เช่น K → KMB">
           ${branchOptions.length === 0 ? '<option value="">— ไม่มีสาขาในสิทธิ์ —</option>' : ''}
+          ${branchOptions.length >= 2 ? `<option value="__all__" ${branchId === '__all__' ? 'selected' : ''}>— รวมทุกสาขา (สรุป) —</option>` : ''}
           ${branchOptions.map(b => `<option value="${escapeHtml(b.id)}" ${branchId === b.id ? 'selected' : ''} title="${escapeHtml(b.name || '')}">${escapeHtml(b.id)}</option>`).join('')}
         </select>
       </div>
@@ -14705,7 +14706,9 @@ router.register('schedule', () => {
     </div>
 
     <div id="scheduleGridWrap">${
-      hideUnapproved
+      branchId === '__all__'
+        ? renderScheduleAllBranchesSummary(weekStart, branchOptions)
+        : hideUnapproved
         ? `<div class="sw-chart-card"><div class="empty-state">
             ${icon('calendar', { size: 48 })}
             <div class="title">ตารางสาขายังไม่ถูกประกาศ</div>
@@ -14742,6 +14745,105 @@ function setScheduleBranch(branchId) {
 }
 
 // === GRID RENDERING ===
+
+// [Feature] ตารางสรุปทุกสาขา — แสดงผลรวมต่อสาขาในสัปดาห์ที่เลือก
+// ใช้เมื่อ user เลือก "รวมทุกสาขา" ใน dropdown
+function renderScheduleAllBranchesSummary(weekStart, branchOptions) {
+  const weekEnd = addDaysYMD(weekStart, 6);
+  const statusLabel = {
+    draft: { label: 'ร่าง', cls: 'badge-muted' },
+    submitted: { label: 'รออนุมัติ', cls: 'badge-warning' },
+    approved: { label: 'ประกาศแล้ว', cls: 'badge-success' },
+    published: { label: 'ประกาศแล้ว', cls: 'badge-success' },
+    rejected: { label: 'ตีกลับ', cls: 'badge-danger' }
+  };
+
+  // คำนวณ stat ของแต่ละสาขา
+  const rows = branchOptions.map(b => {
+    const empsActive = (DB.data.employees || []).filter(e =>
+      e.branch === b.id && DB.empStatus(e) !== 'resigned'
+    );
+    const week = DB.getScheduleWeek(b.id, weekStart);
+    let totalHours = 0;
+    let totalShifts = 0;
+    let totalOff = 0;
+    if (week) {
+      for (const emp of empsActive) {
+        const s = DB.calcScheduleHours(week.id, emp.id);
+        totalHours += s.hours || 0;
+        totalShifts += s.shiftCount || 0;
+        totalOff += s.offDays || 0;
+      }
+    }
+    const sb = statusLabel[week?.status || 'none'] || { label: 'ยังไม่จัด', cls: 'badge-muted' };
+    return {
+      id: b.id,
+      name: b.name || '',
+      empCount: empsActive.length,
+      week,
+      status: sb,
+      hours: totalHours,
+      shifts: totalShifts,
+      off: totalOff
+    };
+  });
+
+  // รวมรวมทั้งหมด
+  const totals = rows.reduce((acc, r) => ({
+    empCount: acc.empCount + r.empCount,
+    hours: acc.hours + r.hours,
+    shifts: acc.shifts + r.shifts,
+    off: acc.off + r.off
+  }), { empCount: 0, hours: 0, shifts: 0, off: 0 });
+
+  return `
+    <div class="sw-chart-card">
+      <div class="sw-chart-title">สรุปตารางงาน — ${formatWeekRange(weekStart)}</div>
+      <div class="sw-chart-sub">รวม ${rows.length} สาขา · กดเลือกสาขาใน dropdown เพื่อดูรายละเอียดตาราง</div>
+      <div class="table-wrap" style="margin-top:14px">
+        <table class="table table-compact">
+          <thead>
+            <tr>
+              <th style="width:120px">สาขา</th>
+              <th>ชื่อสาขา</th>
+              <th class="num">พนักงาน</th>
+              <th>สถานะตาราง</th>
+              <th class="num">จำนวนกะ</th>
+              <th class="num">วัน OFF</th>
+              <th class="num">ชั่วโมงรวม</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td><strong>${escapeHtml(r.id)}</strong></td>
+                <td class="muted-2" title="${escapeHtml(r.name)}">${escapeHtml(r.name || '-')}</td>
+                <td class="num">${fmt.num(r.empCount)}</td>
+                <td><span class="badge ${r.status.cls}">${escapeHtml(r.status.label)}</span></td>
+                <td class="num">${fmt.num(r.shifts)}</td>
+                <td class="num">${fmt.num(r.off)}</td>
+                <td class="num"><strong>${fmt.num(Math.round(r.hours * 10) / 10)}</strong></td>
+                <td><button class="btn btn-ghost btn-sm" onclick="setScheduleBranch('${escapeHtml(r.id)}')">ดูตาราง →</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700;background:rgba(0,0,0,0.04)">
+              <td colspan="2"><strong>รวมทั้งหมด</strong></td>
+              <td class="num"><strong>${fmt.num(totals.empCount)}</strong></td>
+              <td></td>
+              <td class="num"><strong>${fmt.num(totals.shifts)}</strong></td>
+              <td class="num"><strong>${fmt.num(totals.off)}</strong></td>
+              <td class="num"><strong>${fmt.num(Math.round(totals.hours * 10) / 10)} ชม.</strong></td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  `;
+}
 
 function renderScheduleGrid(branchId, weekStart, canEdit) {
   if (!branchId) {
