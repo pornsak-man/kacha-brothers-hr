@@ -2157,15 +2157,15 @@ function renderDashboardCharts(s, monthly, trailing12) {
     });
   }
 
-  // ── เพศ — navy + rose pink ──
+  // ── เพศ — navy + rose pink (hardcoded ป้องกัน cache เก่า) ──
   if ($('#chartByGender')) makeChart('chartByGender', {
     type: 'doughnut',
     data: {
       labels: ['ชาย', 'หญิง'],
       datasets: [{
         data: [s.byGender.male, s.byGender.female],
-        backgroundColor: [P.primary, P.sage],
-        hoverBackgroundColor: [P.primaryHover, P.sageHover],
+        backgroundColor: [P.primary, '#d97aa6'],
+        hoverBackgroundColor: [P.primaryHover, '#be4d80'],
         borderWidth: 0,
         hoverOffset: 8,
         spacing: 2
