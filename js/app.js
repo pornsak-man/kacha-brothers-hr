@@ -14633,6 +14633,7 @@ router.register('schedule', () => {
         <div class="sw-page-subtitle">จัดกะรายสัปดาห์ · หลายสาขา · มีขออนุมัติ</div>
       </div>
       <div class="sw-page-actions">
+        <button class="btn btn-secondary" onclick="router.go('schedule-monthly')">${icon('chart')} รายงานเดือน</button>
         ${(DB.isHR || DB.role === 'operation_manager' || DB.role === 'area_manager') ? `<button class="btn btn-secondary" onclick="openAllBranchesOverview()">${icon('chart')} ภาพรวมทุกสาขา</button>` : ''}
         ${DB.isHR ? `<button class="btn btn-secondary" onclick="openShiftsManager()">${icon('settings')} จัดการกะ</button>` : ''}
       </div>
@@ -14722,6 +14723,165 @@ router.register('schedule', () => {
           </div></div>`
         : renderScheduleGrid(branchId, weekStart, canEdit)
     }</div>
+  `;
+});
+
+// ═══════════════════════════════════════════════════════
+//  PAGE: SCHEDULE MONTHLY REPORT (รายงานตารางงานรายเดือน)
+// ═══════════════════════════════════════════════════════
+const _monthlyState = { year: null, month: null, branchId: null };
+function setMonthlyYearMonth(ym) {
+  if (!ym) return;
+  const [y, m] = ym.split('-').map(Number);
+  _monthlyState.year = y;
+  _monthlyState.month = m;
+  router.go('schedule-monthly');
+}
+function setMonthlyBranch(branchId) {
+  _monthlyState.branchId = branchId || null;
+  router.go('schedule-monthly');
+}
+function navMonthlyMonth(delta) {
+  const d = new Date(_monthlyState.year, _monthlyState.month - 1 + delta, 1);
+  _monthlyState.year = d.getFullYear();
+  _monthlyState.month = d.getMonth() + 1;
+  router.go('schedule-monthly');
+}
+
+router.register('schedule-monthly', () => {
+  // init เริ่มต้น: เดือนปัจจุบัน + branch ของ user / สาขาแรก
+  const today = new Date();
+  if (!_monthlyState.year) _monthlyState.year = today.getFullYear();
+  if (!_monthlyState.month) _monthlyState.month = today.getMonth() + 1;
+  if (!_monthlyState.branchId) {
+    if (DB.role === 'branch_manager' || DB.role === 'branch_staff' || DB.role === 'viewer') {
+      _monthlyState.branchId = DB._myBranch() || null;
+    }
+    if (!_monthlyState.branchId) {
+      const branches = (DB.data.branches || []).filter(b => b.active);
+      _monthlyState.branchId = branches[0]?.id || null;
+    }
+  }
+  const { year, month, branchId } = _monthlyState;
+
+  // branch options ตาม scope
+  let branchOptions;
+  if (DB.isHR || DB.role === 'operation_manager') {
+    branchOptions = (DB.data.branches || []).filter(b => b.active);
+  } else {
+    const scoped = DB.scopedBranches() || [];
+    branchOptions = (DB.data.branches || []).filter(b => scoped.includes(b.id) && b.active);
+  }
+
+  // employees ใน branch (active)
+  const emps = (DB.data.employees || []).filter(e =>
+    e.branch === branchId && DB.empStatus(e) !== 'resigned'
+  ).sort((a, b) => {
+    const pa = DB.getPosition(a.position);
+    const pb = DB.getPosition(b.position);
+    const la = pa ? Number(pa.level || 0) : 0;
+    const lb = pb ? Number(pb.level || 0) : 0;
+    if (la !== lb) return lb - la;
+    return (a.firstName || '').localeCompare(b.firstName || '', 'th');
+  });
+
+  // คำนวณสรุปแต่ละพนักงาน
+  const rows = emps.map(emp => {
+    const s = DB.calcScheduleMonthSummary(branchId, year, month, emp.id);
+    return { emp, ...s };
+  });
+
+  const totals = rows.reduce((acc, r) => ({
+    hours: acc.hours + r.hours,
+    shiftCount: acc.shiftCount + r.shiftCount,
+    offDays: acc.offDays + r.offDays,
+    leaveDays: acc.leaveDays + r.leaveDays
+  }), { hours: 0, shiftCount: 0, offDays: 0, leaveDays: 0 });
+
+  const ymValue = `${year}-${String(month).padStart(2, '0')}`;
+  const thMonths = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+  const monthLabel = `${thMonths[month]} ${year + 543}`;
+  const holidayCount = rows[0]?.holidayDays || 0;
+
+  return `
+    <div class="sw-page-header">
+      <div>
+        <div class="sw-page-title">รายงานตารางงานรายเดือน</div>
+        <div class="sw-page-subtitle">สรุปชั่วโมง · กะ · OFF · ลา ของพนักงานต่อเดือน</div>
+      </div>
+      <div class="sw-page-actions">
+        <button class="btn btn-secondary" onclick="router.go('schedule')">${icon('calendar')} กลับไปตารางสัปดาห์</button>
+      </div>
+    </div>
+
+    <div class="sw-chart-card schedule-controls">
+      <div class="schedule-controls-row">
+        <div class="schedule-week-nav">
+          <button class="btn btn-ghost btn-icon-only" onclick="navMonthlyMonth(-1)" title="เดือนก่อน">◀</button>
+          <button class="btn btn-secondary" onclick="(function(){var d=new Date();_monthlyState.year=d.getFullYear();_monthlyState.month=d.getMonth()+1;router.go('schedule-monthly');})()">เดือนนี้</button>
+          <button class="btn btn-ghost btn-icon-only" onclick="navMonthlyMonth(1)" title="เดือนถัดไป">▶</button>
+          <input type="month" class="sw-filter-input schedule-date-jump" value="${ymValue}" onchange="setMonthlyYearMonth(this.value)" />
+          <div class="schedule-week-range">${escapeHtml(monthLabel)}</div>
+        </div>
+        <div class="schedule-controls-spacer"></div>
+        <select class="sw-filter-select schedule-branch-select" onchange="setMonthlyBranch(this.value)">
+          ${branchOptions.map(b => `<option value="${escapeHtml(b.id)}" ${branchId === b.id ? 'selected' : ''} title="${escapeHtml(b.name || '')}">${escapeHtml(b.id)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div class="sw-chart-card" style="margin-top:14px">
+      <div class="sw-chart-title">${escapeHtml(monthLabel)} — สาขา ${escapeHtml(branchId || '-')}</div>
+      <div class="sw-chart-sub">
+        พนักงาน ${rows.length} คน · วันหยุดประเพณีในเดือน ${holidayCount} วัน
+      </div>
+      ${rows.length === 0 ? `
+        <div class="empty-state" style="margin-top:20px">
+          ${icon('users', { size: 48 })}
+          <div class="title">ไม่มีพนักงานในสาขานี้</div>
+        </div>
+      ` : `
+        <div class="table-wrap" style="margin-top:14px">
+          <table class="table table-compact">
+            <thead>
+              <tr>
+                <th style="width:90px">รหัส</th>
+                <th>ชื่อ - นามสกุล</th>
+                <th>ตำแหน่ง</th>
+                <th class="num">จำนวนกะ</th>
+                <th class="num">วัน OFF</th>
+                <th class="num">วันลา</th>
+                <th class="num">ชั่วโมงรวม</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(r => {
+                const pos = DB.getPosition(r.emp.position);
+                return `
+                <tr>
+                  <td><strong>${escapeHtml(r.emp.id)}</strong></td>
+                  <td>${escapeHtml((r.emp.title || '') + r.emp.firstName + ' ' + (r.emp.lastName || ''))}${r.emp.nickname ? ` <span class="muted-2">(${escapeHtml(r.emp.nickname)})</span>` : ''}</td>
+                  <td class="muted-2">${escapeHtml(r.emp.positionTitle || pos?.name || '-')}</td>
+                  <td class="num">${fmt.num(r.shiftCount)}</td>
+                  <td class="num">${fmt.num(r.offDays)}</td>
+                  <td class="num">${r.leaveDays ? `<strong style="color:var(--warning)">${fmt.num(r.leaveDays)}</strong>` : '0'}</td>
+                  <td class="num"><strong>${fmt.num(Math.round(r.hours * 10) / 10)}</strong></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="font-weight:700;background:rgba(0,0,0,0.04)">
+                <td colspan="3"><strong>รวมทั้งสาขา (${rows.length} คน)</strong></td>
+                <td class="num"><strong>${fmt.num(totals.shiftCount)}</strong></td>
+                <td class="num"><strong>${fmt.num(totals.offDays)}</strong></td>
+                <td class="num"><strong>${fmt.num(totals.leaveDays)}</strong></td>
+                <td class="num"><strong>${fmt.num(Math.round(totals.hours * 10) / 10)} ชม.</strong></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `}
+    </div>
   `;
 });
 

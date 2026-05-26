@@ -4932,5 +4932,83 @@ const DB = {
       if (mins > 0) totalMins += mins;
     }
     return { hours: +(totalMins / 60).toFixed(2), offDays, shiftCount };
+  },
+
+  // [Feature] สรุปตารางงานรายเดือน — ใช้ที่หน้า "รายงานเดือน"
+  // นับ entries ทุก week ที่ overlap กับเดือนนั้น
+  // คืน: { hours, shiftCount, offDays, leaveDays, holidayDays }
+  calcScheduleMonthSummary(branchId, year, month, employeeId) {
+    // เดือน range: 1 ถึงสิ้นเดือน
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).getDate(); // last day of month
+    const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+    // 1) Filter entries: ของ employee + อยู่ในเดือน + branchId ตรง (หรือไม่มี branchId แต่ week branch ตรง)
+    const weekIdsOfBranch = new Set(
+      (this.data.scheduleWeeks || [])
+        .filter(w => w.branchId === branchId)
+        .map(w => w.id)
+    );
+    const entries = (this.data.scheduleEntries || []).filter(e =>
+      e.employeeId === employeeId &&
+      e.workDate >= monthStart && e.workDate <= monthEnd &&
+      (e.branchId === branchId || (!e.branchId && weekIdsOfBranch.has(e.scheduleWeekId)))
+    );
+
+    // 2) คำนวณ hours/shifts/off — reuse logic เดียวกับ calcScheduleHours
+    let totalMins = 0;
+    let offDays = 0;
+    let shiftCount = 0;
+    for (const e of entries) {
+      if (!e.shiftId && e.customStartTime && e.customEndTime) {
+        const [sh1, sm1] = e.customStartTime.split(':').map(Number);
+        const [sh2, sm2] = e.customEndTime.split(':').map(Number);
+        let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+        if (mins < 0) mins += 24 * 60;
+        mins -= Number(e.customBreakMinutes || 0);
+        if (mins > 0) totalMins += mins;
+        shiftCount++;
+        continue;
+      }
+      if (!e.shiftId) continue;
+      const sh = this.getShift(e.shiftId);
+      if (!sh) continue;
+      shiftCount++;
+      if (sh.isOffDay) { offDays++; continue; }
+      if (!sh.startTime || !sh.endTime) continue;
+      const [sh1, sm1] = sh.startTime.split(':').map(Number);
+      const [sh2, sm2] = sh.endTime.split(':').map(Number);
+      let mins = (sh2 * 60 + sm2) - (sh1 * 60 + sm1);
+      if (mins < 0) mins += 24 * 60;
+      mins -= Number(sh.breakMinutes || 0);
+      if (mins > 0) totalMins += mins;
+    }
+
+    // 3) นับวันลาในเดือน (status=approved + overlap เดือน)
+    let leaveDays = 0;
+    for (const lv of (this.data.leaveRequests || [])) {
+      if (lv.employeeId !== employeeId || lv.status !== 'approved') continue;
+      const s = lv.startDate > monthStart ? lv.startDate : monthStart;
+      const ed = lv.endDate < monthEnd ? lv.endDate : monthEnd;
+      if (s > ed) continue;
+      const ms = new Date(s).getTime();
+      const me = new Date(ed).getTime();
+      leaveDays += Math.round((me - ms) / 86400000) + 1;
+    }
+
+    // 4) นับวันหยุดประเพณีในเดือน (info — ไม่ลบจาก hours)
+    const holidayDays = (this.data.calendarItems || []).filter(c =>
+      c.type === 'holiday' && c.date >= monthStart && c.date <= monthEnd
+    ).length;
+
+    return {
+      hours: +(totalMins / 60).toFixed(2),
+      shiftCount,
+      offDays,
+      leaveDays,
+      holidayDays,
+      monthStart,
+      monthEnd
+    };
   }
 };
