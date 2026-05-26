@@ -10630,8 +10630,20 @@ function openSwapRequestForm(calendarItemId = null) {
       if (!data.swapToDate) { toast('กรุณาเลือกวันหยุดชดเชย', 'warning'); return; }
       if (data.swapToDate <= hDate) { toast('วันหยุดชดเชยต้องเป็นวันหลังวันหยุดประเพณี', 'warning'); return; }
       if (data.swapToDate < dayAfterToday) { toast('วันหยุดชดเชยต้องเป็นวันในอนาคต', 'warning'); return; }
-      const swapYear = parseYMD(data.swapToDate)?.[0];
-      if (swapYear !== hYear) { toast(`วันหยุดชดเชยต้องอยู่ในปีเดียวกับวันหยุดประเพณี (พ.ศ. ${hYear + 543})`, 'warning'); return; }
+      // ★ Business rule: วันหยุดชดเชยต้องอยู่ในกรอบเวลาที่บริษัทกำหนด
+      //   - เดือน ม.ค.-พ.ย. → ต้องชดเชยภายในปีเดียวกัน
+      //   - เดือน ธ.ค. → ต้องชดเชยภายในวันที่ 31 มี.ค. ปีถัดไป
+      const hMonth = parseYMD(hDate)?.[1];
+      const maxSwapDate = hMonth === 12
+        ? `${hYear + 1}-03-31`
+        : `${hYear}-12-31`;
+      if (data.swapToDate > maxSwapDate) {
+        const limitLabel = hMonth === 12
+          ? `31 มี.ค. ${hYear + 1 + 543}`
+          : `31 ธ.ค. ${hYear + 543}`;
+        toast(`วันหยุดชดเชยต้องไม่เกิน ${limitLabel} (เกินกรอบจะถือว่าหมดสิทธิ์)`, 'warning');
+        return;
+      }
       // กันสร้างซ้ำ
       const existing = (DB.data.holidaySwapRequests || []).find(r =>
         r.calendarItemId === calId &&
