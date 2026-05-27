@@ -1387,7 +1387,8 @@ const DB = {
     totalCost: Number(r.total_cost || 0),
     note: r.note || '',
     requestType: r.request_type || '',       // [Feat] ประเภทคำขอ
-    requestReason: r.request_reason || ''    // [Feat] เหตุผล/รายละเอียดเพิ่ม
+    requestReason: r.request_reason || '',   // [Feat] เหตุผล/รายละเอียดเพิ่ม
+    brandPreference: r.brand_preference || ''  // [Feat] แบรนด์ที่ต้องการ (optional)
   }),
   _uniReqToDB: (r) => ({
     employee_id: r.employeeId || null,
@@ -1399,7 +1400,8 @@ const DB = {
     total_cost: Number(r.totalCost || 0),
     note: r.note || null,
     request_type: r.requestType || null,
-    request_reason: r.requestReason || null
+    request_reason: r.requestReason || null,
+    brand_preference: r.brandPreference || null
   }),
   _uniIssueFromDB: (r) => ({
     id: r.id,
@@ -2821,7 +2823,8 @@ const DB = {
   // - auto employee_id = self
   // - status = 'pending' บังคับ
   // - requestedBy = ตัวเอง
-  async requestUniformForSelf({ requestType, requestReason = '', note = '', neededBy = null } = {}) {
+  // - brandPreference: optional — ถ้าพนักงานรู้แบรนด์ที่ต้องการ
+  async requestUniformForSelf({ requestType, requestReason = '', note = '', neededBy = null, brandPreference = '' } = {}) {
     if (!this.user || !this.profile?.employee_id) {
       throw new Error('ต้องผูกบัญชีกับพนักงานก่อน');
     }
@@ -2839,7 +2842,8 @@ const DB = {
       total_cost: 0,
       note: note || null,
       request_type: requestType,
-      request_reason: requestReason || null
+      request_reason: requestReason || null,
+      brand_preference: brandPreference || null
     };
     const { data, error } = await this.client.from('uniform_requests').insert(row).select().single();
     if (error) throw error;

@@ -6655,6 +6655,16 @@ function openApplicantForm(id = null) {
             <div class="form-grid uni-meta-grid">
               <div class="form-group"><label>ต้องการก่อน <span class="muted-2" style="font-weight:normal;font-size:11px">(วันเริ่มงาน)</span></label><input name="uniformNeededBy" type="date" value="${existingUniReq?.neededBy || ''}"/></div>
               <div class="form-group"><label>HR ที่แจ้ง</label><input name="uniformRequestedBy" value="${escapeHtml(existingUniReq?.requestedBy || DB.profile?.name || DB.user?.email || '')}" placeholder="ชื่อ HR คนแจ้ง"/></div>
+              ${(() => {
+                const brands = DB.getUniformBrands({ activeOnly: true });
+                if (brands.length <= 1) return '';
+                return `<div class="form-group span-2"><label>แบรนด์ uniform <span class="muted-2" style="font-weight:normal;font-size:11px">(เลือกได้ — ช่วย filter ตอนจัดชุด)</span></label>
+                  <select name="uniformBrandPreference">
+                    <option value="">— ไม่ระบุ (เลือกได้ทุกแบรนด์ตอนจัด) —</option>
+                    ${brands.map(b => `<option value="${escapeHtml(b.code)}" ${existingUniReq?.brandPreference === b.code ? 'selected' : ''}>🏷️ ${escapeHtml(b.name)}</option>`).join('')}
+                  </select>
+                </div>`;
+              })()}
             </div>
 
             <div class="uni-items-block">
@@ -6931,6 +6941,7 @@ function openApplicantForm(id = null) {
       const needUniform = data.needUniform === 'on';
       const uniformNeededBy = data.uniformNeededBy || '';
       const uniformRequestedBy = data.uniformRequestedBy || '';
+      const uniformBrandPreference = data.uniformBrandPreference || '';
       // รวบ structured rows → formatted note
       const masterItems = DB.getUniformItems({ activeOnly: true });
       let typeNames = [...new Set(masterItems.map(i => i.name))];
@@ -6948,7 +6959,7 @@ function openApplicantForm(id = null) {
       const uniformNote = [lines.join('\n'), extraNote].filter(Boolean).join('\n');
 
       // ตัด field ที่ไม่ใช่ของ applicant ออก
-      delete data.needUniform; delete data.uniformNeededBy; delete data.uniformRequestedBy; delete data.uniformExtraNote;
+      delete data.needUniform; delete data.uniformNeededBy; delete data.uniformRequestedBy; delete data.uniformExtraNote; delete data.uniformBrandPreference;
       for (let idx = 0; idx < typeNames.length; idx++) { delete data[`uniSize_${idx}`]; delete data[`uniQty_${idx}`]; }
       data.expectedSalary = Number(data.expectedSalary || 0);
       if (id) data.id = id;
@@ -6969,7 +6980,9 @@ function openApplicantForm(id = null) {
             // [Fix] ตั้งประเภทคำขอเป็น "พนักงานใหม่" (ฟรี) ตาม flow recruit
             // — ช่วยให้ filter/report แยกคำขอจาก recruit vs self-service ได้
             requestType: existingUniReq?.requestType || 'new_hire',
-            requestReason: existingUniReq?.requestReason || ''
+            requestReason: existingUniReq?.requestReason || '',
+            // [Feat] Brand preference จาก recruit (optional)
+            brandPreference: uniformBrandPreference || existingUniReq?.brandPreference || ''
           };
           if (existingUniReq) reqData.id = existingUniReq.id;
           await DB.saveUniformRequest(reqData);
@@ -7835,6 +7848,9 @@ function renderMyUniformList(reqs) {
 async function openMyUniformRequestForm() {
   const myId = DB.profile?.employee_id;
   if (!myId) { toast('ยังไม่ได้ผูกบัญชีกับพนักงาน — ติดต่อ admin', 'error'); return; }
+  const brands = DB.getUniformBrands({ activeOnly: true });
+  const hasMultiBrand = brands.length > 1;
+
   modal.open('ขอชุดเครื่องแบบ', `
     <form id="myUniReqForm">
       <div class="form-grid">
@@ -7847,6 +7863,15 @@ async function openMyUniformRequestForm() {
           </select>
           <small class="muted-2" id="myUniTypeHint" style="font-size:11.5px;display:block;margin-top:6px;padding:8px 12px;border-radius:6px"></small>
         </div>
+        ${hasMultiBrand ? `
+          <div class="form-group span-2">
+            <label>แบรนด์ที่ต้องการ <span class="muted-2" style="font-weight:normal;font-size:11px">(เลือกได้ — ถ้าไม่ระบุ HR จะเลือกให้)</span></label>
+            <select name="brandPreference">
+              <option value="">— ไม่ระบุ (HR เลือกให้) —</option>
+              ${brands.map(b => `<option value="${escapeHtml(b.code)}">🏷️ ${escapeHtml(b.name)}</option>`).join('')}
+            </select>
+          </div>
+        ` : ''}
         <div class="form-group span-2">
           <label>เหตุผล / รายละเอียด *</label>
           <textarea name="requestReason" rows="2" required placeholder="เช่น เสื้อขาดจากการทำงาน, ลืมที่ทำงาน, ทำงานครบ 1 ปี ฯลฯ"></textarea>
@@ -7888,7 +7913,8 @@ async function openMyUniformRequestForm() {
         requestType: data.requestType,
         requestReason: data.requestReason,
         note: data.note,
-        neededBy: data.neededBy || null
+        neededBy: data.neededBy || null,
+        brandPreference: data.brandPreference || ''
       });
       modal.close();
       toast('ส่งคำขอแล้ว — รอ HR อนุมัติและจัดส่ง', 'success');
@@ -8038,10 +8064,14 @@ function renderUniformRequestsTable() {
           const typeBadge = typeInfo
             ? `<span class="badge ${typeInfo.cls}" style="font-size:10px" title="${typeInfo.hint}">${typeInfo.label}${typeInfo.isFree ? ' 🆓' : ' 💰'}</span>`
             : `<span class="muted-2" style="font-size:10.5px">—</span>`;
+          // brand preference badge (ถ้าระบุ)
+          const brandBadge = r.brandPreference
+            ? `<span class="badge badge-info" style="font-size:10px;margin-left:4px" title="แบรนด์ที่ต้องการ">🏷️ ${escapeHtml(r.brandPreference)}</span>`
+            : '';
           return `<tr>
             <td>${fmt.date(r.requestedDate)}</td>
             <td><strong>${escapeHtml(name)}</strong>${refBadge}</td>
-            <td>${typeBadge}</td>
+            <td>${typeBadge}${brandBadge}</td>
             <td>${escapeHtml(branch)}</td>
             <td>${escapeHtml(r.requestedBy || '-')}</td>
             <td>${r.neededBy ? fmt.date(r.neededBy) : '-'}</td>
@@ -8939,9 +8969,11 @@ function openUniformRequestForm(id = null) {
   const r = id ? DB.getUniformRequest(id) : {
     id: '', employeeId: '', requestedBy: DB.profile?.name || DB.user?.email || '',
     requestedDate: tz.today(), neededBy: '', status: 'pending', note: '',
-    requestType: 'new_hire', requestReason: ''
+    requestType: 'new_hire', requestReason: '', brandPreference: ''
   };
   const emps = DB.getEmployees({ status: 'active' });
+  const brands = DB.getUniformBrands({ activeOnly: true });
+  const hasMultiBrand = brands.length > 1;
   modal.open(id ? 'แก้ไขคำขอจัดชุด' : 'คำขอจัดชุด (HR แจ้ง → ส่งต่อ HR จัดชุด)', `
     <form id="uniReqForm">
       <div class="form-grid">
@@ -8964,6 +8996,15 @@ function openUniformRequestForm(id = null) {
         <div class="form-group"><label>สถานะ</label>
           <select name="status">${Object.entries(UNIFORM_STATUS).map(([k, v]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
         </div>
+        ${hasMultiBrand ? `
+          <div class="form-group span-2">
+            <label>แบรนด์ที่ต้องการ <span class="muted-2" style="font-weight:normal;font-size:11px">(เลือกได้ — เพื่อช่วย filter ตอนจัดชุด)</span></label>
+            <select name="brandPreference">
+              <option value="">— ไม่ระบุ (เลือกแบรนด์ใดก็ได้ตอนจัด) —</option>
+              ${brands.map(b => `<option value="${escapeHtml(b.code)}" ${r.brandPreference === b.code ? 'selected' : ''}>🏷️ ${escapeHtml(b.name)}</option>`).join('')}
+            </select>
+          </div>
+        ` : ''}
         <div class="form-group span-2"><label>เหตุผล / รายละเอียดเพิ่มเติม</label><textarea name="requestReason" rows="2" placeholder="เช่น เสื้อขาดจากอุบัติเหตุ, ลืมที่ทำงาน, ใช้งานนานชำรุด ฯลฯ">${escapeHtml(r.requestReason || '')}</textarea></div>
         <div class="form-group span-2"><label>รายละเอียดที่ต้องการ</label><textarea name="note" rows="2" placeholder="เช่น ต้องการเสื้อ M กางเกง L หมวก 1 ใบ">${escapeHtml(r.note)}</textarea></div>
       </div>
@@ -9091,6 +9132,41 @@ function parseUniformNoteToItems(note) {
 }
 
 // match กับ stock master โดย exact name + size (case-insensitive)
+// ─── เปลี่ยน/ล้าง brand_preference ของ request ──
+function clearRequestBrandPref(reqId, requestIdForReopen) {
+  if (!requireHR()) return;
+  const req = DB.getUniformRequest(reqId);
+  if (!req) return;
+  const brands = DB.getUniformBrands({ activeOnly: true });
+  modal.open('เปลี่ยน/ล้างแบรนด์ของคำขอ', `
+    <form id="brandPrefForm">
+      <div class="form-group">
+        <label>เลือกแบรนด์</label>
+        <select name="brandPreference">
+          <option value="" ${!req.brandPreference ? 'selected' : ''}>— ไม่ระบุ (ดูทุกแบรนด์) —</option>
+          ${brands.map(b => `<option value="${escapeHtml(b.code)}" ${req.brandPreference === b.code ? 'selected' : ''}>🏷️ ${escapeHtml(b.name)} [${escapeHtml(b.code)}]</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" data-close>ยกเลิก</button>
+        <button type="submit" class="btn btn-primary">บันทึก</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('brandPrefForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    try {
+      await DB.saveUniformRequest({ ...req, brandPreference: data.brandPreference || '' });
+      toast(data.brandPreference ? 'เปลี่ยนแบรนด์แล้ว' : 'ล้างแบรนด์แล้ว — ดูได้ทุกแบรนด์', 'success');
+      modal.close();
+      openIssueItemsForm(requestIdForReopen);
+    } catch (ex) {
+      toast('แก้ไขไม่สำเร็จ: ' + (ex.message || ex), 'error');
+    }
+  });
+}
+
 function matchUniformItemFromStock(parsed, masterItems) {
   if (!parsed.parseable) return null;
   // ลำดับความเข้มของการ match — เลือก stock ที่มีของเหลือมากสุดเมื่อ tie
@@ -9206,9 +9282,14 @@ function openIssueItemsForm(requestId) {
   }
   if (!owner) { toast('ไม่พบเจ้าของคำขอ', 'error'); return; }
 
-  const items = DB.getUniformItems({ activeOnly: true });
+  // [Feat] กรอง items ตาม brand_preference ของ request (ถ้ามี)
+  const allItems = DB.getUniformItems({ activeOnly: true });
+  const items = req.brandPreference
+    ? allItems.filter(i => i.brand === req.brandPreference)
+    : allItems;
   const existing = DB.getUniformIssues({ requestId });
   const issuedBy = DB.profile?.name || DB.user?.email || '';
+  const brandObj = req.brandPreference ? DB.getUniformBrand(req.brandPreference) : null;
 
   const isFromApplicant = refLabel === 'ผู้สมัคร';
   const editLink = isFromApplicant && req.applicantId
@@ -9216,6 +9297,14 @@ function openIssueItemsForm(requestId) {
     : (req.employeeId ? `<button type="button" class="btn btn-ghost btn-sm" onclick="modal.close(); openUniformRequestForm('${escapeHtml(req.id)}')" style="margin-left:8px;font-size:11px">✏️ แก้ไขคำขอ</button>` : '');
 
   modal.open(`บันทึกการจัดชุด — ${escapeHtml(owner.firstName + ' ' + (owner.lastName || ''))}`, `
+    ${req.brandPreference ? `
+      <div style="background:linear-gradient(90deg, #eff6ff 0%, #dbeafe 100%);padding:10px 14px;border-radius:8px;margin-bottom:14px;border-left:4px solid #1e40af;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <strong style="font-size:14px;color:#1e40af">🏷️ แบรนด์ที่ต้องการ:</strong>
+        <span class="badge badge-info" style="font-size:12px;background:#1e40af;color:white">${escapeHtml(brandObj?.name || req.brandPreference)}</span>
+        <span class="muted-2" style="font-size:12px;flex:1">— dropdown ด้านล่างถูก filter เฉพาะแบรนด์นี้</span>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="clearRequestBrandPref('${escapeHtml(req.id)}', '${escapeHtml(requestId)}')" title="ดูสินค้าทุกแบรนด์">เปลี่ยน/ล้าง</button>
+      </div>
+    ` : ''}
     <div class="form-section">
       <h3>ข้อมูลคำขอ <span class="badge ${isFromApplicant ? 'badge-warning' : 'badge-success'}" style="margin-left:8px;font-size:11px">${refLabel}</span>${editLink}</h3>
       <div class="form-grid">
