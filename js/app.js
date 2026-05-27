@@ -8560,8 +8560,14 @@ function openIssueItemsForm(requestId) {
       data.qty = Number(data.qty);
       data.unitCost = Number(data.unitCost);
       const stock = Number(opt?.dataset.stock || 0);
+      // [Stock] DB trigger จะ reject ถ้า qty > stock — block ที่ UI ก่อนเพื่อ UX
       if (data.qty > stock) {
-        if (!await modal.confirm('Stock ไม่พอ', `Stock เหลือ ${stock} ชิ้น แต่ต้องการ ${data.qty} ชิ้น — ดำเนินการต่อ?`)) return;
+        if (stock === 0) {
+          toast(`Stock หมด — กรุณาเพิ่ม Stock ก่อนจัด หรือเลือกขนาดอื่น`, 'error');
+        } else {
+          toast(`Stock ไม่พอ — เหลือ ${stock} ชิ้น แต่ต้องการ ${data.qty} ชิ้น`, 'error');
+        }
+        return;
       }
       await DB.saveUniformIssue(data);
       toast('เพิ่มรายการแล้ว · stock ถูกตัดอัตโนมัติ', 'success');

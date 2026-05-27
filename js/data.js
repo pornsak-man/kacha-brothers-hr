@@ -2625,24 +2625,45 @@ const DB = {
     if (employeeId) list = list.filter(i => i.employeeId === employeeId);
     return list.sort((a, b) => (b.issuedDate || '').localeCompare(a.issuedDate || ''));
   },
-  // Save issue + auto-deduct stock + recalc request.total_cost
+  // Save issue + recalc request.total_cost
+  // [Stock] DB trigger trg_uniform_issues_stock จัดการ stock ให้อัตโนมัติ:
+  //   - INSERT → atomic deduct + check sufficient (RAISE EXCEPTION ถ้าไม่พอ)
+  //   - UPDATE qty/item_id → คืน OLD + ตัด NEW
+  //   - DELETE → คืน stock
+  // (ก่อนหน้านี้เคยตัด stock ที่ frontend — มี race condition + bypass ได้)
   async saveUniformIssue(issue) {
     issue.totalCost = Number(issue.qty || 0) * Number(issue.unitCost || 0);
     const row = this._uniIssueToDB(issue);
     if (issue.id) row.id = issue.id;
     const { data, error } = await this.client.from('uniform_issues').upsert(row).select().single();
-    if (error) throw error;
+    if (error) {
+      // [UX] แปลง error จาก trigger ให้ user friendly
+      const msg = error.message || '';
+      if (msg.includes('Stock ไม่พอ')) throw new Error(msg);
+      if (msg.includes('ไม่พบรายการชุด')) throw new Error(msg);
+      throw error;
+    }
     const mapped = this._uniIssueFromDB(data);
     const idx = this.data.uniformIssues.findIndex(i => i.id === mapped.id);
     const isNew = idx < 0;
     if (isNew) this.data.uniformIssues.unshift(mapped);
     else this.data.uniformIssues[idx] = mapped;
 
-    // deduct stock เฉพาะตอน insert ใหม่ (กัน double-deduct ตอน update)
-    if (isNew && issue.itemId && Number(issue.qty) > 0) {
-      try { await this.adjustUniformStock(issue.itemId, -Number(issue.qty)); }
-      catch (ex) { console.warn('Stock deduct failed:', ex); }
+    // refetch uniform_items เพื่อให้ stock_qty ใน local cache ตรงกับ DB
+    // (trigger ตัด stock ฝั่ง DB แล้ว — frontend ต้อง sync state)
+    if (issue.itemId) {
+      try {
+        const { data: itemData } = await this.client.from('uniform_items')
+          .select('*').eq('id', issue.itemId).single();
+        if (itemData) {
+          const mItem = this._uniItemFromDB(itemData);
+          const iIdx = this.data.uniformItems.findIndex(i => i.id === mItem.id);
+          if (iIdx >= 0) this.data.uniformItems[iIdx] = mItem;
+          else this.data.uniformItems.push(mItem);
+        }
+      } catch (e) { /* realtime จะ sync ให้เอง */ }
     }
+
     // recalc parent request total
     if (mapped.requestId) await this._recalcUniformRequestTotal(mapped.requestId);
     return mapped;
@@ -2653,9 +2674,18 @@ const DB = {
     const { error } = await this.client.from('uniform_issues').delete().eq('id', id);
     if (error) throw error;
     this.data.uniformIssues = this.data.uniformIssues.filter(i => i.id !== id);
-    // คืน stock + recalc total
-    if (issue.itemId && Number(issue.qty) > 0) {
-      try { await this.adjustUniformStock(issue.itemId, +Number(issue.qty)); } catch (ex) {}
+
+    // [Stock] DB trigger คืน stock ให้แล้ว — refetch item เพื่อ sync local state
+    if (issue.itemId) {
+      try {
+        const { data: itemData } = await this.client.from('uniform_items')
+          .select('*').eq('id', issue.itemId).single();
+        if (itemData) {
+          const mItem = this._uniItemFromDB(itemData);
+          const iIdx = this.data.uniformItems.findIndex(i => i.id === mItem.id);
+          if (iIdx >= 0) this.data.uniformItems[iIdx] = mItem;
+        }
+      } catch (e) { /* realtime จะ sync */ }
     }
     if (issue.requestId) await this._recalcUniformRequestTotal(issue.requestId);
   },
