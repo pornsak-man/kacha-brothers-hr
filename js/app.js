@@ -9986,8 +9986,24 @@ const ALLOWANCE_LABELS = {
   AllowanceOther:    'ค่าอื่นๆ'
 };
 
+const salAdjState = { search: '', year: '', changeType: '' };
+
 router.register('salary-adjust', () => {
-  const history = DB.getSalaryHistory();
+  const allHistory = DB.getSalaryHistory();
+
+  // ── ตัวกรอง: ค้นหาชื่อ/รหัส · ปี · ประเภทการเปลี่ยนแปลง (ดูย้อนหลังได้ทุกปี) ──
+  const _q = (salAdjState.search || '').trim().toLowerCase();
+  const history = allHistory.filter(h => {
+    if (salAdjState.year && String(h.date || '').slice(0, 4) !== salAdjState.year) return false;
+    if (salAdjState.changeType && (h.changeType || 'salary') !== salAdjState.changeType) return false;
+    if (_q) {
+      const e = DB.getEmployee(h.employeeId) || {};
+      if (!`${e.firstName || ''} ${e.lastName || ''} ${h.employeeId || ''}`.toLowerCase().includes(_q)) return false;
+    }
+    return true;
+  });
+  const _hasFilter = !!(salAdjState.search || salAdjState.year || salAdjState.changeType);
+
   const fmtChange = (h) => {
     const parts = [];
     if (h.newSalary && Number(h.newSalary) !== Number(h.oldSalary)) {
@@ -10026,13 +10042,13 @@ router.register('salary-adjust', () => {
   // ─── KPI summary (ให้ consistent กับหน้าการเงินอื่น) ───
   const _now = new Date();
   const _thisMonth = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`;
-  const monthCount = history.filter(h => (h.date || '').slice(0, 7) === _thisMonth).length;
-  const raiseCount = history.filter(h => h.newSalary && Number(h.newSalary) > Number(h.oldSalary || 0)).length;
-  const totalRaise = history.reduce((s, h) => {
+  const monthCount = allHistory.filter(h => (h.date || '').slice(0, 7) === _thisMonth).length;
+  const raiseCount = allHistory.filter(h => h.newSalary && Number(h.newSalary) > Number(h.oldSalary || 0)).length;
+  const totalRaise = allHistory.reduce((s, h) => {
     const d = Number(h.newSalary || 0) - Number(h.oldSalary || 0);
     return s + (d > 0 ? d : 0);
   }, 0);
-  const lastDate = history.reduce((mx, h) => ((h.date || '') > mx ? h.date : mx), '');
+  const lastDate = allHistory.reduce((mx, h) => ((h.date || '') > mx ? h.date : mx), '');
 
   return `
     <div class="sw-page-header">
@@ -10052,7 +10068,7 @@ router.register('salary-adjust', () => {
       <div class="sw-stat-card">
         <div class="sw-stat-icon" style="background:rgba(30,42,82,0.12);color:var(--primary)">${ICON.chart}</div>
         <div class="sw-stat-label">รายการปรับทั้งหมด</div>
-        <div class="sw-stat-value">${fmt.num(history.length)}</div>
+        <div class="sw-stat-value">${fmt.num(allHistory.length)}</div>
         <div class="sw-stat-change muted-2" style="font-size:12px;margin-top:6px">ทุกประเภท · สะสม</div>
       </div>
       <div class="sw-stat-card">
@@ -10076,7 +10092,26 @@ router.register('salary-adjust', () => {
     </div>
     <div class="sw-chart-card">
       <div class="sw-chart-title">ประวัติการปรับ · ${fmt.num(history.length)} รายการ</div>
-      <div class="sw-chart-sub">รวมทั้ง การปรับเงินเดือน, ปรับตำแหน่ง, ย้ายสาขา, ย้ายฝ่าย</div>
+      <div class="sw-chart-sub">${_hasFilter ? `กรองจากทั้งหมด ${fmt.num(allHistory.length)} รายการ` : 'รวมทั้ง การปรับเงินเดือน, ปรับตำแหน่ง, ย้ายสาขา, ย้ายฝ่าย'}</div>
+      <div class="sw-filter-bar" style="margin:14px 0 4px">
+        <input id="salAdjSearch" type="text" class="sw-filter-input" placeholder="🔍 ค้นชื่อ / รหัสพนักงาน" value="${escapeHtml(salAdjState.search)}"
+          oninput="instantSearch('salAdj', this.value, v => setSalAdjFilter('search', v))"/>
+        <select class="sw-filter-select" onchange="setSalAdjFilter('year', this.value)" aria-label="กรองตามปี">
+          ${(() => {
+            const ty = new Date().getFullYear();
+            const ys = new Set(allHistory.map(h => String(h.date || '').slice(0, 4)).filter(Boolean));
+            for (let y = ty - 5; y <= ty; y++) ys.add(String(y));
+            const years = Array.from(ys).filter(Boolean).sort((a, b) => Number(b) - Number(a));
+            return `<option value="">— ทุกปี —</option>` +
+              years.map(y => `<option value="${y}" ${salAdjState.year === y ? 'selected' : ''}>ปี ${Number(y) + 543}${Number(y) === ty ? ' (ปัจจุบัน)' : ''}</option>`).join('');
+          })()}
+        </select>
+        <select class="sw-filter-select" onchange="setSalAdjFilter('changeType', this.value)" aria-label="กรองตามประเภท">
+          <option value="">— ทุกประเภท —</option>
+          ${Object.entries(CHANGE_TYPE_BADGE).map(([k, v]) => `<option value="${k}" ${salAdjState.changeType === k ? 'selected' : ''}>${v.label}</option>`).join('')}
+        </select>
+        <button class="btn btn-ghost btn-sm sw-filter-clear" onclick="clearSalAdjFilters()" style="${_hasFilter ? '' : 'display:none'}">✕ ล้างตัวกรอง</button>
+      </div>
       ${history.length ? `
       <div class="table-wrap">
         <table class="table table-compact sw-emp-table">
@@ -10095,9 +10130,27 @@ router.register('salary-adjust', () => {
             }).join('')}
           </tbody>
         </table>
-      </div>` : `<div class="empty-state"><div class="icon">${ICON.money}</div><div class="title">ยังไม่มีประวัติการปรับ</div><div class="hint">กดปุ่ม "+ บันทึกการปรับ" เพื่อเริ่มต้น</div></div>`}
+      </div>` : `<div class="empty-state"><div class="icon">${ICON.money}</div><div class="title">${_hasFilter ? 'ไม่พบรายการตามตัวกรอง' : 'ยังไม่มีประวัติการปรับ'}</div><div class="hint">${_hasFilter ? 'ลองเปลี่ยนหรือล้างตัวกรอง' : 'กดปุ่ม "+ บันทึกการปรับ" เพื่อเริ่มต้น'}</div></div>`}
     </div>`;
 });
+
+function setSalAdjFilter(key, value) {
+  const v = value || '';
+  if (salAdjState[key] === v) return;
+  salAdjState[key] = v;
+  const wasSearch = key === 'search';
+  router.go('salary-adjust');
+  if (wasSearch) {
+    const el = document.getElementById('salAdjSearch');
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }
+}
+function clearSalAdjFilters() {
+  salAdjState.search = '';
+  salAdjState.year = '';
+  salAdjState.changeType = '';
+  router.go('salary-adjust');
+}
 
 function openSalaryAdjustForm() {
   if (!requirePermission('salary.adjust', 'บันทึกการปรับเงินเดือน')) return;
