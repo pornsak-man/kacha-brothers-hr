@@ -926,13 +926,13 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   pointer-events: none;
 }
 .sidebar-footer .btn-icon:hover::before { transform: translateX(120%); }
+/* hover กลาง — neutral subtle (แต่ละปุ่มมีสี hover เฉพาะ override ด้านล่าง) */
 .sidebar-footer .btn-icon:hover {
-  background: linear-gradient(180deg, rgba(196, 165, 116, 0.18), rgba(196, 165, 116, 0.07));  /* champagne */
-  border-color: rgba(196, 165, 116, 0.30);
-  color: var(--gold-light, #e3d2a8);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03));
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #f0ede3;
   box-shadow:
-    0 8px 22px rgba(0, 0, 0, 0.28),
-    0 0 0 1px rgba(196, 165, 116, 0.12),
+    0 8px 20px rgba(0, 0, 0, 0.30),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   transform: translateY(-2px);
 }
@@ -947,48 +947,39 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 .sidebar-footer .btn-icon:focus-visible {
   box-shadow:
     0 0 0 2px var(--sidebar-bg),
-    0 0 0 4px rgba(196, 165, 116, 0.5);
+    0 0 0 4px rgba(255, 255, 255, 0.28);
 }
-/* เปลี่ยนรหัสผ่าน — ทองสดสว่าง สะอาด (clean radiant gold) */
-.sidebar-footer #changePwdBtn {
-  color: #f7dd8f;                                    /* ทองสว่างสด — ไม่ออกเขียว */
-  background: linear-gradient(180deg, rgba(232, 191, 92, 0.18), rgba(232, 191, 92, 0.045));
-  border-color: rgba(232, 191, 92, 0.42);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 248, 225, 0.14),
-    0 1px 3px rgba(0, 0, 0, 0.22);
-}
-.sidebar-footer #changePwdBtn svg { filter: drop-shadow(0 0 7px rgba(232, 191, 92, 0.55)); }
+
+/* ════ MINIMAL: พื้นเรียบ neutral · icon เป็นตัวบอกสี identity ════ */
+
+/* เปลี่ยนรหัสผ่าน — icon ทอง (พื้นเรียบเหมือนปุ่มอื่น) */
+.sidebar-footer #changePwdBtn { color: #e7cf94; }   /* ทองนวลสว่าง */
+.sidebar-footer #changePwdBtn svg { filter: drop-shadow(0 0 4px rgba(232, 191, 92, 0.30)); }
 .sidebar-footer #changePwdBtn:hover {
-  background: linear-gradient(180deg, rgba(232, 191, 92, 0.30), rgba(232, 191, 92, 0.10));
-  border-color: rgba(232, 191, 92, 0.62);
+  background: linear-gradient(180deg, rgba(232, 191, 92, 0.13), rgba(232, 191, 92, 0.035));
+  border-color: rgba(232, 191, 92, 0.36);
   color: #ffe8a3;
 }
-/* ออกจากระบบ — rose สด สะอาด (clean rose — ไม่ใช่เลือดหมูทึม) */
-.sidebar-footer #logoutBtn {
-  color: #fda4af;                                     /* rose-300 สด */
-  background: linear-gradient(180deg, rgba(244, 63, 94, 0.15), rgba(244, 63, 94, 0.04));
-  border-color: rgba(244, 63, 94, 0.38);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.22);
+.sidebar-footer #changePwdBtn:hover::before {
+  background: linear-gradient(120deg, transparent 30%, rgba(232, 191, 92, 0.12) 50%, transparent 70%);
 }
-/* Logout — refined wine red (premium destructive feel) */
+.sidebar-footer #changePwdBtn:focus-visible {
+  box-shadow: 0 0 0 2px var(--sidebar-bg), 0 0 0 4px rgba(232, 191, 92, 0.45);
+}
+
+/* ออกจากระบบ — icon rose (พื้นเรียบ) · hover ค่อยเรืองแดง */
+.sidebar-footer #logoutBtn { color: #f3a6b0; }   /* rose นวล */
 .sidebar-footer #logoutBtn:hover {
-  background: linear-gradient(180deg, rgba(244, 63, 94, 0.28), rgba(244, 63, 94, 0.10));  /* rose สด */
-  border-color: rgba(244, 63, 94, 0.58);
+  background: linear-gradient(180deg, rgba(244, 63, 94, 0.13), rgba(244, 63, 94, 0.035));
+  border-color: rgba(244, 63, 94, 0.38);
   color: #ffc1cb;
-  box-shadow:
-    0 8px 22px rgba(244, 63, 94, 0.26),
-    0 0 0 1px rgba(244, 63, 94, 0.20),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .sidebar-footer #logoutBtn:hover::before {
-  background: linear-gradient(120deg, transparent 30%, rgba(253, 164, 175, 0.14) 50%, transparent 70%);
+  background: linear-gradient(120deg, transparent 30%, rgba(253, 164, 175, 0.13) 50%, transparent 70%);
 }
 .sidebar-footer #logoutBtn:active {
-  background: linear-gradient(180deg, rgba(244, 63, 94, 0.34), rgba(244, 63, 94, 0.16));
-  border-color: rgba(244, 63, 94, 0.62);
+  background: linear-gradient(180deg, rgba(244, 63, 94, 0.20), rgba(244, 63, 94, 0.08));
+  border-color: rgba(244, 63, 94, 0.50);
 }
 .sidebar-footer #logoutBtn:focus-visible {
   box-shadow:
