@@ -945,14 +945,18 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 }
 /* เปลี่ยนรหัสผ่าน — champagne gold identity (เด่นตั้งแต่ default — security หรูหรา) */
 .sidebar-footer #changePwdBtn {
-  color: var(--gold-light, #e3d2a8);
-  background: linear-gradient(180deg, rgba(196, 165, 116, 0.16), rgba(196, 165, 116, 0.05));
-  border-color: rgba(196, 165, 116, 0.24);
+  color: #f0dca8;                                    /* ทองสว่างชัด (เห็นง่ายบนพื้นดำ) */
+  background: linear-gradient(180deg, rgba(214, 180, 120, 0.30), rgba(196, 165, 116, 0.10));
+  border-color: rgba(214, 180, 120, 0.45);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
     0 1px 3px rgba(0, 0, 0, 0.22);
 }
-.sidebar-footer #changePwdBtn svg { filter: drop-shadow(0 0 5px rgba(196, 165, 116, 0.30)); }
+.sidebar-footer #changePwdBtn svg { filter: drop-shadow(0 0 6px rgba(214, 180, 120, 0.5)); }
+.sidebar-footer #changePwdBtn:hover {
+  background: linear-gradient(180deg, rgba(214, 180, 120, 0.42), rgba(196, 165, 116, 0.18));
+  border-color: rgba(214, 180, 120, 0.6);
+}
 /* ออกจากระบบ — wine red identity (เด่นตั้งแต่ default) */
 .sidebar-footer #logoutBtn {
   color: #e8a9b3;                                     /* dusty rose */
