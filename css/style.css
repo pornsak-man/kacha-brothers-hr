@@ -301,12 +301,18 @@ svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
   width: 44px; height: 44px;
   background: #fff;
   border-radius: 10px;
-  padding: 4px;
+  padding: 0;                       /* ลบ whitespace — โลโก้เต็มกรอบ */
+  overflow: hidden;                 /* กัน corner โลโก้ล้นขอบมน */
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
-.sidebar-logo-img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.sidebar-logo-img {
+  width: 100%; height: 100%;
+  object-fit: cover;                /* เต็มกรอบ (เดิม contain = มีขอบว่าง) */
+  border-radius: 10px;
+  display: block;
+}
 .login-logo-img {
   width: 180px; height: 180px;
   object-fit: contain;
