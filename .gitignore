@@ -5,3 +5,11 @@ Thumbs.db
 .claude/
 *.log
 node_modules/
+
+# ── Backup files (มี ปชช/เงินเดือน — ห้ามขึ้น git) ──
+backup-*.sql
+data-*.sql
+*.backup.sql
+schema-baseline.sql
+*-export-*.json
+*.dump
