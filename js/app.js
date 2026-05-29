@@ -741,6 +741,11 @@ const auth = {
   showLogin() {
     $('#loginScreen').style.display = 'flex';
     $('#app').style.display = 'none';
+    // [PERF] เริ่ม prewarm hCaptcha ทันทีที่แสดงหน้า login (ไม่รอ user focus/input)
+    // → token พร้อมแม้ใช้ autofill / password manager / paste-แล้วกดเร็ว
+    // → ตัดเวลา captcha ~2-2.5s ออกจากตอนกดเข้าระบบในทุกกรณี (ไม่ปิด captcha = ยังกัน bot)
+    // (prewarmCaptcha กันทำซ้ำ + รอ hCaptcha API พร้อมเองอยู่แล้ว, ไม่ block)
+    try { DB.prewarmCaptcha?.(); } catch (e) {}
   },
   showApp() {
     // ─── PERF: วัดเวลา showApp (DOM swap + nav setup + dashboard render + first paint) ───
