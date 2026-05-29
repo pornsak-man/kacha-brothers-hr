@@ -632,11 +632,9 @@ const auth = {
       const btn = $('#loginBtn');
       const err = $('#loginError');
       err.textContent = '';
-      const _tSubmit = performance.now();
       btn.disabled = true; btn.textContent = 'กำลังเข้าสู่ระบบ...';
       try {
         await DB.signIn(email, password);
-        const _msSignIn = Math.round(performance.now() - _tSubmit);
         if (!DB.profile) {
           err.textContent = 'ไม่พบโปรไฟล์ผู้ใช้ในระบบ — ติดต่อผู้ดูแล';
           await DB.signOut();
@@ -655,8 +653,6 @@ const auth = {
           return;
         }
         this.showApp();
-        // [DEBUG] วัด "ปุ่มค้างจริง" = กดปุ่ม → เปิด dashboard (ครบกว่า TOTAL ที่วัดถึงแค่ paint)
-        console.log('%c⏱ ปุ่มค้างจริง (กดปุ่ม → เปิด dashboard) ≈ ' + Math.round(performance.now() - _tSubmit) + ' ms · ในนั้นเป็น signIn ' + _msSignIn + ' ms · showApp+อื่นๆ ' + Math.round(performance.now() - _tSubmit - _msSignIn) + ' ms', 'color:#dc2626;font-weight:bold;font-size:13px');
       } catch (ex) {
         err.textContent = ex.message === 'Invalid login credentials'
           ? 'รหัสพนักงานหรือรหัสผ่านไม่ถูกต้อง'
