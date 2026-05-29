@@ -195,8 +195,13 @@ const DB = {
       auth_api: Math.round(_tAfterAuth - _tAfterCaptcha)
     };
     // PERF: parallel เหมือนใน init() — โหลด data ทันทีไม่รอ profile เสร็จ
+    const _tPA = performance.now();
     const profilePromise = this.loadProfile();
-    await Promise.all([profilePromise, this.loadAll(profilePromise)]);
+    profilePromise.then(() => { window.__lastProfileMs = Math.round(performance.now() - _tPA); }, () => {});
+    const loadAllPromise = this.loadAll(profilePromise);
+    loadAllPromise.then(() => { window.__lastLoadAllMs = Math.round(performance.now() - _tPA); }, () => {});
+    await Promise.all([profilePromise, loadAllPromise]);
+    try { console.log('%c⏱ [debug] Promise.all → loadProfile ' + window.__lastProfileMs + ' ms · loadAll ' + window.__lastLoadAllMs + ' ms', 'color:#7c3aed;font-weight:bold;font-size:13px'); } catch (e) {}
     this.subscribeRealtime();
     this.ready = true;
     return data.user;
